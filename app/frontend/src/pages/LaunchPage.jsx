@@ -169,7 +169,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     '04_table_election': 'Let Inspire Decides',
     '05_use_cases_quality': 'High Quality',
     '06_business_domains': '',
-    '07_business_priorities': 'Increase Revenue',
+    '07_business_priorities': '',
     '08_generation_instructions': '',
     '09_generation_options': 'PDF Catalog,Genie Code Instructions',
     '11_generation_path': './../demos/',
@@ -220,7 +220,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     Presentation: false,
     'Genie Code Instructions': true,
   });
-  const [priorityChecks, setPriorityChecks] = useState({ 'Increase Revenue': true });
+  const [priorityChecks, setPriorityChecks] = useState({});
 
 
   // In Databricks App mode, the proxy injects x-forwarded-access-token automatically.

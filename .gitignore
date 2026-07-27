@@ -33,6 +33,7 @@ tmp/
 
 # Last published notebook SHA (local dev — workspace re-import when bundle changes)
 backend/.notebook_publish_sig
+app/backend/.notebook_publish_sig
 
 # Extracted DBC contents (generated)
 _dbc_extract/

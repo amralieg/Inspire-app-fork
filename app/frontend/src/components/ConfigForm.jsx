@@ -89,7 +89,7 @@ export default function ConfigForm({ onSubmit, isSubmitting, submitError, disabl
     table_election: 'Let Inspire Decides',
     use_cases_quality: 'High Quality',
     business_domains: '',
-    business_priorities: ['Increase Revenue'],
+    business_priorities: [],
     strategic_goals: '',
     generation_options: ['PDF Catalog'],
     generation_path: './../demos/',

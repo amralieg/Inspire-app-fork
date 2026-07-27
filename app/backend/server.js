@@ -3,10 +3,11 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const fs = require('fs');
 const path = require('path');
-// Load backend/.env then repo root — second file only fills keys not already set.
+// Load backend/.env then app/ then repo root — later files only fill keys not already set.
 // Never overrides process.env so Databricks App runtime–injected vars always win.
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
+dotenv.config({ path: path.resolve(__dirname, '..', '..', '.env') });
 const multer = require('multer');
 const AdmZip = require('adm-zip');
 const crypto = require('crypto');

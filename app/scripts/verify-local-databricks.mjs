@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 /**
  * Verify local Inspire AI can reach your Databricks workspace.
- * Run from repo root: node scripts/verify-local-databricks.mjs
+ * Run from repo root: npm run verify:databricks
  */
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(__dirname, '..');
+const appRoot = path.resolve(__dirname, '..');
+const repoRoot = path.resolve(appRoot, '..');
 
 function loadEnv() {
-  const envPath = path.join(root, '.env');
+  const envPath = path.join(repoRoot, '.env');
   if (!fs.existsSync(envPath)) {
     console.error('❌ Missing .env — run: cp .env.example .env');
     process.exit(1);
