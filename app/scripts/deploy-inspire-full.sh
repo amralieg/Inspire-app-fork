@@ -9,13 +9,18 @@
 set -euo pipefail
 
 APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-REPO_ROOT="$(cd "$APP_ROOT/.." && pwd)"
+INSTALLER_ROOT="$(cd "$APP_ROOT/.." && pwd)"
 cd "$APP_ROOT"
 
-if [[ -f "$REPO_ROOT/.env" ]]; then
+if [[ -f "$APP_ROOT/.env" ]]; then
   set -a
   # shellcheck source=/dev/null
-  source "$REPO_ROOT/.env"
+  source "$APP_ROOT/.env"
+  set +a
+elif [[ -f "$INSTALLER_ROOT/.env" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$INSTALLER_ROOT/.env"
   set +a
 fi
 
@@ -47,8 +52,8 @@ ZIP_STEM="/Workspace/Users/${USER_EMAIL}/InspireAI-workspace"
 "${DB[@]}" workspace delete "$NB_REMOTE" --recursive 2>/dev/null || true
 
 echo "==> 3) Import latest zip + installer_workspace.py"
-"${DB[@]}" workspace import "$ZIP_REMOTE" --file "$REPO_ROOT/dist/InspireAI-workspace.zip" --format AUTO --overwrite
-"${DB[@]}" workspace import "$NB_REMOTE" --file "$REPO_ROOT/installer_workspace.py" --format SOURCE --language PYTHON --overwrite
+"${DB[@]}" workspace import "$ZIP_REMOTE" --file "$APP_ROOT/dist/InspireAI-workspace.zip" --format AUTO --overwrite
+"${DB[@]}" workspace import "$NB_REMOTE" --file "$INSTALLER_ROOT/installer_workspace.py" --format SOURCE --language PYTHON --overwrite
 
 echo "==> 4) Submit one-time job: run installer notebook"
 CLUSTER_ID="${INSPIRE_DEPLOY_CLUSTER_ID:-}"

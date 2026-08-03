@@ -35,7 +35,9 @@ import {
   Sparkles,
 } from 'lucide-react';
 import DocumentLanguagesMultiselect from '../components/DocumentLanguagesMultiselect';
+import UcPermissionErrorHelp from '../components/UcPermissionErrorHelp';
 import { parseDocumentLanguages, formatDocumentLanguages } from '../constants/documentLanguages';
+import { interpretUcPermissionError, parseApiErrorMessage } from '../lib/ucPermissionErrors';
 
 /* ─── Constants — notebook widget `05_use_cases_quality` (Good/High/Very High) ─── */
 const QUALITY_OPTIONS = ['Good Quality', 'High Quality', 'Very High Quality'];
@@ -167,7 +169,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     '01_uc_metadata': '',
     '02_inspire_database': inspireDatabase || '',
     '04_table_election': 'Let Inspire Decides',
-    '05_use_cases_quality': 'High Quality',
+    '05_use_cases_quality': 'Good Quality',
     '06_business_domains': '',
     '07_business_priorities': '',
     '08_generation_instructions': '',
@@ -197,6 +199,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
   // ── Launch state ──
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState('');
+  const [catalogBrowseError, setCatalogBrowseError] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [sessionsList, setSessionsList] = useState([]);
@@ -239,7 +242,8 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
       const resp = await fetch(url, { ...opts, headers });
       if (!resp.ok) {
         const errText = await resp.text().catch(() => '');
-        throw new Error(errText || `${resp.status}`);
+        const message = parseApiErrorMessage(errText) || `${resp.status}`;
+        throw new Error(message);
       }
       return resp.json();
     },
@@ -446,6 +450,8 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     let cancelled = false;
     const load = async () => {
       setLoadingCatalogs(true);
+      setCatalogBrowseError('');
+      let lastError = '';
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           const data = await apiFetch(`/api/catalogs${ucBrowseQuery(warehouseId)}`);
@@ -453,15 +459,22 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
           console.log(`[catalogs] loaded ${cats.length}:`, cats.map(c => c.name));
           if (!cancelled) {
             setCatalogs(cats);
+            if (cats.length === 0 && data.restError) {
+              setCatalogBrowseError(data.restError);
+            }
             setLoadingCatalogs(false);
           }
           return;
         } catch (err) {
-          console.warn(`[catalogs] attempt ${attempt} error:`, err.message);
+          lastError = err.message || String(err);
+          console.warn(`[catalogs] attempt ${attempt} error:`, lastError);
           await new Promise(r => setTimeout(r, 2000));
         }
       }
-      if (!cancelled) setLoadingCatalogs(false);
+      if (!cancelled) {
+        setCatalogBrowseError(lastError || 'Could not load Unity Catalog metadata.');
+        setLoadingCatalogs(false);
+      }
     };
     load();
     return () => { cancelled = true; };
@@ -573,7 +586,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
       update('inspireDatabase', finalParams['02_inspire_database']);
       onLaunched?.(finalParams['14_session_id'], data.run_id);
     } catch (err) {
-      setLaunchError(err.message);
+      setLaunchError(parseApiErrorMessage(err.message));
     } finally {
       setLaunching(false);
     }
@@ -612,6 +625,30 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
   // Validation state
   const effectiveDb = params['02_inspire_database'] || inspireDatabase;
   const canLaunch = params['00_business_name'] && effectiveDb && params['01_uc_metadata'];
+
+  const launchErrorGuidance = useMemo(
+    () => (launchError
+      ? interpretUcPermissionError(launchError, {
+        context: 'launch',
+        inspireDatabase: effectiveDb,
+        catalogs: selectedCatalogs,
+        warehouseId,
+      })
+      : null),
+    [launchError, effectiveDb, selectedCatalogs, warehouseId],
+  );
+
+  const catalogBrowseGuidance = useMemo(
+    () => (catalogBrowseError
+      ? interpretUcPermissionError(catalogBrowseError, {
+        context: 'catalog_browse',
+        inspireDatabase: effectiveDb,
+        catalogs: selectedCatalogs,
+        warehouseId,
+      })
+      : null),
+    [catalogBrowseError, effectiveDb, selectedCatalogs, warehouseId],
+  );
 
   /** Warn on many explicit tables, or when an entire schema/catalog is in scope. */
   const tableSelectionWarning = useMemo(() => {
@@ -882,12 +919,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
       )}
 
       {/* Error banner */}
-      {launchError && (
-        <div className="flex items-center gap-2 p-3 bg-error-bg border border-error/20 rounded-lg mb-6 animate-in">
-          <AlertCircle size={16} className="text-error shrink-0" />
-          <span className="text-sm text-error">{launchError}</span>
-        </div>
-      )}
+      {launchErrorGuidance && <UcPermissionErrorHelp guidance={launchErrorGuidance} />}
 
       <div className="space-y-6">
 
@@ -923,6 +955,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
 
             {/* UC Metadata — Catalog/Schema/Table pickers with shopping basket */}
             <Field label="Unity Catalog Metadata" required icon={Database} hint="Navigate catalogs and schemas to select tables">
+                {catalogBrowseGuidance && <UcPermissionErrorHelp guidance={catalogBrowseGuidance} />}
                 {onNoData && (
                   <button
                     type="button"

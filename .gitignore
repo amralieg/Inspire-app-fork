@@ -7,6 +7,7 @@ node_modules/
 .env.*.local
 
 # Build output
+app/dist/
 # frontend/dist/  # Needed for Databricks App deployment
 frontend/build/
 

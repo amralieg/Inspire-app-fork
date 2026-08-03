@@ -12,9 +12,13 @@ const appRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(appRoot, '..');
 
 function loadEnv() {
-  const envPath = path.join(repoRoot, '.env');
-  if (!fs.existsSync(envPath)) {
-    console.error('❌ Missing .env — run: cp .env.example .env');
+  const candidates = [
+    path.join(appRoot, '.env'),
+    path.join(repoRoot, '.env'),
+  ];
+  const envPath = candidates.find((p) => fs.existsSync(p));
+  if (!envPath) {
+    console.error('❌ Missing .env — run: cp .env.example .env (in app/)');
     process.exit(1);
   }
   const env = {};

@@ -4,7 +4,9 @@
 # MAGIC
 # MAGIC **Run All** — pick **SQL warehouse** then **Inspire catalog** via the widgets (no `%pip`). Uses **Databricks SDK** (preinstalled on DBR / Serverless).
 # MAGIC
-# MAGIC **What it does:** clean install → unpacks **`/Workspace/Users/<you>/InspireAI-workspace.zip`** if present (produced by **`npm run deploy`** / `deploy:inspire`), else uses an existing workspace folder under **`InspireAI`**, **`inspire-ai`**, **`InspireAI-*`**, or **`/Workspace/Shared/InspireAI`** (must contain **`app.yaml`**) → publishes **`dbx_inspire_ai_agent.ipynb`** to **`/Shared/inspire-ai/`** → writes **`app.yaml`** → creates/deploys Databricks App **`inspire-ai`** → grants the app **service principal** full rights on **`{catalog}._inspire`**, **USE_CATALOG** + **BROWSE** on other catalogs (metadata only), and **CAN_USE** on the warehouse.
+# MAGIC **What it does:** clean install → uses the **`app/`** folder next to this notebook (or **`InspireAI-workspace.zip`** in your user folder) → publishes **`dbx_inspire_ai_agent.ipynb`** to **`/Shared/inspire-ai/`** → writes **`app.yaml`** → creates/deploys Databricks App **`inspire-ai`** → grants the app **service principal** full rights on **`{catalog}._inspire`**, **USE_CATALOG** + **BROWSE** on other catalogs (metadata only), and **CAN_USE** on the warehouse.
+# MAGIC
+# MAGIC **Customer setup (no npm):** import this notebook and the **`app/`** folder (or upload **`InspireAI-workspace.zip`**) into your workspace, pick warehouse + catalog, then **Run All** on the last cell.
 # MAGIC
 # MAGIC **Where you use the product:** **Compute → Apps → inspire-ai** (or the link in the last cell) — not this notebook.
 
@@ -237,6 +239,61 @@ def export_workspace_b64(ctx, source_path, export_formats=("JUPYTER",)):
 
 
 
+def _folder_has_app_yaml(folder):
+    return bool(folder) and os.path.isdir(folder) and os.path.exists(os.path.join(folder, "app.yaml"))
+
+
+
+def _normalize_bundle_root(extracted_dir):
+    """Return the directory that directly contains app.yaml (handles app/ subfolder in zip)."""
+    if _folder_has_app_yaml(extracted_dir):
+        return extracted_dir
+    nested = os.path.join(extracted_dir, "app")
+    if _folder_has_app_yaml(nested):
+        return nested
+    return extracted_dir
+
+
+
+def _resolve_source_folder(nb_dir, user_email):
+    """Find the Databricks App bundle root (directory containing app.yaml)."""
+    user_root = f"/Workspace/Users/{user_email}"
+    fixed_candidates = []
+    if nb_dir:
+        fixed_candidates.extend([
+            os.path.join(nb_dir, "app"),  # repo layout: installer at root, bundle in app/
+            nb_dir,
+        ])
+    fixed_candidates.extend([
+        f"{user_root}/InspireAI/app",
+        f"{user_root}/InspireAI",
+        f"{user_root}/inspire-ai/app",
+        f"{user_root}/inspire-ai",
+        f"{user_root}/InspireAI-main/app",
+        f"{user_root}/InspireAI-main",
+        f"{user_root}/InspireAI-dev_v_47/app",
+        f"{user_root}/InspireAI-dev_v_47",
+        "/Workspace/Shared/InspireAI/app",
+        "/Workspace/Shared/InspireAI",
+    ])
+    star_candidates = sorted(
+        path for path in glob.glob(f"{user_root}/InspireAI-*")
+        if os.path.isdir(path)
+    )
+    for star in star_candidates:
+        fixed_candidates.extend([os.path.join(star, "app"), star])
+
+    seen = set()
+    for candidate in fixed_candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        if _folder_has_app_yaml(candidate):
+            return candidate
+    return None
+
+
+
 def build_runtime_context():
     w = WorkspaceClient()
     current_user = w.current_user.me()
@@ -357,44 +414,25 @@ def build_runtime_context():
             zf.extractall(stage)
         entries = os.listdir(stage)
         root_dir = os.path.join(stage, entries[0]) if len(entries) == 1 and os.path.isdir(os.path.join(stage, entries[0])) else stage
-        if not os.path.exists(os.path.join(root_dir, "app.yaml")):
-            raise FileNotFoundError(f"No app.yaml after unzip under {root_dir}. Use a bundle from scripts/package-for-workspace.sh")
+        root_dir = _normalize_bundle_root(root_dir)
+        if not _folder_has_app_yaml(root_dir):
+            raise FileNotFoundError(f"No app.yaml after unzip under {root_dir}. Bundle must contain the Inspire app (app.yaml at root or under app/).")
         shutil.copytree(root_dir, dest)
         source_folder = dest
         print(f"  Source from zip: {source_folder}")
     else:
-        user_root = f"/Workspace/Users/{user_email}"
-        # Resolve the notebook's own directory as the highest-priority source candidate
         try:
             _nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
             _nb_dir = "/Workspace" + "/".join(_nb_path.split("/")[:-1])
         except Exception:
             _nb_dir = None
-        fixed_candidates = [
-            *([_nb_dir] if _nb_dir else []),  # notebook's own directory first
-            f"{user_root}/inspire-ai",
-            f"{user_root}/InspireAI-main",
-            f"{user_root}/InspireAI",
-            f"{user_root}/InspireAI-dev_v_47",
-            "/Workspace/Shared/InspireAI",
-        ]
-        star_candidates = sorted(
-            path for path in glob.glob(f"{user_root}/InspireAI-*") if os.path.isdir(path)
-        )
-        source_candidates = []
-        seen = set()
-        for candidate in fixed_candidates + star_candidates:
-            if candidate not in seen:
-                seen.add(candidate)
-                source_candidates.append(candidate)
-        for candidate in source_candidates:
-            if os.path.exists(candidate) and os.path.exists(f"{candidate}/app.yaml"):
-                source_folder = candidate
-                break
+        source_folder = _resolve_source_folder(_nb_dir, user_email)
         if not source_folder:
             raise FileNotFoundError(
-                f"InspireAI source not found. Run `npm run deploy` from your laptop to upload `InspireAI-workspace.zip` to {auto_zip}, "
-                f"or sync the repo to {user_root}/InspireAI (or inspire-ai, InspireAI-main, any {user_root}/InspireAI-*/ with app.yaml, /Workspace/Shared/InspireAI)."
+                "Inspire app bundle not found. Place the app next to this installer:\n"
+                f"  • {_nb_dir}/app/  (folder with app.yaml, backend/, frontend/, …)\n"
+                f"  • or upload InspireAI-workspace.zip to /Workspace/Users/{user_email}/InspireAI-workspace.zip and re-run.\n"
+                "No npm or laptop deploy is required for customers — only this notebook plus the app bundle."
             )
 
     api_base = workspace_host.rstrip("/")

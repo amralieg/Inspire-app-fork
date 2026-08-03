@@ -8,7 +8,9 @@ import {
 } from 'lucide-react';
 import Stepper from './Stepper';
 import DocumentLanguagesMultiselect from './DocumentLanguagesMultiselect';
+import UcPermissionErrorHelp from './UcPermissionErrorHelp';
 import { formatDocumentLanguages, parseDocumentLanguages } from '../constants/documentLanguages';
+import { interpretUcPermissionError } from '../lib/ucPermissionErrors';
 
 /* ─── Constants ─── */
 
@@ -99,6 +101,27 @@ export default function ConfigForm({ onSubmit, isSubmitting, submitError, disabl
   });
 
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const metadataCatalogs = useMemo(
+    () => [...new Set(
+      form.uc_metadata
+        .split(',')
+        .map((s) => s.trim().split('.')[0])
+        .filter(Boolean),
+    )],
+    [form.uc_metadata],
+  );
+
+  const submitErrorGuidance = useMemo(
+    () => (submitError
+      ? interpretUcPermissionError(submitError, {
+        context: 'launch',
+        inspireDatabase: form.inspire_database,
+        catalogs: metadataCatalogs,
+      })
+      : null),
+    [submitError, form.inspire_database, metadataCatalogs],
+  );
 
   // Catalog & schema fetching
   const [catalogs, setCatalogs] = useState([]);
@@ -256,13 +279,9 @@ export default function ConfigForm({ onSubmit, isSubmitting, submitError, disabl
       </div>
 
       {/* Submit Error */}
-      {submitError && (
-        <div className="mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Failed to submit job</p>
-            <p className="text-red-400/80 mt-1 text-xs">{submitError}</p>
-          </div>
+      {submitErrorGuidance && (
+        <div className="mt-4">
+          <UcPermissionErrorHelp guidance={submitErrorGuidance} />
         </div>
       )}
 
