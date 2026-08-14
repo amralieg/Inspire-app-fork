@@ -14,12 +14,12 @@ import { interpretUcPermissionError } from '../lib/ucPermissionErrors';
 
 /* ─── Constants ─── */
 
-/** Values must match `15_operation` in Inspire agent notebook (v0.8+). */
+/** Values must match `15_operation` in Inspire agent notebook v1.1.3. */
 const OPERATION_OPTIONS = [
   {
     value: 'Discover Use Cases',
     label: 'Discover Use Cases',
-    desc: 'Full discovery pipeline: skeleton Genie notebooks, scoring, PDF/PPT per your generation options. Full Genie instructions run in a separate Generate pass.',
+    desc: 'Full discovery pipeline with scoring and PDF/PPT outputs. Auto-Genie can enrich the top N use cases; the remainder keep skeleton notebooks.',
     icon: Search,
   },
   {
@@ -30,24 +30,24 @@ const OPERATION_OPTIONS = [
   },
 ];
 
-/** Values must match notebook widget `05_use_cases_quality` (legacy labels; v0.8+ maps them internally). */
+/** Values match notebook v1.1.3 widget `05_use_cases_quality`. */
 const QUALITY_OPTIONS = [
   {
-    value: 'Good Quality',
-    label: 'Good Quality',
-    desc: 'Widest coverage — on v0.8+ maps to Coverage Mode (All).',
+    value: 'Coverage Mode (All)',
+    label: 'Coverage Mode (All)',
+    desc: 'Widest coverage — retain all qualified use cases.',
     tag: 'Coverage',
   },
   {
-    value: 'High Quality',
-    label: 'High Quality',
-    desc: 'Recommended — on v0.8+ maps to Balanced (stricter gate, Medium+ after scoring).',
+    value: 'Balanced',
+    label: 'Balanced',
+    desc: 'Recommended — balanced coverage with a stricter quality gate.',
     tag: 'Default',
   },
   {
-    value: 'Very High Quality',
-    label: 'Very High Quality',
-    desc: 'Strictest — on v0.8+ maps to Strict Quality (High / Very High / Ultra High only).',
+    value: 'Strict Quality',
+    label: 'Strict Quality',
+    desc: 'Strictest — retain only the highest-quality use cases.',
     tag: 'Strict',
   },
 ];
@@ -65,7 +65,7 @@ const BUSINESS_PRIORITIES = [
   { value: 'Execute Strategy', icon: Target, shortLabel: 'Strategy' },
 ];
 
-/** Notebook `09_generation_options` multiselect only lists these (v0.8+). */
+/** Notebook v1.1.3 `09_generation_options` multiselect only lists these. */
 const GENERATION_OPTIONS = [
   { value: 'PDF Catalog', label: 'PDF Catalog', icon: FileText, desc: 'Professional PDF documentation' },
   { value: 'Presentation', label: 'Presentation', icon: Presentation, desc: 'Executive-ready PowerPoint slides' },
@@ -89,7 +89,7 @@ export default function ConfigForm({ onSubmit, isSubmitting, submitError, disabl
     inspire_database: '',
     operation: 'Discover Use Cases',
     table_election: 'Let Inspire Decides',
-    use_cases_quality: 'High Quality',
+    use_cases_quality: 'Balanced',
     business_domains: '',
     business_priorities: [],
     strategic_goals: '',
@@ -315,7 +315,7 @@ export default function ConfigForm({ onSubmit, isSubmitting, submitError, disabl
             type="button"
             onClick={handleSubmit}
             disabled={disabled || isSubmitting}
-            className="flex items-center gap-2.5 px-8 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-db-red to-db-orange hover:from-db-red-light hover:to-db-orange disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-lg shadow-db-red/25 hover:shadow-db-red/40 active:scale-[0.97]"
+            className="flex items-center gap-2.5 px-8 py-3 rounded-xl text-sm font-bold text-white bg-linear-to-r from-db-red to-db-orange hover:from-db-red-light hover:to-db-orange disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-lg shadow-db-red/25 hover:shadow-db-red/40 active:scale-[0.97]"
           >
             {isSubmitting ? (
               <>
@@ -537,7 +537,7 @@ function StepEssentials({ form, update, catalogs, catalogsLoading, isValidInspir
       <div className="rounded-xl border border-white/10 bg-db-navy/40 p-5">
         <label className="block text-sm font-medium text-white mb-1">Use Cases Quality</label>
         <p className="text-xs text-slate-500 mb-3">
-          Matches notebook widget <span className="font-mono text-slate-500">05_use_cases_quality</span> (Good / High / Very High). v0.8+ agents map these to coverage / balanced / strict internally.
+          Matches notebook widget <span className="font-mono text-slate-500">05_use_cases_quality</span> (Coverage / Balanced / Strict).
         </p>
         <div className="flex gap-3">
           {QUALITY_OPTIONS.map((opt) => {
@@ -622,7 +622,7 @@ function StepCustomize({ form, update, toggleMulti, showAdvanced, setShowAdvance
           <span className="text-xs text-db-red-light font-medium">{form.generation_options.length} selected</span>
         </div>
         <p className="text-xs text-slate-500 mb-3">
-          PDF and presentation outputs. Per-use-case Genie instructions are controlled by <strong className="text-slate-400">Operation</strong> (Discover = skeleton notebooks; Generate = full regen for flagged UCs).
+          PDF and presentation outputs. Genie instructions are controlled separately by <strong className="text-slate-400">Operation</strong> and Auto-Genie scope.
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
           {GENERATION_OPTIONS.map((opt) => {
@@ -821,7 +821,7 @@ function StepReview({ form, onEdit }) {
 
       {/* Launch confirmation */}
       <div className="rounded-xl border border-db-red/20 bg-db-red/5 p-4 flex items-start gap-3">
-        <Info className="w-4 h-4 text-db-red-light flex-shrink-0 mt-0.5" />
+        <Info className="w-4 h-4 text-db-red-light shrink-0 mt-0.5" />
         <div className="text-xs text-slate-400 leading-relaxed">
           <p>
             Clicking <strong className="text-white">Get Started</strong> will create a one-time job run on your Databricks workspace.
@@ -884,7 +884,7 @@ function ReviewSection({ title, onEdit, children }) {
 function ReviewRow({ label, value, mono, badge }) {
   return (
     <div className="flex items-start justify-between gap-4">
-      <span className="text-xs text-slate-500 flex-shrink-0">{label}</span>
+      <span className="text-xs text-slate-500 shrink-0">{label}</span>
       <div className="text-right flex items-center gap-2">
         {badge && (
           <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-db-red/15 text-db-red-light">{badge}</span>

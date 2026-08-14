@@ -171,7 +171,7 @@ export default function GenerateDataPage({ settings, onBack, onLaunched }) {
               <li>Generate 5 Delta tables with UC table/column comments</li>
               <li>
                 Run Inspire discovery →{' '}
-                {lastResult.pipeline?.inspire_agent_notebook || '/Shared/inspire_ai'}
+                {lastResult.pipeline?.inspire_agent_notebook || '/Shared/inspire-ai/dbx_inspire_ai_agent'}
               </li>
             </ol>
             {lastResult.job_run_url && (

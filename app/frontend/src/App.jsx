@@ -12,7 +12,7 @@ import ScrollProgressRing from './components/ScrollProgressRing';
 import ParticleField from './components/ParticleField';
 
 /** Legacy Configure default pointed at a user folder that often does not exist; use shared publish path. */
-const WORKSPACE_NOTEBOOK_SHARED = '/Shared/inspire_ai';
+const WORKSPACE_NOTEBOOK_SHARED = '/Shared/inspire-ai/dbx_inspire_ai_agent';
 function migrateLegacyUserHomeInspirePath(nb) {
   const s = String(nb || '').trim();
   if (!s) return '';

@@ -16,6 +16,11 @@ const { stripAiDemoDisclaimerHtml, stripDisclaimerDeep } = require('./stripAiDis
 const { TEMPLATE_META } = require('./lib/demoDataService');
 const { triggerDemoDataPipeline } = require('./lib/demoDataPipeline');
 const { resolveInspireAppServicePrincipalId } = require('./lib/inspireSpGrants');
+const {
+  INSPIRE_AGENT_VERSION,
+  normalizeUseCasesQualityParams,
+  sanitizeInspireNotebookJobParams,
+} = require('./lib/inspireJobParams');
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -679,53 +684,6 @@ async function runRoute1GenieFlagUpdates(host, token, warehouseId, catalog, sche
   }
 }
 
-/** Mutates params: map canonical quality labels → widget labels; default when empty. */
-function normalizeUseCasesQualityParams(params) {
-  const uq = String(params['05_use_cases_quality'] || '').trim();
-  const QUALITY_CANONICAL_TO_WIDGET = {
-    Balanced: 'High Quality',
-    'Strict Quality': 'Very High Quality',
-    'Coverage Mode (All)': 'Good Quality',
-  };
-  if (QUALITY_CANONICAL_TO_WIDGET[uq]) {
-    params['05_use_cases_quality'] = QUALITY_CANONICAL_TO_WIDGET[uq];
-  }
-  if (!params['05_use_cases_quality']) {
-    params['05_use_cases_quality'] = 'High Quality';
-  }
-  return params;
-}
-
-/** v0.9.0+ notebook `dbutils.widgets` / `_NOTEBOOK_WIDGET_NAMES` — strip legacy keys Jobs API may forward. */
-const INSPIRE_NOTEBOOK_WIDGET_KEYS = [
-  '15_operation',
-  '00_business_name',
-  '01_uc_metadata',
-  '02_inspire_database',
-  '04_table_election',
-  '05_use_cases_quality',
-  '06_business_domains',
-  '07_business_priorities',
-  '08_generation_instructions',
-  '09_generation_options',
-  '11_generation_path',
-  '12_documents_languages',
-  '13_generate_genie_code_for',
-  '14_session_id',
-];
-
-function sanitizeInspireNotebookJobParams(params) {
-  const out = {};
-  for (const k of INSPIRE_NOTEBOOK_WIDGET_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(params, k)) continue;
-    const v = params[k];
-    if (v == null) continue;
-    out[k] = String(v);
-  }
-  if (!out['13_generate_genie_code_for']) out['13_generate_genie_code_for'] = '5';
-  return out;
-}
-
 function buildUcMetadataFromSessionRow(session) {
   const jf = String(session.json_file_path || '').trim();
   if (jf.startsWith('/')) return jf;
@@ -744,12 +702,12 @@ function buildUcMetadataFromSessionRow(session) {
 
 function mapSessionQualityToWidget(v) {
   const uq = String(v || '').trim();
-  const QUALITY_CANONICAL_TO_WIDGET = {
-    Balanced: 'High Quality',
-    'Strict Quality': 'Very High Quality',
-    'Coverage Mode (All)': 'Good Quality',
+  const QUALITY_ALIASES_TO_CANONICAL = {
+    'Good Quality': 'Coverage Mode (All)',
+    'High Quality': 'Balanced',
+    'Very High Quality': 'Strict Quality',
   };
-  return QUALITY_CANONICAL_TO_WIDGET[uq] || uq || 'High Quality';
+  return QUALITY_ALIASES_TO_CANONICAL[uq] || uq || 'Balanced';
 }
 
 /** Rebuild notebook base_parameters for Operation = Generate Use Cases (Route 1). */
@@ -761,9 +719,9 @@ function notebookParamsFromSessionForGenerateRun(session, targetSessionIdStr) {
     ? genChoices
         .split(',')
         .map((x) => x.trim())
-        .filter((g) => g === 'PDF Catalog' || g === 'Presentation' || g === 'Genie Code Instructions')
+        .filter((g) => g === 'PDF Catalog' || g === 'Presentation')
         .join(',')
-    : 'PDF Catalog,Genie Code Instructions';
+    : 'PDF Catalog';
   const outLang = String(session.output_language || 'English').trim() || 'English';
   const priorities = String(session.business_priorities || 'Increase Revenue').trim() || 'Increase Revenue';
   const instruct = String(session.generation_instructions_section || '').trim();
@@ -778,7 +736,7 @@ function notebookParamsFromSessionForGenerateRun(session, targetSessionIdStr) {
     '06_business_domains': String(session.business_domains || '').trim(),
     '07_business_priorities': priorities,
     '08_generation_instructions': instruct,
-    '09_generation_options': genOptions || 'PDF Catalog,Genie Code Instructions',
+    '09_generation_options': genOptions || 'PDF Catalog',
     '11_generation_path': genPath,
     '12_documents_languages': outLang,
     '13_generate_genie_code_for': '5',
@@ -914,13 +872,15 @@ async function triggerInspireNotebookJob(host, token, { params, notebook_path, c
   const jobName = `Inspire AI - ${businessName} - ${new Date().toISOString().slice(0, 19)}`;
   const jobSessionId = crypto.randomUUID();
   const notebookFilename = resolvedPath.split('/').pop() || 'inspire_notebook';
+  const inspireRunType = jobType === 'genie_regen' ? 'genie_regen' : 'discovery';
 
   const createPayload = {
     name: jobName,
     tags: {
-      inspire_version: 'v0.9.0',
+      inspire_version: INSPIRE_AGENT_VERSION,
       dbx_inspire_ai_business: sanitizeTag(businessName),
-      dbx_inspire_ai_type: jobType === 'genie_regen' ? 'genie_regen' : 'discovery',
+      dbx_inspire_ai_type: inspireRunType,
+      dbx_inspire_ai_run_type: inspireRunType,
       dbx_inspire_ai_session: sanitizeTag(jobSessionId),
       dbx_inspire_ai_usecases: '0',
       dbx_inspire_ai_notebook: sanitizeTag(notebookFilename),
@@ -1057,7 +1017,7 @@ async function attachSessionUsecaseOverviews(host, token, warehouseId, catalog, 
 //  Auto-publish — seamless notebook deployment
 // ═══════════════════════════════════════════════════
 
-const NOTEBOOK_DEST = '/Shared/inspire_ai';
+const NOTEBOOK_DEST = '/Shared/inspire-ai/dbx_inspire_ai_agent';
 /** SHA-256 of last successfully imported bundled notebook — triggers re-import when the file on disk changes. */
 const NOTEBOOK_PUBLISH_SIG_FILE = path.join(__dirname, '.notebook_publish_sig');
 let cachedNotebookPath = DEFAULT_NOTEBOOK_PATH || '';
@@ -1451,6 +1411,7 @@ app.get('/api/health', (req, res) => {
   const platformAuth = hasDatabricksPlatformAuth();
   res.json({
     status: 'ok',
+    agentVersion: INSPIRE_AGENT_VERSION,
     host: host ? host.replace(/https?:\/\//, '').split('.')[0] + '...' : 'not configured',
     hostFull: host || 'NOT SET',
     hostConfigured: !!host,
@@ -1535,6 +1496,7 @@ app.get('/api/defaults', (req, res) => {
   // Local dev / App: skip Setup Wizard when server has platform auth + host + warehouse + tracking DB.
   const envSkipsSetupWizard = !!(platformAuth && fullHost && DEFAULT_WAREHOUSE_ID && DEFAULT_INSPIRE_DB);
   res.json({
+    agentVersion: INSPIRE_AGENT_VERSION,
     databricksHost: fullHost || '',
     warehouseId: DEFAULT_WAREHOUSE_ID,
     inspireDatabase: DEFAULT_INSPIRE_DB,

@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const { buildDemoSchemaName } = require('./demoDataService');
-const { buildDemoInspireDiscoveryParams } = require('./inspireJobParams');
+const {
+  INSPIRE_AGENT_VERSION,
+  buildDemoInspireDiscoveryParams,
+} = require('./inspireJobParams');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const BACKEND_ROOT = path.resolve(__dirname, '..');
@@ -125,7 +128,7 @@ async function ensureDemoPipelineNotebookPublished(
 }
 
 async function resolveInspireNotebookPath(host, token, { ensureInspireNotebookPublished, resolveWorkspaceNotebookObjectPath }) {
-  let notebookPath = '/Shared/inspire_ai';
+  let notebookPath = '/Shared/inspire-ai/dbx_inspire_ai_agent';
   if (ensureInspireNotebookPublished) {
     const pub = await ensureInspireNotebookPublished(host, token);
     if (pub?.path) notebookPath = pub.path;
@@ -222,7 +225,7 @@ async function triggerDemoDataPipeline(
   const createPayload = {
     name: `Inspire AI Demo Pipeline - ${business} - ${new Date().toISOString().slice(0, 19)}`,
     tags: {
-      inspire_version: 'v0.9.0',
+      inspire_version: INSPIRE_AGENT_VERSION,
       dbx_inspire_ai_type: 'demo_pipeline',
       dbx_inspire_ai_session: String(sid).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 255),
     },
