@@ -21,7 +21,8 @@ if [[ "$SKIP_BUILD" != "1" ]]; then
   (cd frontend && npm run build)
 fi
 
-echo "==> Bundling demo pipeline notebook for Databricks App runtime"
+echo "==> Bundling agent and demo notebooks for Databricks App runtime"
+node "$APP_ROOT/scripts/bundle-agent-notebook.mjs"
 node "$APP_ROOT/scripts/bundle-demo-notebook.mjs"
 cp -f "$APP_ROOT/dbx_generate_demo_data.py" "$APP_ROOT/backend/dbx_generate_demo_data.py"
 
@@ -45,6 +46,9 @@ zip -r "$OUT" . \
   -x ".claude/*" \
   -x ".claude/*/*" \
   -x ".claude/*/*/*" \
+  -x ".devloop-screenshots/*" \
+  -x "backend/test/*" \
+  -x "backend/.notebook_publish_sig" \
   -x "./docs/*" \
   -x "*.dbc" \
   -x "./notebooks/*" \

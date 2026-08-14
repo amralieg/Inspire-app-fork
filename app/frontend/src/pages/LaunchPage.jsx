@@ -39,8 +39,8 @@ import UcPermissionErrorHelp from '../components/UcPermissionErrorHelp';
 import { parseDocumentLanguages, formatDocumentLanguages } from '../constants/documentLanguages';
 import { interpretUcPermissionError, parseApiErrorMessage } from '../lib/ucPermissionErrors';
 
-/* ─── Constants — notebook widget `05_use_cases_quality` (Good/High/Very High) ─── */
-const QUALITY_OPTIONS = ['Good Quality', 'High Quality', 'Very High Quality'];
+/* ─── Constants — notebook v1.1.3 widget `05_use_cases_quality` ─── */
+const QUALITY_OPTIONS = ['Coverage Mode (All)', 'Balanced', 'Strict Quality'];
 const TABLE_ELECTION = ['Let Inspire Decides', 'All Tables', 'Transactional Only'];
 /** Show guidance when explicit table selection exceeds this count. */
 const TABLE_SELECTION_WARN_THRESHOLD = 10;
@@ -50,11 +50,6 @@ const OPERATION_WIDGET_OPTIONS = ['Discover Use Cases', 'Generate Use Cases'];
 const GENERATION_OPTIONS = [
   { key: 'PDF Catalog', icon: FileText, desc: 'Professional PDF use case catalog' },
   { key: 'Presentation', icon: Target, desc: 'Executive-ready slide deck' },
-  {
-    key: 'Genie Code Instructions',
-    icon: Bot,
-    desc: 'Discover: full Genie text for top N via Auto-Genie (see scope below). Generate mode: flagged use cases only.',
-  },
 ];
 const BUSINESS_PRIORITIES = [
   { key: 'Increase Revenue', icon: TrendingUp },
@@ -169,11 +164,11 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     '01_uc_metadata': '',
     '02_inspire_database': inspireDatabase || '',
     '04_table_election': 'Let Inspire Decides',
-    '05_use_cases_quality': 'Good Quality',
+    '05_use_cases_quality': 'Balanced',
     '06_business_domains': '',
     '07_business_priorities': '',
     '08_generation_instructions': '',
-    '09_generation_options': 'PDF Catalog,Genie Code Instructions',
+    '09_generation_options': 'PDF Catalog',
     '11_generation_path': './../demos/',
     '12_documents_languages': 'English',
     '13_generate_genie_code_for': '5',
@@ -221,7 +216,6 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
   const [genChecks, setGenChecks] = useState({
     'PDF Catalog': true,
     Presentation: false,
-    'Genie Code Instructions': true,
   });
   const [priorityChecks, setPriorityChecks] = useState({});
 
@@ -387,30 +381,12 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     [quickViewSid, allCreatedUcs, quickViewCache, fetchUseCasesForSession]
   );
 
-  // Sync generation options + Auto-Genie scope: unchecking Genie sets 13_generate_genie_code_for to 0 (skip Auto-Genie).
+  // v1.1.3 generation options only control document artifacts.
+  // Auto-Genie is independently controlled by 13_generate_genie_code_for.
   useEffect(() => {
     const sel = Object.entries(genChecks).filter(([, v]) => v).map(([k]) => k);
-    const genieOn = !!genChecks['Genie Code Instructions'];
-    setParams((p) => {
-      const next = { ...p, '09_generation_options': sel.join(',') };
-      if (!genieOn) next['13_generate_genie_code_for'] = '0';
-      else {
-        const cur = String(p['13_generate_genie_code_for'] || '').trim().toLowerCase();
-        if (cur === '0' || cur === '') next['13_generate_genie_code_for'] = '5';
-      }
-      return next;
-    });
+    setParams((p) => ({ ...p, '09_generation_options': sel.join(',') }));
   }, [genChecks]);
-
-  // Typing 0 in Auto-Genie scope unchecks Genie; positive integer or all checks it.
-  useEffect(() => {
-    const v = String(params['13_generate_genie_code_for'] || '').trim().toLowerCase();
-    if (v === '0') {
-      setGenChecks((c) => (c['Genie Code Instructions'] ? { ...c, 'Genie Code Instructions': false } : c));
-    } else if (v === 'all' || (/^\d+$/.test(v) && parseInt(v, 10) > 0)) {
-      setGenChecks((c) => (!c['Genie Code Instructions'] ? { ...c, 'Genie Code Instructions': true } : c));
-    }
-  }, [params['13_generate_genie_code_for']]);
 
   // Sync business priorities
   useEffect(() => {
@@ -710,12 +686,12 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
       {/* Page Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2 min-w-0">
-          <div className="w-10 h-10 shrink-0 rounded-xl bg-gradient-to-br from-db-red to-db-red-hover flex items-center justify-center shadow-sm">
+          <div className="w-10 h-10 shrink-0 rounded-xl bg-linear-to-br from-db-red to-db-red-hover flex items-center justify-center shadow-sm">
             <Rocket size={20} className="text-white" />
           </div>
           <div className="min-w-0 flex-1">
             <h1
-              className="text-2xl font-bold text-text-primary line-clamp-2 break-words"
+              className="text-2xl font-bold text-text-primary line-clamp-2 wrap-break-word"
               title={headlineBusiness ? launchPageHeading : undefined}
               aria-live="polite"
             >
@@ -1259,7 +1235,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
               <Field
                 label="Generation Options"
                 icon={Layers}
-                hint="PDF / Presentation artifacts. Genie Code Instructions toggles Auto-Genie on Discover (pairs with Auto-Genie scope); always on for Generate Use Cases."
+                hint="PDF / Presentation artifacts. Auto-Genie is configured separately below."
               >
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                   {GENERATION_OPTIONS.map((opt) => {
@@ -1368,7 +1344,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                 <Field
                   label="Auto-Genie scope"
                   icon={Bot}
-                  hint="13_generate_genie_code_for — all (every UC), top-N (e.g. 5), or 0 when Genie is off. Top-N is “up to N”: if your portfolio has N or fewer use cases after scoring, Auto-Genie can cover all of them. Re-publish the Inspire notebook after pulling this repo so ranking fixes apply."
+                  hint="13_generate_genie_code_for — in Discover mode, generate full Genie instructions for all, top-N (e.g. 5), or 0 to keep skeleton notebooks only."
                 >
                   <input
                     type="text"
@@ -1431,7 +1407,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
         <button
           onClick={handleLaunch}
           disabled={launching || !canLaunch}
-          className="w-full py-3.5 bg-gradient-to-r from-db-red to-db-red-hover text-white text-sm font-bold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-smooth flex items-center justify-center gap-2.5 hover:-translate-y-0.5"
+          className="w-full py-3.5 bg-linear-to-r from-db-red to-db-red-hover text-white text-sm font-bold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-smooth flex items-center justify-center gap-2.5 hover:-translate-y-0.5"
           style={{ boxShadow: '0 0 0 1px rgba(255,54,33,0.3), 0 4px 12px rgba(255,54,33,0.2), 0 8px 30px rgba(255,54,33,0.15), 0 20px 60px rgba(255,54,33,0.1)' }}
         >
           {launching ? (

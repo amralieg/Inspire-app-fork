@@ -219,9 +219,9 @@ components:
               description: SQL Warehouse ID for query execution
             operation_mode:
               type: string
-              description: Analysis depth
-              enum: [full, quick, custom]
-              default: full
+              description: Notebook operation (`15_operation`)
+              enum: [Discover Use Cases, Generate Use Cases]
+              default: Discover Use Cases
             table_election_mode:
               type: string
               description: How tables are selected for analysis
@@ -250,8 +250,8 @@ components:
               example: fact_sales,dim_customer
             generate_choices:
               type: string
-              description: 'Comma-separated output artifacts to generate (e.g. `genie`, `pdf`)'
-              example: genie,pdf
+              description: 'Comma-separated document artifacts from `09_generation_options`; valid values are `PDF Catalog` and `Presentation`. Genie generation is controlled by operation mode and `13_generate_genie_code_for`.'
+              example: PDF Catalog,Presentation
             generation_path:
               type: string
               description: Workspace path for generated output artifacts
@@ -626,10 +626,10 @@ paths:
                 00_business_name: Acme Corp
                 inspire_database: workspace._inspire
                 warehouse_id: abc123def456
-                operation_mode: full
+                operation_mode: Discover Use Cases
                 catalogs: main
                 tables: fact_sales,dim_customer
-                generate_choices: genie,pdf
+                generate_choices: PDF Catalog,Presentation
                 generation_path: /Shared/inspire_output
                 output_language: en
       responses:
@@ -787,7 +787,7 @@ paths:
                       widget_values:
                         business: Acme Corp
                         inspire_database: workspace._inspire
-                        operation_mode: full
+                        operation_mode: Discover Use Cases
                 not_ready:
                   summary: Session table not yet created
                   value:

@@ -2,6 +2,19 @@
 
 This repository is structured for **customer deployment**: only the installer notebook lives at the root; the full Databricks App lives in **`app/`**.
 
+## Agent v1.1.3 (current)
+
+| | |
+|--|--|
+| **Ship** | Agent notebook + App aligned to **v1.1.3** |
+| **Path** | `/Shared/inspire-ai/dbx_inspire_ai_agent` |
+| **Artifacts** | `09_generation_options` → **PDF Catalog** / **Presentation** only |
+| **Genie** | Scope via `13_generate_genie_code_for` (not generation options) |
+| **Quality** | Canonical: Coverage Mode (All) / Balanced / Strict Quality |
+| **Jobs** | Always pass non-empty `14_session_id` (skips nested launcher gate) |
+| **Runtime** | Auto-detects LLM serving endpoints; adaptive timeouts |
+| **Validate** | `cd app && npm test` |
+
 ## Customer deployment (no npm)
 
 1. Import into your Databricks workspace:

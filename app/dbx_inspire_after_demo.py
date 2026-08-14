@@ -8,11 +8,14 @@
 
 dbutils.widgets.text("inspire_database", "", "Inspire tracking DB (catalog._inspire)")
 dbutils.widgets.text("session_id", "", "Session ID")
-dbutils.widgets.text("inspire_notebook_path", "/Shared/inspire_ai", "Inspire agent workspace path")
+dbutils.widgets.text("inspire_notebook_path", "/Shared/inspire-ai/dbx_inspire_ai_agent", "Inspire agent workspace path")
 
 inspire_database = (dbutils.widgets.get("inspire_database") or "").strip()
 session_id = (dbutils.widgets.get("session_id") or "").strip()
-inspire_notebook_path = (dbutils.widgets.get("inspire_notebook_path") or "").strip() or "/Shared/inspire_ai"
+inspire_notebook_path = (
+    (dbutils.widgets.get("inspire_notebook_path") or "").strip()
+    or "/Shared/inspire-ai/dbx_inspire_ai_agent"
+)
 
 def _task(key, default=""):
     try:
@@ -58,7 +61,7 @@ inspire_args = {
     "06_business_domains": "",
     "07_business_priorities": "Increase Revenue",
     "08_generation_instructions": f"Demo data pipeline. {user_description[:500]}",
-    "09_generation_options": "PDF Catalog,Genie Code Instructions",
+    "09_generation_options": "PDF Catalog",
     "11_generation_path": "./../demos/",
     "12_documents_languages": "English",
     "13_generate_genie_code_for": "5",
@@ -83,6 +86,7 @@ except Exception as e:
     if "NOT_FOUND" in msg.upper() or "does not exist" in msg.lower():
         raise RuntimeError(
             f"Inspire notebook not found at '{inspire_notebook_path}'. "
-            "Re-run Workspace setup or publish dbx_inspire_ai_agent to /Shared/inspire_ai."
+            "Re-run Workspace setup or publish dbx_inspire_ai_agent to "
+            "/Shared/inspire-ai/dbx_inspire_ai_agent."
         ) from e
     raise

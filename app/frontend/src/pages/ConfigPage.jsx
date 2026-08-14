@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 
 /** Matches server auto-publish (`NOTEBOOK_DEST`) — avoids non-existent `/Users/.../inspire_ai` folders. */
-const DEFAULT_WORKSPACE_NOTEBOOK_PATH = '/Shared/inspire_ai';
+const DEFAULT_WORKSPACE_NOTEBOOK_PATH = '/Shared/inspire-ai/dbx_inspire_ai_agent';
 
 export default function ConfigPage({ settings, update, onConfigured }) {
   const { databricksHost, token, notebookPath, warehouseId } = settings;

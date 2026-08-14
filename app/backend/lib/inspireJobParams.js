@@ -1,4 +1,6 @@
-/** Notebook widget keys for dbx_inspire_ai_agent job base_parameters (v0.9+). */
+const INSPIRE_AGENT_VERSION = 'v1.1.3';
+
+/** Notebook widget keys for dbx_inspire_ai_agent job base_parameters (v1.1.3). */
 const INSPIRE_NOTEBOOK_WIDGET_KEYS = [
   '15_operation',
   '00_business_name',
@@ -19,19 +21,30 @@ const INSPIRE_NOTEBOOK_WIDGET_KEYS = [
 function normalizeUseCasesQualityParams(params) {
   const uq = String(params['05_use_cases_quality'] || '').trim();
   const map = {
-    Balanced: 'High Quality',
-    'Strict Quality': 'Very High Quality',
-    'Coverage Mode (All)': 'Good Quality',
-    'High Quality': 'High Quality',
-    'Very High Quality': 'Very High Quality',
-    'Good Quality': 'Good Quality',
+    'Good Quality': 'Coverage Mode (All)',
+    'High Quality': 'Balanced',
+    'Very High Quality': 'Strict Quality',
+    'Coverage Mode (All)': 'Coverage Mode (All)',
+    Balanced: 'Balanced',
+    'Strict Quality': 'Strict Quality',
   };
   if (map[uq]) params['05_use_cases_quality'] = map[uq];
   if (!params['05_use_cases_quality']) params['05_use_cases_quality'] = 'Balanced';
   return params;
 }
 
+function normalizeGenerationOptionsParams(params) {
+  const allowed = new Set(['PDF Catalog', 'Presentation']);
+  const normalized = String(params['09_generation_options'] || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => allowed.has(value));
+  params['09_generation_options'] = [...new Set(normalized)].join(',') || 'PDF Catalog';
+  return params;
+}
+
 function sanitizeInspireNotebookJobParams(params) {
+  normalizeGenerationOptionsParams(params);
   const out = {};
   for (const k of INSPIRE_NOTEBOOK_WIDGET_KEYS) {
     if (!Object.prototype.hasOwnProperty.call(params, k)) continue;
@@ -56,7 +69,7 @@ function buildDemoInspireDiscoveryParams({ inspireDatabase, sessionId, generateT
     '06_business_domains': '',
     '07_business_priorities': 'Increase Revenue',
     '08_generation_instructions': `{{tasks.${tk}.values.user_description}}`,
-    '09_generation_options': 'PDF Catalog,Genie Code Instructions',
+    '09_generation_options': 'PDF Catalog',
     '11_generation_path': './../demos/',
     '12_documents_languages': 'English',
     '13_generate_genie_code_for': '5',
@@ -67,7 +80,10 @@ function buildDemoInspireDiscoveryParams({ inspireDatabase, sessionId, generateT
 }
 
 module.exports = {
+  INSPIRE_AGENT_VERSION,
+  INSPIRE_NOTEBOOK_WIDGET_KEYS,
   buildDemoInspireDiscoveryParams,
   sanitizeInspireNotebookJobParams,
+  normalizeGenerationOptionsParams,
   normalizeUseCasesQualityParams,
 };

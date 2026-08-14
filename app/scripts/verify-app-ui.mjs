@@ -26,13 +26,19 @@ function checkLocalBundle() {
   const latest = jsFiles.sort().pop();
   const text = fs.readFileSync(path.join(distJs, latest), 'utf8');
   const hasUi = text.includes('No data yet');
+  const hasRetiredGenerationDefault = text.includes('PDF Catalog,Genie Code Instructions');
   return {
-    ok: hasUi,
+    ok: hasUi && !hasRetiredGenerationDefault,
     jsBundle: latest,
     hasDemoDataUi: hasUi,
-    message: hasUi
+    hasV113GenerationOptions: !hasRetiredGenerationDefault,
+    message: hasUi && !hasRetiredGenerationDefault
       ? `Local bundle OK (${latest})`
-      : `Local bundle STALE (${latest}) — missing "No data yet"; rebuild and redeploy`,
+      : `Local bundle STALE (${latest}) — ${
+          !hasUi
+            ? 'missing "No data yet"'
+            : 'still contains the retired Genie generation-option default'
+        }; rebuild and redeploy`,
   };
 }
 
@@ -47,9 +53,11 @@ async function checkLiveApp(baseUrl) {
   const templatesOk = templatesResp.ok;
 
   const ui = defaults?.frontendBuild?.hasDemoDataUi ?? defaults?.features?.demoDataUi;
-  const ok = ui === true && templatesOk;
+  const agentVersionOk = defaults?.agentVersion === 'v1.1.3';
+  const ok = ui === true && templatesOk && agentVersionOk;
   return {
     ok,
+    agentVersion: defaults?.agentVersion,
     jsBundle: defaults?.frontendBuild?.jsBundle,
     hasDemoDataUi: ui,
     demoDataApi: templatesOk,
@@ -58,6 +66,7 @@ async function checkLiveApp(baseUrl) {
       : [
           ui ? null : 'UI bundle missing "No data yet" (stale deploy — run npm run deploy)',
           templatesOk ? null : '/api/demo-data/templates not found (stale backend)',
+          agentVersionOk ? null : `/api/defaults reports agent ${defaults?.agentVersion || 'unknown'}, expected v1.1.3`,
         ]
           .filter(Boolean)
           .join('; ') || 'check failed',
