@@ -39,8 +39,8 @@ import UcPermissionErrorHelp from '../components/UcPermissionErrorHelp';
 import { parseDocumentLanguages, formatDocumentLanguages } from '../constants/documentLanguages';
 import { interpretUcPermissionError, parseApiErrorMessage } from '../lib/ucPermissionErrors';
 
-/* ─── Constants — notebook v1.1.3 widget `05_use_cases_quality` ─── */
-const QUALITY_OPTIONS = ['Coverage Mode (All)', 'Balanced', 'Strict Quality'];
+/* ─── Constants — notebook v1.2.0 widget `05_use_cases_quality` ─── */
+const QUALITY_OPTIONS = ['Good', 'High', 'Ultra High'];
 const TABLE_ELECTION = ['Let Inspire Decides', 'All Tables', 'Transactional Only'];
 /** Show guidance when explicit table selection exceeds this count. */
 const TABLE_SELECTION_WARN_THRESHOLD = 10;
@@ -164,7 +164,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     '01_uc_metadata': '',
     '02_inspire_database': inspireDatabase || '',
     '04_table_election': 'Let Inspire Decides',
-    '05_use_cases_quality': 'Balanced',
+    '05_use_cases_quality': 'Good',
     '06_business_domains': '',
     '07_business_priorities': '',
     '08_generation_instructions': '',
@@ -381,7 +381,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     [quickViewSid, allCreatedUcs, quickViewCache, fetchUseCasesForSession]
   );
 
-  // v1.1.3 generation options only control document artifacts.
+  // v1.2.0 generation options only control document artifacts.
   // Auto-Genie is independently controlled by 13_generate_genie_code_for.
   useEffect(() => {
     const sel = Object.entries(genChecks).filter(([, v]) => v).map(([k]) => k);

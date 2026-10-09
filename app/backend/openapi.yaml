@@ -227,7 +227,9 @@ components:
               description: How tables are selected for analysis
             use_cases_quality:
               type: string
-              description: Quality tier for generated use cases
+              description: Quality mode (`05_use_cases_quality`). Canonical v1.2.0 values. Legacy labels still map.
+              enum: [Good, High, Ultra High]
+              default: Good
             strategic_goals:
               type: string
               description: Business strategic goals to guide analysis

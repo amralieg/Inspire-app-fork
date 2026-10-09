@@ -2,17 +2,18 @@
 
 This repository is structured for **customer deployment**: only the installer notebook lives at the root; the full Databricks App lives in **`app/`**.
 
-## Agent v1.1.3 (current)
+## Agent v1.2.0 (current)
 
 | | |
 |--|--|
-| **Ship** | Agent notebook + App aligned to **v1.1.3** |
+| **Ship** | Agent notebook + App aligned to **v1.2.0** |
 | **Path** | `/Shared/inspire-ai/dbx_inspire_ai_agent` |
 | **Artifacts** | `09_generation_options` → **PDF Catalog** / **Presentation** only |
-| **Genie** | Scope via `13_generate_genie_code_for` (not generation options) |
-| **Quality** | Canonical: Coverage Mode (All) / Balanced / Strict Quality |
-| **Jobs** | Always pass non-empty `14_session_id` (skips nested launcher gate) |
-| **Runtime** | Auto-detects LLM serving endpoints; adaptive timeouts |
+| **Genie** | `13_generate_genie_code_for` (integer or `all`, default `5`). Persistent jobs `dbx_inspire_ai_<slug>_<hash8>`. |
+| **Quality** | Canonical: **Good** / **High** / **Ultra High**. Legacy Coverage/Balanced/Good Quality/High Quality → Good; Strict/Very High Quality → High. |
+| **Empty bar** | Closest candidates ship flagged below the mode bar. Never an empty result. |
+| **PDF** | WeasyPrint **>= 70.0** (older versions can crash the Python process). |
+| **Jobs** | Non-empty `14_session_id`. Child Genie runs: `dbx_inspire_ai_child_run=1`. |
 | **Validate** | `cd app && npm test` |
 
 ## Customer deployment (no npm)

@@ -701,13 +701,9 @@ function buildUcMetadataFromSessionRow(session) {
 }
 
 function mapSessionQualityToWidget(v) {
-  const uq = String(v || '').trim();
-  const QUALITY_ALIASES_TO_CANONICAL = {
-    'Good Quality': 'Coverage Mode (All)',
-    'High Quality': 'Balanced',
-    'Very High Quality': 'Strict Quality',
-  };
-  return QUALITY_ALIASES_TO_CANONICAL[uq] || uq || 'Balanced';
+  const params = { '05_use_cases_quality': v };
+  normalizeUseCasesQualityParams(params);
+  return params['05_use_cases_quality'];
 }
 
 /** Rebuild notebook base_parameters for Operation = Generate Use Cases (Route 1). */
@@ -1017,7 +1013,7 @@ async function attachSessionUsecaseOverviews(host, token, warehouseId, catalog, 
 //  Auto-publish — seamless notebook deployment
 // ═══════════════════════════════════════════════════
 
-const NOTEBOOK_DEST = '/Shared/inspire-ai/dbx_inspire_ai_agent';
+const NOTEBOOK_DEST = (process.env.NOTEBOOK_PATH || '/Shared/inspire-ai/dbx_inspire_ai_agent').trim();
 /** SHA-256 of last successfully imported bundled notebook — triggers re-import when the file on disk changes. */
 const NOTEBOOK_PUBLISH_SIG_FILE = path.join(__dirname, '.notebook_publish_sig');
 let cachedNotebookPath = DEFAULT_NOTEBOOK_PATH || '';
@@ -2609,6 +2605,13 @@ app.get('/api/inspire/usecases', requireToken, async (req, res) => {
       const hgc = (row.has_genie_code || '').toString().trim();
       row.has_genie_code_flag = hgc === 'Y' || hgc === 'Yes';
       row.generate_genie_code_instruction = row.generate_genie_code_instruction || '';
+      // v1.2.0 tracking columns — nullable on older sessions.
+      row.quality = row.quality ?? null;
+      row.quality_mode = row.quality_mode ?? null;
+      row.elite_status = row.elite_status ?? null;
+      row.elite_score = row.elite_score ?? null;
+      row.elite_assessment = row.elite_assessment ?? null;
+      row.selection_flags = row.selection_flags ?? null;
     }
     console.log(
       listAll

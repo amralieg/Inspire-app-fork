@@ -14,7 +14,7 @@ import { interpretUcPermissionError } from '../lib/ucPermissionErrors';
 
 /* ─── Constants ─── */
 
-/** Values must match `15_operation` in Inspire agent notebook v1.1.3. */
+/** Values must match `15_operation` in Inspire agent notebook v1.2.0. */
 const OPERATION_OPTIONS = [
   {
     value: 'Discover Use Cases',
@@ -30,25 +30,25 @@ const OPERATION_OPTIONS = [
   },
 ];
 
-/** Values match notebook v1.1.3 widget `05_use_cases_quality`. */
+/** Values match notebook v1.2.0 widget `05_use_cases_quality`. */
 const QUALITY_OPTIONS = [
   {
-    value: 'Coverage Mode (All)',
-    label: 'Coverage Mode (All)',
-    desc: 'Widest coverage — retain all qualified use cases.',
-    tag: 'Coverage',
-  },
-  {
-    value: 'Balanced',
-    label: 'Balanced',
-    desc: 'Recommended — balanced coverage with a stricter quality gate.',
+    value: 'Good',
+    label: 'Good',
+    desc: 'Coverage mode — ship the broad qualified set. Default.',
     tag: 'Default',
   },
   {
-    value: 'Strict Quality',
-    label: 'Strict Quality',
-    desc: 'Strictest — retain only the highest-quality use cases.',
-    tag: 'Strict',
+    value: 'High',
+    label: 'High',
+    desc: 'Stricter quality bar. Closest candidates still ship if nothing clears it.',
+    tag: 'High',
+  },
+  {
+    value: 'Ultra High',
+    label: 'Ultra High',
+    desc: 'Elite selection only. Near misses are labelled below the bar, never empty.',
+    tag: 'Elite',
   },
 ];
 
@@ -65,7 +65,7 @@ const BUSINESS_PRIORITIES = [
   { value: 'Execute Strategy', icon: Target, shortLabel: 'Strategy' },
 ];
 
-/** Notebook v1.1.3 `09_generation_options` multiselect only lists these. */
+/** Notebook v1.2.0 `09_generation_options` multiselect only lists these. */
 const GENERATION_OPTIONS = [
   { value: 'PDF Catalog', label: 'PDF Catalog', icon: FileText, desc: 'Professional PDF documentation' },
   { value: 'Presentation', label: 'Presentation', icon: Presentation, desc: 'Executive-ready PowerPoint slides' },
@@ -89,7 +89,7 @@ export default function ConfigForm({ onSubmit, isSubmitting, submitError, disabl
     inspire_database: '',
     operation: 'Discover Use Cases',
     table_election: 'Let Inspire Decides',
-    use_cases_quality: 'Balanced',
+    use_cases_quality: 'Good',
     business_domains: '',
     business_priorities: [],
     strategic_goals: '',
@@ -537,7 +537,7 @@ function StepEssentials({ form, update, catalogs, catalogsLoading, isValidInspir
       <div className="rounded-xl border border-white/10 bg-db-navy/40 p-5">
         <label className="block text-sm font-medium text-white mb-1">Use Cases Quality</label>
         <p className="text-xs text-slate-500 mb-3">
-          Matches notebook widget <span className="font-mono text-slate-500">05_use_cases_quality</span> (Coverage / Balanced / Strict).
+          Matches notebook widget <span className="font-mono text-slate-500">05_use_cases_quality</span> (Good / High / Ultra High).
         </p>
         <div className="flex gap-3">
           {QUALITY_OPTIONS.map((opt) => {

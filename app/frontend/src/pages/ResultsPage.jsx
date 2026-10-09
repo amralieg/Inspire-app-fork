@@ -324,6 +324,27 @@ function isHighPriorityUseCase(uc) {
   return false;
 }
 
+/** v1.2.0: closest candidates below the quality bar are a valid result, not empty. */
+function belowBarLabelFromUseCase(uc) {
+  if (!uc || typeof uc !== 'object') return '';
+  let flags = uc.selection_flags ?? uc.selectionFlags;
+  if (typeof flags === 'string') {
+    try { flags = JSON.parse(flags); } catch { flags = null; }
+  }
+  if (flags && typeof flags === 'object') {
+    for (const key of ['elite_fallback_pick', 'elite_fallback_near_miss', 'elite_coverage_pick', 'label', 'reason']) {
+      const v = flags[key];
+      if (v != null && String(v).trim()) return String(v).trim();
+    }
+    for (const v of Object.values(flags)) {
+      if (typeof v === 'string' && /below the /i.test(v)) return v.trim();
+    }
+  }
+  const reason = uc.selection_drop_reason || uc.selectionDropReason;
+  if (reason && /below the /i.test(String(reason))) return String(reason).trim();
+  return '';
+}
+
 /**
  * Dashboard count: never stuck at 0 when scores exist — uses tier/quality, absolute score ≥3,
  * and top ~33% by Inspire score among rows with a numeric score.
@@ -1064,6 +1085,9 @@ export default function ResultsPage({
         copyScore('priority_score');
         copyScore('value_score');
         copyScore('feasibility_score');
+        for (const field of ['quality', 'quality_mode', 'elite_status', 'elite_score', 'elite_assessment', 'selection_flags', 'selection_drop_reason']) {
+          if (row[field] != null && row[field] !== '' && (uc[field] == null || uc[field] === '')) uc[field] = row[field];
+        }
       }
       // When domain JSON `No`/`id` ≠ tracking table `id`, attach scores by Name + Business Domain.
       const normKey = (name, domain) =>
@@ -1885,6 +1909,11 @@ export default function ResultsPage({
                           typeof results.title === 'string' ? results.title : 'Pipeline finished successfully'
                         )}
                       </p>
+                      {(results.selection_outcome || results.elite_outcome) && (
+                        <p className="text-[10px] text-warning mt-0.5">
+                          {displayCleanText(String(results.selection_outcome || results.elite_outcome))}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
@@ -3538,6 +3567,14 @@ function UseCaseCard({
                     }
                   >
                     {shippedGenie ? 'Has Genie instruction' : 'Genie (partial)'}
+                  </span>
+                )}
+                {belowBarLabelFromUseCase(u) && (
+                  <span
+                    className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.14em] px-2 py-0.5 rounded-md border shrink-0 leading-none text-warning border-warning/35 bg-warning-bg"
+                    title={belowBarLabelFromUseCase(u)}
+                  >
+                    Below bar
                   </span>
                 )}
               </div>

@@ -57,7 +57,7 @@ inspire_args = {
     "01_uc_metadata": uc_metadata,
     "02_inspire_database": inspire_database,
     "04_table_election": "All Tables",
-    "05_use_cases_quality": "Balanced",
+    "05_use_cases_quality": "Good",
     "06_business_domains": "",
     "07_business_priorities": "Increase Revenue",
     "08_generation_instructions": f"Demo data pipeline. {user_description[:500]}",

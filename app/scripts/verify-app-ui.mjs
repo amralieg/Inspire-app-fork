@@ -53,7 +53,7 @@ async function checkLiveApp(baseUrl) {
   const templatesOk = templatesResp.ok;
 
   const ui = defaults?.frontendBuild?.hasDemoDataUi ?? defaults?.features?.demoDataUi;
-  const agentVersionOk = defaults?.agentVersion === 'v1.1.3';
+  const agentVersionOk = defaults?.agentVersion === 'v1.2.0';
   const ok = ui === true && templatesOk && agentVersionOk;
   return {
     ok,
@@ -66,7 +66,7 @@ async function checkLiveApp(baseUrl) {
       : [
           ui ? null : 'UI bundle missing "No data yet" (stale deploy — run npm run deploy)',
           templatesOk ? null : '/api/demo-data/templates not found (stale backend)',
-          agentVersionOk ? null : `/api/defaults reports agent ${defaults?.agentVersion || 'unknown'}, expected v1.1.3`,
+          agentVersionOk ? null : `/api/defaults reports agent ${defaults?.agentVersion || 'unknown'}, expected v1.2.0`,
         ]
           .filter(Boolean)
           .join('; ') || 'check failed',

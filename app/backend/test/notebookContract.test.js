@@ -14,13 +14,15 @@ const notebookBytes = fs.readFileSync(notebookPath);
 const notebook = JSON.parse(notebookBytes.toString('utf8'));
 const source = notebook.cells.map((cell) => (cell.source || []).join('')).join('\n');
 
-test('bundled notebook is a valid v1.1.3 Jupyter notebook', () => {
+test('bundled notebook is a valid v1.2.0 Jupyter notebook', () => {
   assert.equal(notebook.nbformat, 4);
   assert.match(source, new RegExp(`__AGENT_VERSION__\\s*=\\s*["']${INSPIRE_AGENT_VERSION}["']`));
   assert.match(source, /\[AGENT_VERSION FIRED\]/);
-  assert.match(source, /def _auto_detect_llm_endpoints\(/);
-  assert.match(source, /def _ensure_inspire_database_ready\(/);
-  assert.match(source, /class SessionMutationWriter:/);
+  assert.match(source, /USE_CASES_QUALITY_VALID\s*=\s*\(\s*"Good",\s*"High",\s*"Ultra High"\s*\)/);
+  assert.match(source, /"weasyprint":\s*\(\s*"70\.0"/);
+  assert.doesNotMatch(source, /discover_auto_genie_top_n/);
+  assert.match(source, /dbx_inspire_ai_child_run/);
+  assert.match(source, /funnel_ledger/);
   assert.equal(notebook.cells.length, 3);
 });
 
@@ -31,12 +33,9 @@ test('backend widget allowlist matches the notebook contract', () => {
   assert.deepEqual(notebookKeys, INSPIRE_NOTEBOOK_WIDGET_KEYS);
 });
 
-test('v1.1.3 generation widget only offers PDF and Presentation', () => {
-  const match = source.match(/generation_options\s*=\s*\[([\s\S]*?)\]\s*\n\s*dbutils\.widgets\.multiselect/);
-  assert.ok(match, 'generation_options list must exist');
-  const choices = [...match[1].matchAll(/["']([^"']+)["']/g)].map((item) => item[1]);
-  assert.deepEqual(choices, ['PDF Catalog', 'Presentation']);
-  assert.doesNotMatch(match[1], /Genie Code Instructions/);
+test('v1.2.0 generation widget only offers PDF and Presentation', () => {
+  assert.match(source, /dbutils\.widgets\.multiselect\(\s*"09_generation_options"/);
+  assert.doesNotMatch(source, /dbutils\.widgets\.multiselect\(\s*"09_generation_options"[\s\S]{0,400}Genie Code Instructions/);
 });
 
 test('embedded backend fallback is byte-identical to the physical notebook', () => {
@@ -44,27 +43,29 @@ test('embedded backend fallback is byte-identical to the physical notebook', () 
   assert.deepEqual(embedded, notebookBytes);
 });
 
-test('launch UI does not expose the retired generation option', () => {
+test('launch UI exposes v1.2.0 quality modes and Auto-Genie widget 13', () => {
   const launchPage = fs.readFileSync(
     path.join(appRoot, 'frontend', 'src', 'pages', 'LaunchPage.jsx'),
     'utf8',
   );
   assert.doesNotMatch(launchPage, /key:\s*['"]Genie Code Instructions['"]/);
+  assert.doesNotMatch(launchPage, /discover_auto_genie_top_n/);
   assert.match(launchPage, /'09_generation_options':\s*'PDF Catalog'/);
   assert.match(
     launchPage,
-    /QUALITY_OPTIONS\s*=\s*\['Coverage Mode \(All\)', 'Balanced', 'Strict Quality'\]/,
+    /QUALITY_OPTIONS\s*=\s*\['Good', 'High', 'Ultra High'\]/,
   );
-  assert.match(launchPage, /'05_use_cases_quality':\s*'Balanced'/);
+  assert.match(launchPage, /'05_use_cases_quality':\s*'Good'/);
+  assert.match(launchPage, /'13_generate_genie_code_for':\s*'5'/);
 });
 
-test('deployment and API surfaces advertise v1.1.3 consistently', () => {
+test('deployment and API surfaces advertise v1.2.0 consistently', () => {
   const server = fs.readFileSync(path.join(appRoot, 'backend', 'server.js'), 'utf8');
   const bundleConfig = fs.readFileSync(path.join(appRoot, 'databricks.yml'), 'utf8');
 
   assert.match(server, /agentVersion:\s*INSPIRE_AGENT_VERSION/);
   assert.match(server, /inspire_version:\s*INSPIRE_AGENT_VERSION/);
-  assert.match(bundleConfig, /inspire_version:\s*"v1\.1\.3"/);
+  assert.match(bundleConfig, /inspire_version:\s*"v1\.2\.0"/);
 });
 
 test('all app launch defaults use the installer notebook destination', () => {
@@ -72,7 +73,6 @@ test('all app launch defaults use the installer notebook destination', () => {
   const installer = fs.readFileSync(path.join(appRoot, '..', 'installer_workspace.py'), 'utf8');
   assert.match(installer, /notebook_dest = f"\/Shared\/\{app_name\}\/dbx_inspire_ai_agent"/);
   const files = [
-    'backend/server.js',
     'backend/lib/demoDataPipeline.js',
     'databricks.yml',
     'dbx_inspire_after_demo.py',
@@ -85,11 +85,14 @@ test('all app launch defaults use the installer notebook destination', () => {
     const contents = fs.readFileSync(path.join(appRoot, relativePath), 'utf8');
     assert.ok(contents.includes(canonicalPath), `${relativePath} must use ${canonicalPath}`);
   }
+  const server = fs.readFileSync(path.join(appRoot, 'backend', 'server.js'), 'utf8');
+  assert.match(server, /\/Shared\/inspire-ai\/dbx_inspire_ai_agent/);
 });
 
-test('OpenAPI documents v1.1.3 operation and artifact values', () => {
+test('OpenAPI documents v1.2.0 operation and artifact values', () => {
   const openapi = fs.readFileSync(path.join(appRoot, 'backend', 'openapi.yaml'), 'utf8');
   assert.match(openapi, /enum: \[Discover Use Cases, Generate Use Cases\]/);
+  assert.match(openapi, /enum: \[Good, High, Ultra High\]/);
   assert.doesNotMatch(openapi, /operation_mode:\s*full/);
   assert.doesNotMatch(openapi, /generate_choices:\s*genie,pdf/);
 });
