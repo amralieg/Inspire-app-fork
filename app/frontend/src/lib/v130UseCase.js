@@ -222,6 +222,17 @@ export function feedbackLabel(status) {
   return FEEDBACK_LABELS[String(status || '').toLowerCase()] || '';
 }
 
+export function excludedFeedbackText(entry) {
+  const title = String(entry?.title || entry?.use_case_key || '').trim();
+  const reason = String(entry?.reason || '').trim();
+  const proposed = String(entry?.proposed_title || '').trim();
+  const text = reason ? `${title}: ${reason}` : title;
+  if (entry?.match === 'reworded' && proposed && proposed.toLowerCase() !== title.toLowerCase()) {
+    return `${text} (proposed again as “${proposed}”)`;
+  }
+  return text;
+}
+
 export function latestFeedbackMap(latest) {
   const map = {};
   for (const row of latest || []) {

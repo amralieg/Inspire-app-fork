@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronRight, Compass, Eye, Layers, Lock, MessageSquareText } from 'lucide-react';
-import { STRATEGY_PATH_SEPARATOR, dataAccessSummary, feedbackLabel, formatBaseline } from '../lib/v130UseCase';
+import { STRATEGY_PATH_SEPARATOR, dataAccessSummary, excludedFeedbackText, feedbackLabel, formatBaseline } from '../lib/v130UseCase';
 
 export function SidebarFilterPanel({ title, subtitle, icon, open, onToggle, allLabel, allCount, options, value, onChange }) {
   const Icon = icon;
@@ -288,9 +288,9 @@ export function FeedbackPanel({ results, feedback }) {
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary mb-1">Hidden by feedback</p>
           <ul className="space-y-0.5">
-            {excluded.map((e) => (
-              <li key={e.use_case_key} className="text-[11px] text-text-secondary">
-                {e.title}{e.reason ? `: ${e.reason}` : ''}
+            {excluded.map((e, index) => (
+              <li key={`${e.use_case_key}|${e.use_case_id ?? index}`} className="text-[11px] text-text-secondary">
+                {excludedFeedbackText(e)}
               </li>
             ))}
           </ul>

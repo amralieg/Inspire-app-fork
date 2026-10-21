@@ -167,3 +167,14 @@ test('data access, KPI source, match rate and feedback helpers', async () => {
   assert.deepEqual(Object.keys(map), ['k']);
   assert.equal(map.k.status, 'planned');
 });
+
+test('a use case hidden because it rewords a rejected one says what was proposed again', async () => {
+  const lib = await load();
+  const reworded = { use_case_key: 'predict churn|c.s.sales', title: 'Predict Churn', reason: 'We already run a churn model',
+    match: 'reworded', proposed_title: 'Predict High-Value Churn' };
+  assert.equal(lib.excludedFeedbackText(reworded), 'Predict Churn: We already run a churn model (proposed again as “Predict High-Value Churn”)');
+  assert.equal(lib.excludedFeedbackText({ ...reworded, match: 'exact' }), 'Predict Churn: We already run a churn model');
+  assert.equal(lib.excludedFeedbackText({ ...reworded, reason: '', proposed_title: 'predict churn' }), 'Predict Churn');
+  assert.equal(lib.excludedFeedbackText({ use_case_key: 'k|t' }), 'k|t');
+  assert.equal(lib.excludedFeedbackText(null), '');
+});
