@@ -299,6 +299,26 @@ def _is_own_service_principal(display_name, app_name, sp_name):
     return name in (app_name, sp_name, app_name.replace("-", "_")) or name.endswith(f" {app_name}")
 
 
+def _app_service_principal_ids(api_get):
+    in_use, token = set(), ""
+    while True:
+        page = api_get("/api/2.0/apps" + (f"?page_token={token}" if token else ""))
+        for app in page.get("apps", []):
+            if app.get("service_principal_client_id"):
+                in_use.add(app["service_principal_client_id"])
+        token = page.get("next_page_token") or ""
+        if not token:
+            return in_use
+
+
+def _deletable_service_principals(service_principals, app_name, sp_name, in_use):
+    if in_use is None:
+        return []
+    return [sp for sp in service_principals
+            if _is_own_service_principal(sp.get("displayName", ""), app_name, sp_name)
+            and sp.get("applicationId") not in in_use]
+
+
 def build_runtime_context():
     w = WorkspaceClient()
     current_user = w.current_user.me()
@@ -522,25 +542,40 @@ def step_cleanup(ctx):
 
     print("Cleaning up...")
     try:
-        api("DELETE", f"/api/2.0/apps/{app_name}")
-        print(f"  Deleted app '{app_name}' — waiting for deletion to complete...")
-        for _ in range(24):  # up to 2 minutes
-            resp = api("GET", f"/api/2.0/apps/{app_name}")
-            if resp.status_code == 404:
-                print("  App gone ✅")
-                break
-            state = resp.json().get("compute_status", {}).get("state", "?")
-            print(f"  Still {state}, waiting...")
-            time.sleep(5)
-    except Exception:
-        print("  No existing app")
+        resp = api("DELETE", f"/api/2.0/apps/{app_name}")
+        if resp.status_code == 404:
+            print("  No existing app")
+        elif resp.status_code >= 400:
+            print(f"  ⚠️ Deleting app '{app_name}' returned {resp.status_code}: {resp.text[:200]}")
+        else:
+            print(f"  Deleted app '{app_name}' — waiting for deletion to complete...")
+            for _ in range(60):  # up to 5 minutes
+                resp = api("GET", f"/api/2.0/apps/{app_name}")
+                if resp.status_code == 404:
+                    print("  App gone ✅")
+                    break
+                state = resp.json().get("compute_status", {}).get("state", "?")
+                print(f"  Still {state}, waiting...")
+                time.sleep(5)
+            else:
+                print(f"  ⚠️ App '{app_name}' still exists; it is redeployed and its service principal is kept")
+    except Exception as exc:
+        print(f"  ⚠️ Could not delete app '{app_name}': {exc}")
 
+    try:
+        in_use = _app_service_principal_ids(api_get)
+    except Exception as exc:
+        print(f"  ⚠️ Could not list apps ({exc}); no service principal is deleted")
+        in_use = None
     for search in dict.fromkeys([app_name, sp_name, app_name.replace("-", "_")]):
         try:
             sps = api_get(f"/api/2.0/preview/scim/v2/ServicePrincipals?filter=displayName co \"{search}\"")
-            for sp in sps.get("Resources", []):
-                if not _is_own_service_principal(sp.get("displayName", ""), app_name, sp_name):
-                    continue
+            resources = sps.get("Resources", [])
+            for sp in resources:
+                if _is_own_service_principal(sp.get("displayName", ""), app_name, sp_name) and \
+                        in_use is not None and sp.get("applicationId") in in_use:
+                    print(f"  Keeping SP: {sp.get('displayName')} (AppID: {sp.get('applicationId')}): an app still uses it")
+            for sp in _deletable_service_principals(resources, app_name, sp_name, in_use):
                 sp_id = sp.get("id")
                 print(f"  Deleting SP: {sp.get('displayName')} (ID: {sp_id}, AppID: {sp.get('applicationId')})")
                 api("DELETE", f"/api/2.0/preview/scim/v2/ServicePrincipals/{sp_id}")
@@ -745,14 +780,30 @@ def step_deploy_and_find_sp(ctx):
 
     new_sp_app_id = None
     try:
-        data = api_get("/api/2.0/preview/scim/v2/ServicePrincipals?count=500")
-        for sp in data.get("Resources", []):
-            app_id = sp.get("applicationId", "")
-            if app_id and app_id not in sp_before:
-                new_sp_app_id = app_id
-                print(f"  NEW SP: {sp.get('displayName')} | applicationId={app_id} | id={sp.get('id')}")
+        app_info = api_get(f"/api/2.0/apps/{app_name}")
+        new_sp_app_id = app_info.get("service_principal_client_id") or None
+        if new_sp_app_id:
+            print(f"  App SP: {app_info.get('service_principal_name')} | applicationId={new_sp_app_id}")
     except Exception as exc:
-        print(f"  ⚠️ Could not list SPs: {exc}")
+        print(f"  ⚠️ Could not read the app's service principal: {exc}")
+    if new_sp_app_id:
+        found = api_get(f"/api/2.0/preview/scim/v2/ServicePrincipals?filter=applicationId eq \"{new_sp_app_id}\"")
+        if not found.get("Resources"):
+            raise RuntimeError(
+                f"The service principal of app '{app_name}' ({new_sp_app_id}) no longer exists. "
+                f"Delete the app in Compute → Apps → {app_name}, wait until it is gone, then run this installer again."
+            )
+
+    if not new_sp_app_id:
+        try:
+            data = api_get("/api/2.0/preview/scim/v2/ServicePrincipals?count=500")
+            for sp in data.get("Resources", []):
+                app_id = sp.get("applicationId", "")
+                if app_id and app_id not in sp_before:
+                    new_sp_app_id = app_id
+                    print(f"  NEW SP: {sp.get('displayName')} | applicationId={app_id} | id={sp.get('id')}")
+        except Exception as exc:
+            print(f"  ⚠️ Could not list SPs: {exc}")
 
     if not new_sp_app_id:
         print("  ⚠️ Could not find new SP by diff. Trying name search...")
