@@ -196,9 +196,18 @@ export function kpiText(spec) {
   return `${text}: baseline ${formatBaseline(value)}, measured ${date}`;
 }
 
+function kpiPart(part) {
+  const aggregation = String(part.aggregation || 'count').toLowerCase();
+  const filter = part.filter_column && part.filter_value != null ? ` where ${part.filter_column} = ${part.filter_value}` : '';
+  return `${aggregation} of ${part.column || 'rows'}${filter}`;
+}
+
 export function kpiSource(spec) {
   if (!spec || typeof spec !== 'object') return '';
   if (spec.metric_view) return `metric view ${spec.metric_view}${spec.measure ? `, measure ${spec.measure}` : ''}`;
+  if (spec.denominator && typeof spec.denominator === 'object' && spec.table) {
+    return `${kpiPart(spec)} / ${kpiPart(spec.denominator)}, on ${spec.table}`;
+  }
   const target = spec.table && spec.column ? `${spec.table}.${spec.column}` : String(spec.table || '');
   if (!target) return '';
   return spec.aggregation ? `${target} (${String(spec.aggregation).toLowerCase()})` : target;

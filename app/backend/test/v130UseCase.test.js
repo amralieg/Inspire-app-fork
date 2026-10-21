@@ -151,6 +151,14 @@ test('data access, KPI source, match rate and feedback helpers', async () => {
   assert.equal(lib.kpiSource(KPIS[0]), 'metric view main.m.sales_mv, measure repeat_rate');
   assert.equal(lib.kpiSource({ table: 'main.s.orders', column: 'amount', aggregation: 'SUM' }), 'main.s.orders.amount (sum)');
   assert.equal(lib.kpiSource({}), '');
+  assert.equal(
+    lib.kpiSource({ table: 'main.s.orders', aggregation: 'COUNT', column: null, filter_column: 'status', filter_value: 'shipped',
+      denominator: { aggregation: 'COUNT', column: null, filter_column: null, filter_value: null } }),
+    'count of rows where status = shipped / count of rows, on main.s.orders');
+  assert.equal(
+    lib.kpiSource({ table: 'main.s.orders', aggregation: 'SUM', column: 'amount',
+      denominator: { aggregation: 'COUNT_DISTINCT', column: 'customer_id' } }),
+    'sum of amount / count_distinct of customer_id, on main.s.orders');
   assert.equal(lib.matchRateText(0.8765), '87.7%');
   assert.equal(lib.matchRateText(null), '');
   assert.equal(lib.feedbackLabel('IMPLEMENTED'), 'Implemented');

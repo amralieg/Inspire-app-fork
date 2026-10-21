@@ -147,7 +147,7 @@ else:
 # COMMAND ----------
 
 # DBTITLE 1,Installer helpers
-import base64, glob, os, requests, shutil, time, zipfile
+import base64, glob, os, re, requests, shutil, time, zipfile
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementState
 
@@ -294,6 +294,11 @@ def _resolve_source_folder(nb_dir, user_email):
 
 
 
+def _is_own_service_principal(display_name, app_name, sp_name):
+    name = (display_name or "").strip()
+    return name in (app_name, sp_name, app_name.replace("-", "_")) or name.endswith(f" {app_name}")
+
+
 def build_runtime_context():
     w = WorkspaceClient()
     current_user = w.current_user.me()
@@ -302,6 +307,7 @@ def build_runtime_context():
 
     warehouse_override = None  # Set to a warehouse UUID string for Jobs/CI to skip the dropdown
     catalog_override = None  # Set to a catalog name for Jobs/CI to skip the catalog dropdown
+    app_name_override = None  # Set to another app name to install next to an existing inspire-ai app
 
     all_warehouses = [wh for wh in w.warehouses.list() if getattr(wh, "id", None)]
     all_warehouses.sort(key=_wh_sort_key)
@@ -382,7 +388,9 @@ def build_runtime_context():
 
     schema = "_inspire"
     inspire_db = f"{catalog}.{schema}"
-    app_name = "inspire-ai"
+    app_name = app_name_override or "inspire-ai"
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,28}[a-z0-9]", app_name):
+        raise ValueError(f"App name {app_name!r} must be 2-30 lowercase letters, digits or hyphens")
     sp_name = f"{app_name}-sp"
 
     print(f"Selected warehouse: {warehouse_name} ({warehouse_id})")
@@ -527,10 +535,12 @@ def step_cleanup(ctx):
     except Exception:
         print("  No existing app")
 
-    for search in [app_name, sp_name, "inspire-ai", "inspire_ai"]:
+    for search in dict.fromkeys([app_name, sp_name, app_name.replace("-", "_")]):
         try:
             sps = api_get(f"/api/2.0/preview/scim/v2/ServicePrincipals?filter=displayName co \"{search}\"")
             for sp in sps.get("Resources", []):
+                if not _is_own_service_principal(sp.get("displayName", ""), app_name, sp_name):
+                    continue
                 sp_id = sp.get("id")
                 print(f"  Deleting SP: {sp.get('displayName')} (ID: {sp_id}, AppID: {sp.get('applicationId')})")
                 api("DELETE", f"/api/2.0/preview/scim/v2/ServicePrincipals/{sp_id}")
@@ -750,7 +760,7 @@ def step_deploy_and_find_sp(ctx):
             sps = api_get(f"/api/2.0/preview/scim/v2/ServicePrincipals?filter=displayName co \"{app_name}\"")
             for sp in sps.get("Resources", []):
                 app_id = sp.get("applicationId", "")
-                if app_id:
+                if app_id and _is_own_service_principal(sp.get("displayName", ""), app_name, sp_name):
                     new_sp_app_id = app_id
                     print(f"  Found: {sp.get('displayName')} | applicationId={app_id}")
                     break
