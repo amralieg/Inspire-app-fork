@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ChevronDown, ChevronRight, Download, FileText, Plus, Trash2, Upload } from 'lucide-react';
 import {
   KPI_DIRECTIONS,
@@ -17,7 +17,7 @@ const LABEL_DEFAULTS = { priority: 'Business Priority', kpi: 'KPI', key_result: 
 const inputClass =
   'w-full px-2.5 py-1.5 text-xs border border-border rounded-md bg-surface text-text-primary placeholder:text-text-tertiary glow-focus transition-smooth';
 const smallButton =
-  'inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border border-border text-text-secondary hover:border-border-strong transition-smooth';
+  'inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-1 rounded-md text-[11px] font-medium border border-border text-text-secondary hover:border-border-strong transition-smooth';
 
 function replaceAt(list, index, item) {
   return list.map((current, i) => (i === index ? item : current));
@@ -42,7 +42,9 @@ function EntryEditor({ entry, depth, levels, onChange, onRemove }) {
         />
         <button type="button" onClick={() => setOpen(!open)} className={smallButton} title="KPIs and key results">
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          {entry.kpis.length + entry.key_results.length || ''} KPIs
+          {entry.kpis.length || entry.key_results.length
+            ? `${entry.kpis.length} KPI${entry.kpis.length === 1 ? '' : 's'}, ${entry.key_results.length} result${entry.key_results.length === 1 ? '' : 's'}`
+            : 'KPIs'}
         </button>
         {depth < STRATEGY_MAX_DEPTH && (
           <button
@@ -169,25 +171,13 @@ function EntryEditor({ entry, depth, levels, onChange, onRemove }) {
  * a path, or '' when empty) and the problems the agent would stop the run for.
  */
 export default function StrategyEditor({ value, onChange, onProblems, prioritySuggestions = [] }) {
-  const initial = useMemo(() => parseStrategicContext(value), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [initial] = useState(() => parseStrategicContext(value));
   const [mode, setMode] = useState(initial.mode === 'path' ? 'path' : 'tree');
   const [path, setPath] = useState(initial.path);
   const [model, setModel] = useState(initial.model);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState(initial.error);
   const [priorityDraft, setPriorityDraft] = useState('');
-  const lastEmitted = useRef(String(value || '').trim());
-
-  useEffect(() => {
-    const incoming = String(value || '').trim();
-    if (incoming === lastEmitted.current) return;
-    const parsed = parseStrategicContext(incoming);
-    lastEmitted.current = incoming;
-    setMode(parsed.mode === 'path' ? 'path' : 'tree');
-    setPath(parsed.path);
-    setModel(parsed.model);
-    setImportError(parsed.error);
-  }, [value]);
 
   const problems = useMemo(() => {
     if (mode === 'path') return path.trim() && !path.trim().startsWith('/') ? ['A file path must start with /.'] : [];
@@ -196,7 +186,6 @@ export default function StrategyEditor({ value, onChange, onProblems, prioritySu
 
   useEffect(() => {
     const out = mode === 'path' ? path.trim() : serializeStrategy(model);
-    lastEmitted.current = out;
     onChange(out);
     if (onProblems) onProblems(problems);
   }, [mode, path, model, problems]); // eslint-disable-line react-hooks/exhaustive-deps

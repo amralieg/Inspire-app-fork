@@ -29,6 +29,8 @@ import {
   LayoutGrid,
   Sparkles,
   XCircle,
+  Compass,
+  Flag,
 } from 'lucide-react';
 import AnimatedCounter from '../components/AnimatedCounter';
 import GenieMarkdownPreview from '../components/GenieMarkdownPreview';
@@ -38,6 +40,18 @@ import PriorityHeatmap from '../components/PriorityHeatmap';
 import Celebration from '../components/Celebration';
 import DatabricksLogo from '../components/DatabricksLogo';
 import { SkeletonCard, SkeletonStats } from '../components/SkeletonLoader';
+import { DataAccessBadge, FeedbackPanel, FoundationsPanel, SidebarFilterPanel, StrategyCoveragePanel } from '../components/ResultsInsights';
+import { FeedbackChip, FeedbackControls, StrategyChip, UseCaseStrategyDetail } from '../components/UseCaseStrategyDetail';
+import {
+  NOT_ALIGNED_FILTER,
+  copyV130TrackingFields,
+  knownPriorities,
+  latestFeedbackMap,
+  matchesStrategyFilter,
+  priorityMatches,
+  strategyFilterOptions,
+  v130View,
+} from '../lib/v130UseCase';
 
 /* ── Priority sort order ── */
 const PRIORITY_ORDER = [
@@ -561,6 +575,8 @@ export default function ResultsPage({
   const [filterSponsor, setFilterSponsor] = useState('all');
   /** `all` | `yes` | `no` — filter by presence of Genie instruction on the use case. */
   const [filterHasGenie, setFilterHasGenie] = useState('all');
+  const [filterStrategy, setFilterStrategy] = useState('all');
+  const [filterBizPriority, setFilterBizPriority] = useState('all');
   const [sortBy, setSortBy] = useState('inspire');
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
@@ -584,6 +600,12 @@ export default function ResultsPage({
   const [domainPanelOpen, setDomainPanelOpen] = useState(false);
   const [beneficiaryPanelOpen, setBeneficiaryPanelOpen] = useState(false);
   const [sponsorPanelOpen, setSponsorPanelOpen] = useState(false);
+  const [strategyPanelOpen, setStrategyPanelOpen] = useState(false);
+  const [bizPriorityPanelOpen, setBizPriorityPanelOpen] = useState(false);
+  const [feedbackState, setFeedbackState] = useState({ available: null, latest: [], message: '' });
+  const [feedbackRefresh, setFeedbackRefresh] = useState(0);
+  const [feedbackBusyKey, setFeedbackBusyKey] = useState('');
+  const [feedbackError, setFeedbackError] = useState({ key: '', message: '' });
 
   // Artifacts state — tree-based with expandable folders
   const [artifactTree, setArtifactTree] = useState({}); // { [path]: { files: [], loading, error } }
@@ -666,6 +688,59 @@ export default function ResultsPage({
       return resp.json();
     },
     [token, databricksHost]
+  );
+
+  const resultsDiscoveryType = results?.discovery_type || '';
+  const feedbackBusiness = useMemo(() => {
+    const session = sessions.find((s) => String(s.session_id) === String(selectedSessionId));
+    return session?.widget_values?.business || session?.widget_values?.['00_business_name'] || session?.business_name || '';
+  }, [sessions, selectedSessionId]);
+  useEffect(() => {
+    const business = feedbackBusiness;
+    if (!resultsDiscoveryType || !inspireDb || !warehouseId || !business) {
+      setFeedbackState({ available: null, latest: [], message: '' });
+      return undefined;
+    }
+    let cancelled = false;
+    const q = new URLSearchParams({ inspire_database: inspireDb, warehouse_id: warehouseId, business_name: business });
+    apiFetch(`/api/inspire/feedback?${q}`)
+      .then((data) => {
+        if (!cancelled) setFeedbackState({ available: !!data.available, latest: data.latest || [], message: data.message || '' });
+      })
+      .catch(() => {
+        if (!cancelled) setFeedbackState({ available: null, latest: [], message: '' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [resultsDiscoveryType, feedbackBusiness, inspireDb, warehouseId, apiFetch, feedbackRefresh]);
+
+  const submitFeedback = useCallback(
+    async (uc, info, status, reason) => {
+      if (!selectedSessionId || !inspireDb || !warehouseId || !info?.useCaseKey) return;
+      setFeedbackBusyKey(info.useCaseKey);
+      setFeedbackError({ key: '', message: '' });
+      try {
+        await apiPostJson('/api/inspire/feedback', {
+          inspire_database: inspireDb,
+          warehouse_id: warehouseId,
+          session_id: String(selectedSessionId),
+          use_case_key: info.useCaseKey,
+          use_case_id: String(uc?.catalog_no || uc?.No || ''),
+          use_case_title: String(uc?.Name || ''),
+          status,
+          reason,
+        });
+        setFeedbackRefresh((n) => n + 1);
+      } catch (err) {
+        const message = String(err?.message || err);
+        if (message.startsWith('409')) setFeedbackState((prev) => ({ ...prev, available: false }));
+        setFeedbackError({ key: info.useCaseKey, message: message.replace(/^\d{3}:\s*/, '') });
+      } finally {
+        setFeedbackBusyKey('');
+      }
+    },
+    [selectedSessionId, inspireDb, warehouseId, apiPostJson]
   );
 
   useEffect(() => {
@@ -974,6 +1049,8 @@ export default function ResultsPage({
     setPreviewFile(null);
     setPreviewData(null);
     setArtifactsExpanded(false);
+    setFilterStrategy('all');
+    setFilterBizPriority('all');
     lastArtifactsLoadKeyRef.current = '';
     try {
       const q = new URLSearchParams({
@@ -1088,6 +1165,7 @@ export default function ResultsPage({
         for (const field of ['quality', 'quality_mode', 'elite_status', 'elite_score', 'elite_assessment', 'selection_flags', 'selection_drop_reason']) {
           if (row[field] != null && row[field] !== '' && (uc[field] == null || uc[field] === '')) uc[field] = row[field];
         }
+        copyV130TrackingFields(uc, row);
       }
       // When domain JSON `No`/`id` ≠ tracking table `id`, attach scores by Name + Business Domain.
       const normKey = (name, domain) =>
@@ -1118,6 +1196,7 @@ export default function ResultsPage({
         copyScore2('feasibility_score');
         if (!uc.Priority && row.Priority) uc.Priority = row.Priority;
         if (!uc.Quality && row.Quality) uc.Quality = row.Quality;
+        copyV130TrackingFields(uc, row);
         const trackId = row.id ?? row.No ?? row['No'];
         applyInspireTrackingId(uc, trackId);
         const ggi2 = row.generate_genie_code_instruction;
@@ -1134,6 +1213,10 @@ export default function ResultsPage({
     console.error('Error extracting use cases:', err);
     allUseCases = [];
   }
+  for (const uc of allUseCases) {
+    if (uc && typeof uc === 'object') uc._v130 = v130View(uc);
+  }
+  const bizPriorities = knownPriorities(results);
 
   // ── Resolve table from registry ──
   const resolveTable = (id) => {
@@ -1156,6 +1239,8 @@ export default function ResultsPage({
         if (filterQuality !== 'all' && String(uc.Quality || '') !== filterQuality) return false;
         if (filterBeneficiary !== 'all' && beneficiaryFromUc(uc) !== filterBeneficiary) return false;
         if (filterSponsor !== 'all' && sponsorFromUc(uc) !== filterSponsor) return false;
+        if (filterStrategy !== 'all' && !matchesStrategyFilter(uc._v130, filterStrategy)) return false;
+        if (filterBizPriority !== 'all' && !priorityMatches(uc._v130?.priorityText, bizPriorities).includes(filterBizPriority)) return false;
         if (filterHasGenie === 'yes' && !useCaseHasGenieInstruction(uc)) return false;
         if (filterHasGenie === 'no' && useCaseHasGenieInstruction(uc)) return false;
         if (searchQuery) {
@@ -1255,6 +1340,32 @@ export default function ResultsPage({
     if (s) sponsorCounts[s] = (sponsorCounts[s] || 0) + 1;
   }
 
+  const v130Session = !!(results && (results.discovery_type || results.strategy_coverage));
+  const strategyFilter = strategyFilterOptions(allUseCases.map((uc) => uc?._v130), results?.strategy_coverage?.entries);
+  const strategyOptions = strategyFilter.notAligned > 0
+    ? [...strategyFilter.options, { value: NOT_ALIGNED_FILTER, label: 'Not aligned', count: strategyFilter.notAligned, depth: 0 }]
+    : strategyFilter.options;
+  const bizPriorityCounts = {};
+  let bizPriorityUseCases = 0;
+  for (const uc of allUseCases) {
+    const matched = priorityMatches(uc?._v130?.priorityText, bizPriorities);
+    if (matched.length) bizPriorityUseCases += 1;
+    for (const bp of matched) bizPriorityCounts[bp] = (bizPriorityCounts[bp] || 0) + 1;
+  }
+  const bizPriorityOptions = bizPriorities
+    .filter((bp) => bizPriorityCounts[bp])
+    .map((bp) => ({ value: bp, label: bp, count: bizPriorityCounts[bp] }));
+  const foundationsById = new Map(
+    (Array.isArray(results?.foundations) ? results.foundations : []).map((f) => [String(f.id), f])
+  );
+  const useCaseNameById = new Map();
+  for (const uc of allUseCases) {
+    for (const id of [uc?.catalog_no, uc?.No, uc?.id]) {
+      if (id != null && String(id).trim() && !useCaseNameById.has(String(id).trim())) useCaseNameById.set(String(id).trim(), String(uc.Name || id));
+    }
+  }
+  const feedbackLatest = latestFeedbackMap(feedbackState.latest);
+
   // Compute subdomain counts by domain
   const subdomainsByDomain = {};
   for (const uc of allUseCases) {
@@ -1304,6 +1415,8 @@ export default function ResultsPage({
     filterQuality !== 'all' ||
     filterBeneficiary !== 'all' ||
     filterSponsor !== 'all' ||
+    filterStrategy !== 'all' ||
+    filterBizPriority !== 'all' ||
     filterHasGenie !== 'all';
 
   const clearAllFilters = () => {
@@ -1311,6 +1424,7 @@ export default function ResultsPage({
     setFilterPriority('all'); setFilterType('all'); setFilterTechnique('all');
     setFilterQuality('all');
     setFilterBeneficiary('all'); setFilterSponsor('all');
+    setFilterStrategy('all'); setFilterBizPriority('all');
     setFilterHasGenie('all');
   };
 
@@ -2431,6 +2545,21 @@ export default function ResultsPage({
           </div>
 
 
+          {v130Session && (
+            <>
+              <DataAccessBadge results={results} />
+              <div className="grid grid-cols-1 lg:grid-cols-3 items-start gap-3 mb-4">
+                <StrategyCoveragePanel
+                  coverage={results.strategy_coverage}
+                  onSelectPath={(path) => setFilterStrategy(path)}
+                  onSelectNotAligned={() => setFilterStrategy(NOT_ALIGNED_FILTER)}
+                />
+                <FoundationsPanel foundations={results.foundations} deliveryOrder={results.delivery_order} nameById={useCaseNameById} />
+                <FeedbackPanel results={results} feedback={feedbackState} />
+              </div>
+            </>
+          )}
+
           {/* ═══ Two-Column: sticky sidebar rail; use-case list scrolls independently in the right column ═══ */}
           <div className="flex items-stretch gap-5 min-h-0">
             {/* ── Left Sidebar: stays fixed in viewport while the card list scrolls (sticky + max height) ── */}
@@ -2580,172 +2709,64 @@ export default function ResultsPage({
                 )}
               </div>
 
+              {strategyFilter.withData > 0 && (
+                <SidebarFilterPanel
+                  title="Strategy"
+                  subtitle={`${strategyFilter.withData - strategyFilter.notAligned} aligned \u00b7 ${strategyFilter.notAligned} not aligned`}
+                  icon={Compass}
+                  open={strategyPanelOpen}
+                  onToggle={() => setStrategyPanelOpen((o) => !o)}
+                  allLabel="All use cases"
+                  allCount={allUseCases.length}
+                  options={strategyOptions}
+                  value={filterStrategy}
+                  onChange={setFilterStrategy}
+                />
+              )}
+
+              {bizPriorityOptions.length > 0 && (
+                <SidebarFilterPanel
+                  title="Business priorities"
+                  subtitle={`${bizPriorityOptions.length} of ${bizPriorities.length} priorities in use`}
+                  icon={Flag}
+                  open={bizPriorityPanelOpen}
+                  onToggle={() => setBizPriorityPanelOpen((o) => !o)}
+                  allLabel="All priorities"
+                  allCount={bizPriorityUseCases}
+                  options={bizPriorityOptions}
+                  value={filterBizPriority}
+                  onChange={setFilterBizPriority}
+                />
+              )}
+
               {beneficiaries.length > 0 && (
-                <div className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => setBeneficiaryPanelOpen((o) => !o)}
-                    className="flex w-full shrink-0 items-start gap-2 border-b border-border bg-gradient-to-b from-db-red-50 to-surface px-3 py-3 text-left transition-smooth hover:from-db-red-50/80"
-                  >
-                    <ChevronRight
-                      size={14}
-                      className={`mt-0.5 shrink-0 text-text-tertiary transition-transform duration-200 ${beneficiaryPanelOpen ? 'rotate-90' : ''}`}
-                    />
-                    <Users size={14} className="mt-0.5 shrink-0 text-db-red" />
-                    <div className="min-w-0 flex-1">
-                      <span className="text-xs font-bold text-text-primary">Beneficiaries</span>
-                      <p className="text-[10px] text-text-tertiary mt-0.5">
-                        {beneficiaries.length} role{beneficiaries.length !== 1 ? 's' : ''} &middot; who benefits
-                      </p>
-                      {!beneficiaryPanelOpen && filterBeneficiary !== 'all' && (
-                        <p className="mt-1 truncate text-[10px] font-medium text-db-red" title={filterBeneficiary}>
-                          Filter: {filterBeneficiary}
-                        </p>
-                      )}
-                    </div>
-                  </button>
-                  {beneficiaryPanelOpen && (
-                  <div className="p-1.5 space-y-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setFilterBeneficiary('all')}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-smooth ${
-                        filterBeneficiary === 'all'
-                          ? 'bg-db-red-50 border border-db-red/20'
-                          : 'hover:bg-bg-subtle border border-transparent'
-                      }`}
-                    >
-                      <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
-                        filterBeneficiary === 'all' ? 'bg-db-red/10' : 'bg-bg-subtle'
-                      }`}>
-                        <Users size={10} className={filterBeneficiary === 'all' ? 'text-db-red' : 'text-text-tertiary'} />
-                      </div>
-                      <span className={`text-[11px] font-semibold flex-1 truncate ${
-                        filterBeneficiary === 'all' ? 'text-db-red' : 'text-text-primary'
-                      }`}>
-                        All beneficiaries
-                      </span>
-                      <span className={`text-[10px] font-mono shrink-0 ${filterBeneficiary === 'all' ? 'text-db-red' : 'text-text-tertiary'}`}>
-                        {allUseCases.filter((uc) => beneficiaryFromUc(uc)).length}
-                      </span>
-                    </button>
-                    {beneficiaries.map((b) => {
-                      const count = beneficiaryCounts[b] || 0;
-                      const active = filterBeneficiary === b;
-                      return (
-                        <button
-                          key={b}
-                          type="button"
-                          onClick={() => setFilterBeneficiary(active ? 'all' : b)}
-                          className={`w-full flex items-start gap-2 px-3 py-2 rounded-lg text-left transition-smooth ${
-                            active
-                              ? 'bg-db-red-50 border border-db-red/20'
-                              : 'hover:bg-bg-subtle border border-transparent'
-                          }`}
-                        >
-                          <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                            active ? 'bg-db-red/10' : 'bg-bg-subtle'
-                          }`}>
-                            <Users size={10} className={active ? 'text-db-red' : 'text-text-tertiary'} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className={`text-[11px] font-semibold block truncate ${active ? 'text-db-red' : 'text-text-primary'}`}>
-                              {b}
-                            </span>
-                            <span className="text-[9px] text-text-tertiary font-mono mt-0.5 block">
-                              {count} use case{count !== 1 ? 's' : ''}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  )}
-                </div>
+                <SidebarFilterPanel
+                  title="Beneficiaries"
+                  subtitle={`${beneficiaries.length} role${beneficiaries.length !== 1 ? 's' : ''} \u00b7 who benefits`}
+                  icon={Users}
+                  open={beneficiaryPanelOpen}
+                  onToggle={() => setBeneficiaryPanelOpen((o) => !o)}
+                  allLabel="All beneficiaries"
+                  allCount={allUseCases.filter((uc) => beneficiaryFromUc(uc)).length}
+                  options={beneficiaries.map((b) => ({ value: b, label: b, count: beneficiaryCounts[b] || 0 }))}
+                  value={filterBeneficiary}
+                  onChange={setFilterBeneficiary}
+                />
               )}
 
               {sponsors.length > 0 && (
-                <div className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => setSponsorPanelOpen((o) => !o)}
-                    className="flex w-full shrink-0 items-start gap-2 border-b border-border bg-gradient-to-b from-db-red-50 to-surface px-3 py-3 text-left transition-smooth hover:from-db-red-50/80"
-                  >
-                    <ChevronRight
-                      size={14}
-                      className={`mt-0.5 shrink-0 text-text-tertiary transition-transform duration-200 ${sponsorPanelOpen ? 'rotate-90' : ''}`}
-                    />
-                    <Crown size={14} className="mt-0.5 shrink-0 text-db-red" />
-                    <div className="min-w-0 flex-1">
-                      <span className="text-xs font-bold text-text-primary">Sponsors</span>
-                      <p className="text-[10px] text-text-tertiary mt-0.5">
-                        {sponsors.length} sponsor{sponsors.length !== 1 ? 's' : ''} &middot; executive / owner
-                      </p>
-                      {!sponsorPanelOpen && filterSponsor !== 'all' && (
-                        <p className="mt-1 truncate text-[10px] font-medium text-db-red" title={filterSponsor}>
-                          Filter: {filterSponsor}
-                        </p>
-                      )}
-                    </div>
-                  </button>
-                  {sponsorPanelOpen && (
-                  <div className="p-1.5 space-y-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setFilterSponsor('all')}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-smooth ${
-                        filterSponsor === 'all'
-                          ? 'bg-db-red-50 border border-db-red/20'
-                          : 'hover:bg-bg-subtle border border-transparent'
-                      }`}
-                    >
-                      <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
-                        filterSponsor === 'all' ? 'bg-db-red/10' : 'bg-bg-subtle'
-                      }`}>
-                        <Crown size={10} className={filterSponsor === 'all' ? 'text-db-red' : 'text-text-tertiary'} />
-                      </div>
-                      <span className={`text-[11px] font-semibold flex-1 truncate ${
-                        filterSponsor === 'all' ? 'text-db-red' : 'text-text-primary'
-                      }`}>
-                        All sponsors
-                      </span>
-                      <span className={`text-[10px] font-mono shrink-0 ${filterSponsor === 'all' ? 'text-db-red' : 'text-text-tertiary'}`}>
-                        {allUseCases.filter((uc) => sponsorFromUc(uc)).length}
-                      </span>
-                    </button>
-                    {sponsors.map((sp) => {
-                      const count = sponsorCounts[sp] || 0;
-                      const active = filterSponsor === sp;
-                      return (
-                        <button
-                          key={sp}
-                          type="button"
-                          onClick={() => setFilterSponsor(active ? 'all' : sp)}
-                          className={`w-full flex items-start gap-2 px-3 py-2 rounded-lg text-left transition-smooth ${
-                            active
-                              ? 'bg-db-red-50 border border-db-red/20'
-                              : 'hover:bg-bg-subtle border border-transparent'
-                          }`}
-                        >
-                          <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                            active ? 'bg-db-red/10' : 'bg-bg-subtle'
-                          }`}>
-                            <Crown size={10} className={active ? 'text-db-red' : 'text-text-tertiary'} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className={`text-[11px] font-semibold block truncate ${active ? 'text-db-red' : 'text-text-primary'}`}>
-                              {sp}
-                            </span>
-                            <span className="text-[9px] text-text-tertiary font-mono mt-0.5 block">
-                              {count} use case{count !== 1 ? 's' : ''}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  )}
-                </div>
+                <SidebarFilterPanel
+                  title="Sponsors"
+                  subtitle={`${sponsors.length} sponsor${sponsors.length !== 1 ? 's' : ''} \u00b7 executive / owner`}
+                  icon={Crown}
+                  open={sponsorPanelOpen}
+                  onToggle={() => setSponsorPanelOpen((o) => !o)}
+                  allLabel="All sponsors"
+                  allCount={allUseCases.filter((uc) => sponsorFromUc(uc)).length}
+                  options={sponsors.map((sp) => ({ value: sp, label: sp, count: sponsorCounts[sp] || 0 }))}
+                  value={filterSponsor}
+                  onChange={setFilterSponsor}
+                />
               )}
             </div>
 
@@ -3188,6 +3209,14 @@ export default function ResultsPage({
                         databricksHost={databricksHost}
                         generationPath={generationPath}
                         allNotebookFiles={allNotebookFiles}
+                        v130={uc._v130}
+                        knownPriorities={bizPriorities}
+                        foundationsById={foundationsById}
+                        feedbackAvailable={feedbackState.available}
+                        feedbackCurrent={uc._v130?.useCaseKey ? feedbackLatest[uc._v130.useCaseKey] : undefined}
+                        feedbackBusy={!!uc._v130?.useCaseKey && feedbackBusyKey === uc._v130.useCaseKey}
+                        feedbackError={uc._v130?.useCaseKey && feedbackError.key === uc._v130.useCaseKey ? feedbackError.message : ''}
+                        onFeedback={(status, reason) => submitFeedback(uc, uc._v130, status, reason)}
                       />
                       );
                     })}
@@ -3313,6 +3342,14 @@ function UseCaseCard({
   databricksHost,
   generationPath,
   allNotebookFiles,
+  v130 = null,
+  knownPriorities: priorityList = [],
+  foundationsById,
+  feedbackAvailable = null,
+  feedbackCurrent,
+  feedbackBusy = false,
+  feedbackError = '',
+  onFeedback,
 }) {
   const [notebookContent, setNotebookContent] = useState(null);
   const [notebookLoading, setNotebookLoading] = useState(false);
@@ -3599,6 +3636,8 @@ function UseCaseCard({
             )}
           </div>
           <div className="flex items-center gap-2 flex-wrap mt-2">
+            <StrategyChip info={v130} />
+            <FeedbackChip status={feedbackCurrent?.status || v130?.feedbackStatus} />
             {showPriorityPill && (
               <span
                 className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${priorityStyle}`}
@@ -3671,6 +3710,8 @@ function UseCaseCard({
               </p>
             </div>
           )}
+
+          <UseCaseStrategyDetail info={v130} knownPriorities={priorityList} foundationsById={foundationsById} />
 
           {/* Detail chips */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px]">
@@ -3812,6 +3853,17 @@ function UseCaseCard({
                 </div>
               )}
             </div>
+          )}
+
+          {typeof onFeedback === 'function' && (
+            <FeedbackControls
+              useCaseKey={v130?.useCaseKey}
+              available={feedbackAvailable}
+              current={feedbackCurrent}
+              busy={feedbackBusy}
+              error={feedbackError}
+              onSubmit={onFeedback}
+            />
           )}
         </div>
       )}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Play,
   Loader2,
@@ -544,12 +544,18 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     }
   };
 
+  const strategicContextText = params['10_strategic_context'];
+  const strategicContextRef = useRef(strategicContextText);
+  useEffect(() => {
+    strategicContextRef.current = strategicContextText;
+  }, [strategicContextText]);
+  const [strategyEditorKey, setStrategyEditorKey] = useState(0);
+
   const handleStrategyChange = useCallback((value) => {
-    setParams((p) => {
-      if (p['10_strategic_context'] === value) return p;
-      setStrategyTouched(true);
-      return { ...p, '10_strategic_context': value };
-    });
+    if (strategicContextRef.current === value) return;
+    strategicContextRef.current = value;
+    setStrategyTouched(true);
+    setParams((p) => ({ ...p, '10_strategic_context': value }));
   }, []);
 
   // Prefill the discovery type and strategy from the same business's last session (v1.3.0 columns).
@@ -572,6 +578,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
         if (!strategyTouched && wv.strategic_context) next['10_strategic_context'] = wv.strategic_context;
         if (Object.keys(next).length) {
           setParams((p) => ({ ...p, ...next }));
+          if (next['10_strategic_context'] !== undefined) setStrategyEditorKey((k) => k + 1);
           setPrefillNote(`Prefilled from this business's last session (${match.session_id}).`);
         }
       } catch {
@@ -584,14 +591,8 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     };
   }, [params['00_business_name'], sessionsList, warehouseId, previewDb]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const strategyProblems = useMemo(
-    () => validateStrategicContextText(params['10_strategic_context']),
-    [params['10_strategic_context']],
-  );
-  const strategyPriorities = useMemo(
-    () => parseStrategicContext(params['10_strategic_context']).model.priorities,
-    [params['10_strategic_context']],
-  );
+  const strategyProblems = useMemo(() => validateStrategicContextText(strategicContextText), [strategicContextText]);
+  const strategyPriorities = useMemo(() => parseStrategicContext(strategicContextText).model.priorities, [strategicContextText]);
 
   // Launch
   const handleLaunch = async () => {
@@ -1364,6 +1365,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                 {showStrategy && (
                   <div className="px-4 pb-4 pt-1 border-t border-border">
                     <StrategyEditor
+                      key={strategyEditorKey}
                       value={params['10_strategic_context']}
                       onChange={handleStrategyChange}
                       prioritySuggestions={BUSINESS_PRIORITIES.map((bp) => bp.key)}

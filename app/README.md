@@ -11,6 +11,7 @@ Customers do **not** need this README — they run **`../installer_workspace.py`
 - **Strategic Context:** widget `10_strategic_context` (inline JSON or `/` path, at most 900000 bytes), edited in Launch → Advanced Settings → Strategy and organization
 - **Feedback:** `POST /api/inspire/feedback` and `GET /api/inspire/feedback` on `__inspire_feedback` (created by the agent); every value is a bound parameter
 - **Tracking:** the 10 v1.3.0 `__inspire_usecases` columns are nullable; older sessions render as before
+- **Results:** strategy filter at any depth (with a Not aligned bucket) and a business-priority filter; strategy coverage with gaps; data foundations and build order; data access summary (Deep lists the tables read, Standard reads no data); per use case strategy evidence, KPIs with baselines, key results, measures, benefits, data evidence and feedback controls. Monitor shows the run's discovery type and strategy
 - **Quality:** widget `05_use_cases_quality` = Good / High / Ultra High (legacy labels mapped in `inspireJobParams.js`)
 - **Genie:** `13_generate_genie_code_for` only; persistent per-notebook jobs; pass `dbx_inspire_ai_child_run=1` if you trigger those jobs yourself
 - **Tracking:** `__inspire_usecases` quality/elite/selection_flags columns are nullable; below-bar flags are valid results
