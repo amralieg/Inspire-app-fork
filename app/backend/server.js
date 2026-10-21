@@ -23,6 +23,7 @@ const {
   normalizeV130UseCaseFields,
 } = require('./lib/inspireJobParams');
 const { notebookParamsFromSessionForGenerateRun } = require('./lib/inspireSessionParams');
+const { splitInspireDatabase, isTimestampText, stepsStatement } = require('./lib/sqlInputs');
 const {
   FEEDBACK_NOT_AVAILABLE,
   isMissingTableError,
@@ -586,14 +587,6 @@ function sqlResultToObjects(result) {
 /** Session ids are interpolated into SQL; anything but digits is refused before a statement is built. */
 function invalidSessionId(sessionId) {
   return sessionId != null && String(sessionId).trim() !== '' && !/^\d+$/.test(String(sessionId).trim());
-}
-
-function splitInspireDatabase(inspire_database) {
-  if (!inspire_database || typeof inspire_database !== 'string') return null;
-  const s = inspire_database.trim();
-  const parts = s.split('.');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-  return { catalog: parts[0], schema: parts[1] };
 }
 
 function escapeSqlStringLiteral(value) {
@@ -2294,17 +2287,11 @@ app.get('/api/inspire/steps', requireToken, async (req, res) => {
     }
     const { catalog, schema } = parsedDb;
     const table = `\`${catalog}\`.\`${schema}\`.\`__inspire_step\``;
-
-    let sql;
-    if (session_id && since) {
-      sql = `SELECT step_id, session_id, last_updated, stage_name, step_name, sub_step_name, progress_increment, message, status, result_json FROM ${table} WHERE session_id = ${session_id} AND last_updated > '${since}' ORDER BY last_updated, step_id`;
-    } else if (session_id) {
-      sql = `SELECT step_id, session_id, last_updated, stage_name, step_name, sub_step_name, progress_increment, message, status, result_json FROM ${table} WHERE session_id = ${session_id} ORDER BY last_updated, step_id`;
-    } else {
-      sql = `SELECT step_id, session_id, last_updated, stage_name, step_name, sub_step_name, progress_increment, message, status, result_json FROM ${table} ORDER BY last_updated DESC, step_id DESC LIMIT 100`;
+    if (since && !isTimestampText(since)) {
+      return res.status(400).json({ error: 'since must be a timestamp such as 2026-01-31T12:00:00.000Z.' });
     }
-
-    const result = await executeSql(req.dbHost, req.dbToken, warehouse_id, sql);
+    const statement = stepsStatement(table, session_id, since);
+    const result = await executeSql(req.dbHost, req.dbToken, warehouse_id, statement.sql, statement.parameters);
     const steps = sqlResultToObjects(result);
 
     // Parse result_json and progress_increment for each step
