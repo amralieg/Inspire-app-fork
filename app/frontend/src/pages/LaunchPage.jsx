@@ -35,12 +35,28 @@ import {
   Sparkles,
 } from 'lucide-react';
 import DocumentLanguagesMultiselect from '../components/DocumentLanguagesMultiselect';
+import StrategyEditor from '../components/StrategyEditor';
+import { parseStrategicContext, validateStrategicContextText } from '../lib/strategyContext';
 import UcPermissionErrorHelp from '../components/UcPermissionErrorHelp';
 import { parseDocumentLanguages, formatDocumentLanguages } from '../constants/documentLanguages';
 import { interpretUcPermissionError, parseApiErrorMessage } from '../lib/ucPermissionErrors';
 
 /* ─── Constants — notebook v1.2.0 widget `05_use_cases_quality` ─── */
 const QUALITY_OPTIONS = ['Good', 'High', 'Ultra High'];
+
+/* ─── Constants — notebook v1.3.0 widget `03_discovery_type` ─── */
+const DISCOVERY_OPTIONS = [
+  {
+    key: 'Deep',
+    icon: Eye,
+    desc: 'Reads aggregates over your tables: row counts, date coverage, null rates and join match rates. Never sends a data row to the AI and never reads the values of personal columns.',
+  },
+  {
+    key: 'Standard',
+    icon: Lock,
+    desc: 'Reads metadata only. Never reads a row of your data.',
+  },
+];
 const TABLE_ELECTION = ['Let Inspire Decides', 'All Tables', 'Transactional Only'];
 /** Show guidance when explicit table selection exceeds this count. */
 const TABLE_SELECTION_WARN_THRESHOLD = 10;
@@ -163,12 +179,14 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     '00_business_name': '',
     '01_uc_metadata': '',
     '02_inspire_database': inspireDatabase || '',
+    '03_discovery_type': 'Deep',
     '04_table_election': 'Let Inspire Decides',
     '05_use_cases_quality': 'Good',
     '06_business_domains': '',
     '07_business_priorities': '',
     '08_generation_instructions': '',
     '09_generation_options': 'PDF Catalog',
+    '10_strategic_context': '',
     '11_generation_path': './../demos/',
     '12_documents_languages': 'English',
     '13_generate_genie_code_for': '5',
@@ -196,6 +214,10 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
   const [launchError, setLaunchError] = useState('');
   const [catalogBrowseError, setCatalogBrowseError] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showStrategy, setShowStrategy] = useState(false);
+  const [discoveryTouched, setDiscoveryTouched] = useState(false);
+  const [strategyTouched, setStrategyTouched] = useState(false);
+  const [prefillNote, setPrefillNote] = useState('');
 
   const [sessionsList, setSessionsList] = useState([]);
   const [overviewLoading, setOverviewLoading] = useState(false);
@@ -522,6 +544,55 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     }
   };
 
+  const handleStrategyChange = useCallback((value) => {
+    setParams((p) => {
+      if (p['10_strategic_context'] === value) return p;
+      setStrategyTouched(true);
+      return { ...p, '10_strategic_context': value };
+    });
+  }, []);
+
+  // Prefill the discovery type and strategy from the same business's last session (v1.3.0 columns).
+  useEffect(() => {
+    const name = String(params['00_business_name'] || '').trim().toLowerCase();
+    if (!name || !warehouseId || !previewDb || (discoveryTouched && strategyTouched)) return undefined;
+    const match = sessionsList.find((s) => String(s.business_name || '').trim().toLowerCase() === name);
+    if (!match) return undefined;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const q = new URLSearchParams({ inspire_database: previewDb, warehouse_id: warehouseId, session_id: String(match.session_id) });
+        const data = await apiFetch(`/api/inspire/session?${q}`);
+        if (cancelled) return;
+        const wv = data?.session?.widget_values || {};
+        const next = {};
+        if (!discoveryTouched && (wv.discovery_type === 'Deep' || wv.discovery_type === 'Standard')) {
+          next['03_discovery_type'] = wv.discovery_type;
+        }
+        if (!strategyTouched && wv.strategic_context) next['10_strategic_context'] = wv.strategic_context;
+        if (Object.keys(next).length) {
+          setParams((p) => ({ ...p, ...next }));
+          setPrefillNote(`Prefilled from this business's last session (${match.session_id}).`);
+        }
+      } catch {
+        // Prefill is a convenience; the defaults stay when the session cannot be read.
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [params['00_business_name'], sessionsList, warehouseId, previewDb]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const strategyProblems = useMemo(
+    () => validateStrategicContextText(params['10_strategic_context']),
+    [params['10_strategic_context']],
+  );
+  const strategyPriorities = useMemo(
+    () => parseStrategicContext(params['10_strategic_context']).model.priorities,
+    [params['10_strategic_context']],
+  );
+
   // Launch
   const handleLaunch = async () => {
     if (!params['00_business_name'])
@@ -530,6 +601,8 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
       return setLaunchError('Inspire Database is required. Set it in Settings.');
     if (!params['01_uc_metadata'])
       return setLaunchError('Select at least one catalog, schema, or table for UC Metadata.');
+    if (strategyProblems.length)
+      return setLaunchError(`Fix the strategic context first (Advanced → Strategy and organization): ${strategyProblems[0]}`);
 
     const genOpts = params['09_generation_options'] || '';
     const needsDocLang =
@@ -600,7 +673,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
 
   // Validation state
   const effectiveDb = params['02_inspire_database'] || inspireDatabase;
-  const canLaunch = params['00_business_name'] && effectiveDb && params['01_uc_metadata'];
+  const canLaunch = params['00_business_name'] && effectiveDb && params['01_uc_metadata'] && strategyProblems.length === 0;
 
   const launchErrorGuidance = useMemo(
     () => (launchError
@@ -1142,6 +1215,38 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
               </div>
             </FieldSection>
 
+            {/* Discovery Type — v1.3.0 widget 03_discovery_type */}
+            <FieldSection label="Discovery Type" hint="Widget 03_discovery_type — whether Inspire may read your data">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {DISCOVERY_OPTIONS.map((opt) => {
+                  const active = params['03_discovery_type'] === opt.key;
+                  const Icon = opt.icon;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => {
+                        setDiscoveryTouched(true);
+                        updateParam('03_discovery_type', opt.key);
+                      }}
+                      className={`relative p-3 rounded-xl text-left transition-smooth border ${
+                        active ? 'border-db-red/30 bg-db-red-50 shadow-sm' : 'border-border hover:border-border-strong'
+                      }`}
+                    >
+                      <span className={`flex items-center gap-1.5 text-xs font-semibold ${active ? 'text-db-red' : 'text-text-primary'}`}>
+                        <Icon size={13} className={active ? 'text-db-red' : 'text-text-tertiary'} />
+                        {opt.key}
+                        {opt.key === 'Deep' && <span className="text-[10px] font-normal text-text-tertiary">(default)</span>}
+                      </span>
+                      <p className="text-[10px] text-text-tertiary leading-snug mt-1">{opt.desc}</p>
+                      {active && <CheckCircle2 size={14} className="absolute top-2.5 right-2.5 text-db-red" />}
+                    </button>
+                  );
+                })}
+              </div>
+              {prefillNote && <p className="text-[10px] text-text-tertiary mt-1.5">{prefillNote}</p>}
+            </FieldSection>
+
           </div>
         </section>
 
@@ -1191,7 +1296,10 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
               </FieldSection>
 
               {/* Business Priorities */}
-              <FieldSection label="Business Priorities" hint="Select what matters most">
+              <FieldSection
+                label="Business Priorities"
+                hint={strategyPriorities.length ? 'Overridden by strategy priorities (Strategy and organization)' : 'Select what matters most'}
+              >
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                   {BUSINESS_PRIORITIES.map((bp) => {
                     const active = !!priorityChecks[bp.key];
@@ -1230,6 +1338,39 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                   />
                 </div>
               </FieldSection>
+
+              {/* Strategy and organization — v1.3.0 widget 10_strategic_context */}
+              <div className="border border-border rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowStrategy(!showStrategy)}
+                  className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-bg-subtle/50 transition-smooth"
+                >
+                  <Target size={14} className="text-text-tertiary" />
+                  <span className="text-xs font-bold text-text-primary">Strategy and organization</span>
+                  <span className="text-[10px] text-text-tertiary">
+                    Optional · widget 10_strategic_context · aligns and orders results after discovery
+                  </span>
+                  {params['10_strategic_context'] && (
+                    <span className={`ml-auto text-[10px] font-semibold ${strategyProblems.length ? 'text-db-red' : 'text-success'}`}>
+                      {strategyProblems.length ? `${strategyProblems.length} problem${strategyProblems.length > 1 ? 's' : ''}` : 'Set'}
+                    </span>
+                  )}
+                  <ChevronDown
+                    size={14}
+                    className={`text-text-tertiary transition-transform duration-200 ${params['10_strategic_context'] ? '' : 'ml-auto'} ${showStrategy ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {showStrategy && (
+                  <div className="px-4 pb-4 pt-1 border-t border-border">
+                    <StrategyEditor
+                      value={params['10_strategic_context']}
+                      onChange={handleStrategyChange}
+                      prioritySuggestions={BUSINESS_PRIORITIES.map((bp) => bp.key)}
+                    />
+                  </div>
+                )}
+              </div>
 
               {/* Generation Options */}
               <Field
@@ -1395,6 +1536,10 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
               </Chip>
             )}
             <Chip icon={<Sliders size={10} />}>{params['05_use_cases_quality']}</Chip>
+            <Chip icon={params['03_discovery_type'] === 'Standard' ? <Lock size={10} /> : <Eye size={10} />}>
+              {params['03_discovery_type'] || 'Deep'}
+            </Chip>
+            {params['10_strategic_context'] && <Chip icon={<Target size={10} />}>Strategy set</Chip>}
             <Chip icon={<Bot size={10} />}>
               Genie:{' '}
               {String(params['13_generate_genie_code_for'] || '').trim() === '0'
