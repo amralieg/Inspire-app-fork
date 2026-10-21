@@ -25,7 +25,6 @@ function Bullets({ items }) {
   );
 }
 
-/** Header chip: the first strategy path, or Not aligned for a v1.3.0 use case without one. */
 export function StrategyChip({ info }) {
   if (!info?.hasStrategyData) return null;
   if (!info.paths.length) {

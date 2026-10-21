@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { ChevronRight, Compass, Eye, Layers, Lock, MessageSquareText } from 'lucide-react';
 import { STRATEGY_PATH_SEPARATOR, dataAccessSummary, feedbackLabel, formatBaseline } from '../lib/v130UseCase';
 
-/** Collapsible sidebar filter list shared by the beneficiary, sponsor, strategy and priority filters. */
 export function SidebarFilterPanel({ title, subtitle, icon, open, onToggle, allLabel, allCount, options, value, onChange }) {
   const Icon = icon;
   const selected = options.find((o) => o.value === value);

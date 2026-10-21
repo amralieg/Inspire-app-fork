@@ -1,7 +1,3 @@
-/**
- * Strategic Context (agent v1.3.0, widget 10_strategic_context): the editor model, the agent's
- * validation rules (parse_strategic_context) and the JSON the widget carries.
- */
 export const STRATEGY_SCHEMA_VERSION = 1;
 export const STRATEGY_MAX_DEPTH = 4;
 export const STRATEGY_MAX_ENTRIES = 200;
@@ -57,10 +53,6 @@ function toEntry(raw) {
   };
 }
 
-/**
- * Widget text → { mode: 'empty' | 'path' | 'tree', model, path, error }. A session's stored tree
- * (ids, level names on entries, source) reads back as the same tree.
- */
 export function parseStrategicContext(widgetText) {
   const raw = text(widgetText);
   if (!raw) return { mode: 'empty', model: emptyStrategy(), path: '', error: null };
@@ -105,7 +97,6 @@ export function isEmptyStrategy(model) {
   return !m.strategy.length && !m.priorities.length && !m.sponsors.length && !Object.values(m.labels || {}).some(Boolean);
 }
 
-/** The agent's input JSON, compact; '' for an empty editor. */
 export function serializeStrategy(model) {
   if (isEmptyStrategy(model)) return '';
   const entry = (n) => {
@@ -162,7 +153,6 @@ const nameProblem = (value, what) => {
   return null;
 };
 
-/** Problems the agent would stop the run for; an empty list means the agent accepts it. */
 export function validateStrategy(model) {
   const problems = [];
   const levels = model.levels.map(text);
@@ -215,7 +205,6 @@ export function validateStrategy(model) {
   return problems;
 }
 
-/** Validation for the widget text itself, whatever the editor mode. */
 export function validateStrategicContextText(widgetText) {
   const parsed = parseStrategicContext(widgetText);
   if (parsed.error) return [parsed.error];

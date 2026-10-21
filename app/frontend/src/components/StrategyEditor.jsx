@@ -166,10 +166,6 @@ function EntryEditor({ entry, depth, levels, onChange, onRemove }) {
   );
 }
 
-/**
- * Strategy and organization editor for widget 10_strategic_context. Emits the widget text (compact JSON,
- * a path, or '' when empty) and the problems the agent would stop the run for.
- */
 export default function StrategyEditor({ value, onChange, onProblems, prioritySuggestions = [] }) {
   const [initial] = useState(() => parseStrategicContext(value));
   const [mode, setMode] = useState(initial.mode === 'path' ? 'path' : 'tree');

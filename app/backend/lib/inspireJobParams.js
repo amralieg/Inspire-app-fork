@@ -1,6 +1,6 @@
 const INSPIRE_AGENT_VERSION = 'v1.3.0';
 
-/** Notebook widget keys for dbx_inspire_ai_agent job base_parameters (v1.3.0, in the notebook's order). */
+/** Notebook widget keys for dbx_inspire_ai_agent job base_parameters (v1.3.0). */
 const INSPIRE_NOTEBOOK_WIDGET_KEYS = [
   '15_operation',
   '00_business_name',
@@ -23,11 +23,9 @@ const INSPIRE_NOTEBOOK_WIDGET_KEYS = [
 const USE_CASES_QUALITY_VALID = ['Good', 'High', 'Ultra High'];
 const USE_CASES_QUALITY_DEFAULT = 'Good';
 
-/** Discovery Type (v1.3.0): Deep may read aggregates; Standard never reads data. */
 const DISCOVERY_TYPE_VALID = ['Deep', 'Standard'];
 const DISCOVERY_TYPE_DEFAULT = 'Deep';
 
-/** Same cap as the agent's STRATEGY_MAX_INLINE_BYTES; keeps base_parameters under the 1 MB job limit. */
 const STRATEGIC_CONTEXT_MAX_BYTES = 900000;
 
 /** Legacy widget labels → v1.2.0 canonical modes (matches notebook USE_CASES_QUALITY_ALIASES). */
@@ -72,7 +70,6 @@ function normalizeUseCasesQualityParams(params) {
   return params;
 }
 
-/** Empty means Deep. An unknown value is refused, never mapped: a mistyped Standard must not read data. */
 function normalizeDiscoveryTypeParams(params) {
   const raw = String(params['03_discovery_type'] ?? '').trim();
   if (!raw) {
@@ -182,7 +179,6 @@ function belowBarLabelFromUseCase(uc) {
   return '';
 }
 
-/** v1.3.0 __inspire_usecases columns; NULL on rows written by older agents. */
 const V130_JSON_FIELDS = ['strategy_alignment', 'kpis', 'expected_key_results', 'data_evidence'];
 const V130_LINE_FIELDS = ['measures_of_success', 'financial_benefits', 'non_financial_benefits'];
 
@@ -194,7 +190,6 @@ function splitText(value, separator) {
     .filter(Boolean);
 }
 
-/** JSON columns parsed (null when absent or invalid), line columns as arrays, ids as an array. */
 function normalizeV130UseCaseFields(row) {
   for (const field of V130_JSON_FIELDS) row[field] = parseMaybeJson(row[field]);
   for (const field of V130_LINE_FIELDS) row[field] = splitText(row[field], '\n');

@@ -1,4 +1,3 @@
-/** Use case feedback (v1.3.0) on <inspire_database>.__inspire_feedback, created and read by the agent. */
 const FEEDBACK_STATUSES = ['accepted', 'rejected', 'planned', 'implemented'];
 const FEEDBACK_NOT_AVAILABLE =
   'Feedback not available: the __inspire_feedback table is created by the Inspire agent on its first v1.3.0 run.';
@@ -16,7 +15,6 @@ function isMissingTableError(err) {
   return msg.includes('TABLE_OR_VIEW_NOT_FOUND') || msg.includes('does not exist');
 }
 
-/** Validated feedback values; throws a 400 error for invalid input. */
 function validateFeedbackBody(body) {
   const input = body || {};
   const sessionId = String(input.session_id ?? '').trim();
@@ -39,7 +37,6 @@ function validateFeedbackBody(body) {
   };
 }
 
-/** INSERT with every user value bound as a statement parameter. */
 function feedbackInsertStatement(table, values, businessName, updatedBy) {
   return {
     sql:
@@ -75,7 +72,6 @@ function feedbackHistoryStatement(table, businessName) {
   };
 }
 
-/** The newest row per use_case_key, from rows ordered newest first. */
 function latestFeedbackByKey(history) {
   const latest = new Map();
   for (const row of history || []) {

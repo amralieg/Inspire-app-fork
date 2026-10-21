@@ -584,7 +584,6 @@ function sqlResultToObjects(result) {
 }
 
 /** inspire_database must be exactly `catalog_name`.`schema_name` (one dot). */
-/** Session ids are interpolated into SQL; anything but digits is refused before a statement is built. */
 function invalidSessionId(sessionId) {
   return sessionId != null && String(sessionId).trim() !== '' && !/^\d+$/.test(String(sessionId).trim());
 }
@@ -2610,7 +2609,6 @@ function feedbackTables(inspire_database) {
   return { feedback: `${prefix}.\`__inspire_feedback\``, session: `${prefix}.\`__inspire_session\`` };
 }
 
-// Feedback (v1.3.0): one row per decision; the agent reads the latest row per use_case_key on its next run.
 app.post('/api/inspire/feedback', requireToken, async (req, res) => {
   try {
     const { inspire_database, warehouse_id } = req.body || {};

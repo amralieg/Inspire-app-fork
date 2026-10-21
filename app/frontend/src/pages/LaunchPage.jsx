@@ -44,7 +44,6 @@ import { interpretUcPermissionError, parseApiErrorMessage } from '../lib/ucPermi
 /* ─── Constants — notebook v1.2.0 widget `05_use_cases_quality` ─── */
 const QUALITY_OPTIONS = ['Good', 'High', 'Ultra High'];
 
-/* ─── Constants — notebook v1.3.0 widget `03_discovery_type` ─── */
 const DISCOVERY_OPTIONS = [
   {
     key: 'Deep',
@@ -558,7 +557,6 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     setParams((p) => ({ ...p, '10_strategic_context': value }));
   }, []);
 
-  // Prefill the discovery type and strategy from the same business's last session (v1.3.0 columns).
   useEffect(() => {
     const name = String(params['00_business_name'] || '').trim().toLowerCase();
     if (!name || !warehouseId || !previewDb || (discoveryTouched && strategyTouched)) return undefined;
@@ -582,7 +580,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
           setPrefillNote(`Prefilled from this business's last session (${match.session_id}).`);
         }
       } catch {
-        // Prefill is a convenience; the defaults stay when the session cannot be read.
+        if (!cancelled) setPrefillNote('');
       }
     }, 600);
     return () => {
@@ -1578,6 +1576,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     </div>
   );
 }
+
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    Reusable form primitives

@@ -920,6 +920,7 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
   );
 }
 
+
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    Sub-components
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
@@ -1174,7 +1175,6 @@ function ResultJsonDisplay({ resultJson }) {
   return null;
 }
 
-/** Discovery type and strategy of the run (v1.3.0 session columns); nothing for older sessions. */
 function RunSetupSummary({ widgetValues }) {
   const discovery = String(widgetValues?.discovery_type || '').trim();
   const strategyText = String(widgetValues?.strategic_context || '').trim();

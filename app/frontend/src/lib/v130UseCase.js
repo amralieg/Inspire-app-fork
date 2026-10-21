@@ -44,7 +44,6 @@ function pick(uc, displayKey, trackingKey) {
   return isBlank(uc[displayKey]) ? uc[trackingKey] : uc[displayKey];
 }
 
-/** Copy the v1.3.0 tracking-table fields onto a results_json use case that lacks them. */
 export function copyV130TrackingFields(uc, row) {
   if (!uc || !row) return uc;
   for (const field of V130_TRACKING_FIELDS) {
@@ -53,7 +52,6 @@ export function copyV130TrackingFields(uc, row) {
   return uc;
 }
 
-/** The v1.3.0 view of one use case, from results_json keys or tracking-table columns. */
 export function v130View(uc) {
   const u = uc && typeof uc === 'object' ? uc : {};
   const alignments = objectList(pick(u, 'Strategy Alignment', 'strategy_alignment'))
@@ -102,14 +100,12 @@ export function strategyPathPrefixes(path) {
   return parts.map((_, i) => parts.slice(0, i + 1).join(STRATEGY_PATH_SEPARATOR));
 }
 
-/** A use case matches a strategy entry when it is aligned to the entry or to anything below it. */
 export function matchesStrategyFilter(info, filter) {
   if (!filter || filter === 'all') return true;
   if (filter === NOT_ALIGNED_FILTER) return !!info?.notAligned;
   return (info?.paths || []).some((p) => p === filter || p.startsWith(filter + STRATEGY_PATH_SEPARATOR));
 }
 
-/** Filter options at every depth, in strategy order when the coverage report is present. */
 export function strategyFilterOptions(infos, coverageEntries) {
   const counts = new Map();
   let notAligned = 0;
@@ -145,7 +141,6 @@ export function strategyFilterOptions(infos, coverageEntries) {
   return { options, notAligned, withData };
 }
 
-/** The business priorities of the run: the coverage report first, else the strategic context. */
 export function knownPriorities(results) {
   const fromCoverage = (results?.strategy_coverage?.priorities || [])
     .map((p) => String(p?.priority ?? '').trim()).filter(Boolean);
@@ -153,7 +148,6 @@ export function knownPriorities(results) {
   return (results?.strategic_context?.priorities || []).map((p) => String(p ?? '').trim()).filter(Boolean);
 }
 
-/** The known priorities named in a comma-joined alignment, matched whole so a comma inside a name is safe. */
 export function priorityMatches(text, known) {
   const value = String(text || '').trim();
   if (!value || value === STRATEGY_BUILTIN_NO_MATCH || !known?.length) return [];
@@ -174,7 +168,6 @@ export function kpiDirectionArrow(direction) {
 const WHOLE_FORMAT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0, roundingMode: 'halfEven' });
 const DECIMAL_FORMAT = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2, roundingMode: 'halfEven' });
 
-/** The agent's baseline number format (Python rounds halves to even): whole numbers and values of 1,000 or more without decimals. */
 export function formatBaseline(value) {
   const v = Number(value);
   if (!Number.isFinite(v)) return '';
@@ -190,7 +183,6 @@ function finiteNumber(value) {
   return null;
 }
 
-/** The same KPI line the agent writes into the PDF, deck and Excel. */
 export function kpiText(spec) {
   const name = String(spec?.name ?? '').trim();
   if (!name) return '';
@@ -230,7 +222,6 @@ export function latestFeedbackMap(latest) {
   return map;
 }
 
-/** Data access summary for the session header: Deep lists what it read, Standard reads nothing. */
 export function dataAccessSummary(results) {
   const type = String(results?.discovery_type || '').trim();
   if (!type) return null;

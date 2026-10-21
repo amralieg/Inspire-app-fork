@@ -1,10 +1,7 @@
-/** Request inputs that reach SQL. Identifiers are quoted with backticks, so a part that contains a backtick
- * or a control character is refused instead of escaped; values are always bound statement parameters. */
 
 const UNSAFE_IDENTIFIER_RE = /[`\u0000-\u001f\u007f]/;
 const SINCE_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:?\d{2})?$/;
 
-/** catalog.schema from the inspire_database input, or null when it is not exactly two safe parts. */
 function splitInspireDatabase(inspire_database) {
   if (!inspire_database || typeof inspire_database !== 'string') return null;
   const parts = inspire_database.trim().split('.');
@@ -20,7 +17,6 @@ function isTimestampText(value) {
 const STEP_COLUMNS =
   'step_id, session_id, last_updated, stage_name, step_name, sub_step_name, progress_increment, message, status, result_json';
 
-/** The step-delta query; session_id must already be validated as digits, since is bound. */
 function stepsStatement(table, sessionId, since) {
   if (sessionId && since) {
     return {
