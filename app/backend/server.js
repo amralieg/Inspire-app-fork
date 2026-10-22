@@ -16,6 +16,7 @@ const { stripAiDemoDisclaimerHtml, stripDisclaimerDeep } = require('./stripAiDis
 const { TEMPLATE_META } = require('./lib/demoDataService');
 const { triggerDemoDataPipeline } = require('./lib/demoDataPipeline');
 const { resolveInspireAppServicePrincipalId } = require('./lib/inspireSpGrants');
+const { createGenieJobGuard } = require('./lib/genieJobGuard');
 const {
   INSPIRE_AGENT_VERSION,
   normalizeUseCasesQualityParams,
@@ -2652,6 +2653,16 @@ app.get('/api/inspire/feedback', requireToken, async (req, res) => {
  * Route 1: set generate_genie_code_instruction = 'Yes' for selected UC ids, then submit
  * notebook job with 15_operation = Generate Use Cases and 14_session_id = session.
  */
+const genieJobGuard = createGenieJobGuard();
+
+async function genieRunState(host, token, runId) {
+  if (!runId) return null;
+  const resp = await dbFetch(host, token, `/api/2.1/jobs/runs/get?run_id=${encodeURIComponent(runId)}`);
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  return data?.state?.life_cycle_state || null;
+}
+
 async function handleInspireGenerateGenie(req, res) {
   try {
     const {
@@ -2717,22 +2728,37 @@ async function handleInspireGenerateGenie(req, res) {
       });
     }
 
-    await runRoute1GenieFlagUpdates(
-      req.dbHost,
-      req.dbToken,
-      warehouse_id,
-      catalog,
-      schema,
-      sidStr,
-      safeIds,
-    );
+    const claim = await genieJobGuard.claim(sidStr, (runId) => genieRunState(req.dbHost, req.dbToken, runId));
+    if (!claim.ok) {
+      return res.status(409).json({
+        error: 'A Genie job for this session is already starting or running. Wait for it to finish, then run it again.',
+        run_id: claim.entry?.run_id || null,
+        job_run_url: claim.entry?.job_run_url || null,
+      });
+    }
+    let out;
+    try {
+      await runRoute1GenieFlagUpdates(
+        req.dbHost,
+        req.dbToken,
+        warehouse_id,
+        catalog,
+        schema,
+        sidStr,
+        safeIds,
+      );
 
-    const out = await triggerInspireNotebookJob(req.dbHost, req.dbToken, {
-      params,
-      notebook_path,
-      cluster_id,
-      jobType: 'genie_regen',
-    });
+      out = await triggerInspireNotebookJob(req.dbHost, req.dbToken, {
+        params,
+        notebook_path,
+        cluster_id,
+        jobType: 'genie_regen',
+      });
+    } catch (launchErr) {
+      genieJobGuard.failed(sidStr);
+      throw launchErr;
+    }
+    genieJobGuard.launched(sidStr, out);
 
     console.log(`   🧞 Generate Genie: session=${sidStr}, flagged=${safeIds.length}, run_id=${out.run_id}`);
     res.json({
