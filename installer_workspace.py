@@ -255,18 +255,48 @@ def _normalize_bundle_root(extracted_dir):
 
 
 
-def _remove_workspace_folder(w, path, timeout_s=120):
+def _unpack_bundle(source_zip, bundle_root, stage="/tmp/inspire_ws_zip_stage"):
+    if os.path.exists(stage):
+        shutil.rmtree(stage)
+    os.makedirs(stage, exist_ok=True)
+    with zipfile.ZipFile(source_zip, "r") as zf:
+        zf.extractall(stage)
+    entries = os.listdir(stage)
+    root_dir = os.path.join(stage, entries[0]) if len(entries) == 1 and os.path.isdir(os.path.join(stage, entries[0])) else stage
+    root_dir = _normalize_bundle_root(root_dir)
+    if not _folder_has_app_yaml(root_dir):
+        raise FileNotFoundError(f"No app.yaml after unzip under {root_dir}. Bundle must contain the Inspire app (app.yaml at root or under app/).")
+    stamp = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
+    dest = os.path.join(bundle_root, f"bundle_{stamp}")
+    suffix = 1
+    while os.path.exists(dest):
+        dest = os.path.join(bundle_root, f"bundle_{stamp}_{suffix}")
+        suffix += 1
+    shutil.copytree(root_dir, dest)
+    return dest
+
+
+def _remove_old_bundles(w, bundle_root, keep):
+    keep_name = os.path.basename(keep.rstrip("/"))
+    api_root = bundle_root[len("/Workspace"):] if bundle_root.startswith("/Workspace/") else bundle_root
     try:
-        w.workspace.delete(path, recursive=True)
+        entries = list(w.workspace.list(api_root))
     except Exception as exc:
-        print(f"  (API delete skipped or failed) {exc}")
-    deadline = time.time() + timeout_s
-    while os.path.exists(path):
-        if time.time() >= deadline:
-            raise RuntimeError(f"{path} still exists {timeout_s}s after it was deleted. Delete it in the workspace, "
-                               f"then run this installer again.")
-        shutil.rmtree(path, ignore_errors=True)
-        time.sleep(3)
+        print(f"  (older bundles not removed: {exc})")
+        return []
+    removed = []
+    for entry in entries:
+        path = str(getattr(entry, "path", "") or "")
+        if not path or os.path.basename(path.rstrip("/")) == keep_name:
+            continue
+        try:
+            w.workspace.delete(path, recursive=True)
+            removed.append(path)
+        except Exception as exc:
+            print(f"  (could not remove {path}: {exc})")
+    if removed:
+        print(f"  Removed {len(removed)} older bundle item(s) under {bundle_root}")
+    return removed
 
 
 def _resolve_source_folder(nb_dir, user_email):
@@ -436,26 +466,13 @@ def build_runtime_context():
         print(f"Using bundle zip: {source_zip}")
 
     source_folder = None
+    bundle_root = None
     if source_zip:
         if not os.path.exists(source_zip):
             raise FileNotFoundError(f"source_zip not found: {source_zip}")
-        stage = "/tmp/inspire_ws_zip_stage"
-        dest = f"/Workspace/Users/{user_email}/InspireAI"
-        print(f"Removing prior workspace bundle folder (clean run): {dest}")
-        _remove_workspace_folder(w, dest)
-        print(f"Unpacking zip -> {dest} ...")
-        if os.path.exists(stage):
-            shutil.rmtree(stage)
-        os.makedirs(stage, exist_ok=True)
-        with zipfile.ZipFile(source_zip, "r") as zf:
-            zf.extractall(stage)
-        entries = os.listdir(stage)
-        root_dir = os.path.join(stage, entries[0]) if len(entries) == 1 and os.path.isdir(os.path.join(stage, entries[0])) else stage
-        root_dir = _normalize_bundle_root(root_dir)
-        if not _folder_has_app_yaml(root_dir):
-            raise FileNotFoundError(f"No app.yaml after unzip under {root_dir}. Bundle must contain the Inspire app (app.yaml at root or under app/).")
-        shutil.copytree(root_dir, dest)
-        source_folder = dest
+        bundle_root = f"/Workspace/Users/{user_email}/InspireAI"
+        print(f"Unpacking zip into a new folder under {bundle_root} ...")
+        source_folder = _unpack_bundle(source_zip, bundle_root)
         print(f"  Source from zip: {source_folder}")
     else:
         try:
@@ -514,6 +531,7 @@ def build_runtime_context():
         "AUTO_ZIP": auto_zip,
         "SOURCE_ZIP": source_zip,
         "SOURCE_FOLDER": source_folder,
+        "BUNDLE_ROOT": bundle_root,
         "available_catalogs": available_catalogs,
         "api": api,
         "api_get": api_get,
@@ -784,6 +802,8 @@ def step_deploy_and_find_sp(ctx):
         time.sleep(10)
 
     print("Deployed ✅")
+    if ctx.get("BUNDLE_ROOT"):
+        _remove_old_bundles(ctx["w"], ctx["BUNDLE_ROOT"], source_folder)
     print("\nFinding new service principal...")
     time.sleep(5)
 
@@ -956,3 +976,4 @@ try:
     main()
 except (FileNotFoundError, RuntimeError, requests.exceptions.HTTPError) as exc:
     show_warning_banner("Setup incomplete", str(exc))
+    raise
