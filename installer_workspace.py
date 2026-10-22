@@ -255,6 +255,20 @@ def _normalize_bundle_root(extracted_dir):
 
 
 
+def _remove_workspace_folder(w, path, timeout_s=120):
+    try:
+        w.workspace.delete(path, recursive=True)
+    except Exception as exc:
+        print(f"  (API delete skipped or failed) {exc}")
+    deadline = time.time() + timeout_s
+    while os.path.exists(path):
+        if time.time() >= deadline:
+            raise RuntimeError(f"{path} still exists {timeout_s}s after it was deleted. Delete it in the workspace, "
+                               f"then run this installer again.")
+        shutil.rmtree(path, ignore_errors=True)
+        time.sleep(3)
+
+
 def _resolve_source_folder(nb_dir, user_email):
     """Find the Databricks App bundle root (directory containing app.yaml)."""
     user_root = f"/Workspace/Users/{user_email}"
@@ -428,12 +442,7 @@ def build_runtime_context():
         stage = "/tmp/inspire_ws_zip_stage"
         dest = f"/Workspace/Users/{user_email}/InspireAI"
         print(f"Removing prior workspace bundle folder (clean run): {dest}")
-        try:
-            w.workspace.delete(dest, recursive=True)
-        except Exception as exc:
-            print(f"  (API delete skipped or failed) {exc}")
-        if os.path.exists(dest):
-            shutil.rmtree(dest, ignore_errors=True)
+        _remove_workspace_folder(w, dest)
         print(f"Unpacking zip -> {dest} ...")
         if os.path.exists(stage):
             shutil.rmtree(stage)

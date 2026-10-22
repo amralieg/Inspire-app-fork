@@ -71,6 +71,50 @@ assert not [s for s in executed if "samples" in s], executed
 print("ok")
 `;
 
+const REMOVE_PROBE = String.raw`
+import ast, sys, types
+path = sys.argv[1]
+tree = ast.parse(open(path, encoding="utf-8").read())
+module = ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_remove_workspace_folder"], type_ignores=[])
+clock = {"now": 0.0, "polls": 0}
+def make_ns(visible_polls):
+    def exists(p):
+        clock["polls"] += 1
+        return clock["polls"] <= visible_polls
+    def sleep(seconds):
+        clock["now"] += seconds
+    return {"os": types.SimpleNamespace(path=types.SimpleNamespace(exists=exists)),
+            "shutil": types.SimpleNamespace(rmtree=lambda p, ignore_errors=False: None),
+            "time": types.SimpleNamespace(time=lambda: clock["now"], sleep=sleep), "print": lambda *a, **k: None}
+deleted = []
+w = types.SimpleNamespace(workspace=types.SimpleNamespace(delete=lambda p, recursive=False: deleted.append((p, recursive))))
+ns = make_ns(3)
+exec(compile(module, path, "exec"), ns)
+ns["_remove_workspace_folder"](w, "/Workspace/Users/me/InspireAI", timeout_s=120)
+assert deleted == [("/Workspace/Users/me/InspireAI", True)], deleted
+assert clock["polls"] == 4 and clock["now"] > 0, clock
+clock.update(now=0.0, polls=0)
+ns = make_ns(10 ** 6)
+exec(compile(module, path, "exec"), ns)
+try:
+    ns["_remove_workspace_folder"](w, "/Workspace/Users/me/InspireAI", timeout_s=30)
+except RuntimeError as exc:
+    assert "still exists" in str(exc), exc
+else:
+    raise AssertionError("a folder that never disappears must stop the install with a clear error")
+print("ok")
+`;
+
+test('a reinstall waits until the deleted bundle folder is gone before unpacking the new one', (t) => {
+  if (spawnSync('python3', ['--version']).status !== 0) {
+    t.skip('python3 is not installed');
+    return;
+  }
+  const run = spawnSync('python3', ['-c', REMOVE_PROBE, INSTALLER], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  assert.equal(run.stdout.trim().split('\n').pop(), 'ok');
+});
+
 test('the installer lets the app service principal create, read and write volumes in the Inspire schema only', (t) => {
   if (spawnSync('python3', ['--version']).status !== 0) {
     t.skip('python3 is not installed');
