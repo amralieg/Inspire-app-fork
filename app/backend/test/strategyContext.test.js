@@ -119,3 +119,40 @@ test('the size limit is the agent limit in bytes', async () => {
   const big = { strategy: Array.from({ length: 150 }, (_, i) => ({ name: `E${i}`, description: 'd'.repeat(6200) })) };
   assert.match(lib.validateStrategy(lib.parseStrategicContext(JSON.stringify(big)).model).join(' '), /limit is 900000/);
 });
+
+const BUILT_IN = ['Increase Revenue', 'Reduce Cost', 'Mitigate Risk'];
+
+test('saved priorities split into the built-in chips and the user own entries', async () => {
+  const lib = await load();
+  assert.deepEqual(
+    lib.splitPriorities(['increase revenue', 'Improve on-time delivery', ' ', 'Reduce Cost', 'IMPROVE ON-TIME DELIVERY', 'Increase Revenue'], BUILT_IN),
+    { builtIn: ['Increase Revenue', 'Reduce Cost'], custom: ['Improve on-time delivery'] },
+  );
+  assert.deepEqual(lib.splitPriorities(undefined, BUILT_IN), { builtIn: [], custom: [] });
+  assert.deepEqual(lib.splitPriorities(['Grow online sales'], []), { builtIn: [], custom: ['Grow online sales'] });
+});
+
+test('own priorities travel in the strategy together with the selected chips', async () => {
+  const lib = await load();
+  assert.equal(lib.withPriorities('', []), '', 'no strategy and no own priority sends nothing');
+  const onlyPriorities = JSON.parse(lib.withPriorities('', ['Increase Revenue', 'Improve on-time delivery', 'increase revenue', ' ']));
+  assert.deepEqual(onlyPriorities.priorities, ['Increase Revenue', 'Improve on-time delivery']);
+  assert.equal(onlyPriorities.strategy, undefined);
+
+  const tree = lib.serializeStrategy(lib.parseStrategicContext(JSON.stringify(PLAN_EXAMPLE)).model);
+  const merged = JSON.parse(lib.withPriorities(tree, ['Reduce Cost', 'Grow online sales']));
+  assert.deepEqual(merged.priorities, ['Reduce Cost', 'Grow online sales'], 'the merged list replaces the saved priorities');
+  assert.equal(merged.strategy.length, 2, 'the strategy tree is kept');
+  assert.equal(merged.sponsors.length, 1, 'the sponsors are kept');
+
+  const stripped = JSON.parse(lib.withPriorities(tree, []));
+  assert.equal(stripped.priorities, undefined, 'without own priorities the chips go through widget 07 only');
+  assert.equal(stripped.strategy.length, 2);
+});
+
+test('a strategy file path or unreadable text is passed through unchanged, so validation still reports it', async () => {
+  const lib = await load();
+  assert.equal(lib.withPriorities(' /Workspace/Users/me/strategy.json ', ['Grow online sales']), '/Workspace/Users/me/strategy.json');
+  assert.equal(lib.withPriorities('{not json', ['Grow online sales']), '{not json');
+  assert.match(lib.validateStrategicContextText(lib.withPriorities('{not json', [])).join(' '), /could not be read/);
+});

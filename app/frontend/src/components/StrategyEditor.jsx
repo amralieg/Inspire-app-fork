@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Plus, Trash2 } from 'lucide-react';
 import {
   KPI_DIRECTIONS,
@@ -77,17 +77,17 @@ function Placeholder({ children }) {
   return <p className="text-[10px] text-text-tertiary p-2 text-center">{children}</p>;
 }
 
-export default function StrategyEditor({ value, onChange, onProblems, prioritySuggestions = [] }) {
+export default function StrategyEditor({ value, onChange, onProblems }) {
   const [initial] = useState(() => parseStrategicContext(value));
-  const [model, setModel] = useState(() => (initial.mode === 'tree' ? initial.model : emptyStrategy()));
+  const [model, setModel] = useState(() => (initial.mode === 'tree' ? { ...initial.model, priorities: [] } : emptyStrategy()));
   const [loadError, setLoadError] = useState(initial.error);
   const [selected, setSelected] = useState(() => (initial.mode === 'tree' && initial.model.strategy.length ? [0] : null));
-  const [priorityDraft, setPriorityDraft] = useState('');
 
   const problems = useMemo(() => validateStrategy(model), [model]);
+  const loadedModel = useRef(model);
 
   useEffect(() => {
-    onChange(serializeStrategy(model));
+    if (model !== loadedModel.current) onChange(serializeStrategy(model));
     if (onProblems) onProblems(problems);
   }, [model, problems]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -111,12 +111,6 @@ export default function StrategyEditor({ value, onChange, onProblems, prioritySu
     setSelected(path.length > 1 ? path.slice(0, -1) : null);
   };
 
-  const addPriority = (name) => {
-    const clean = String(name || '').trim();
-    if (!clean || model.priorities.some((p) => p.toLowerCase() === clean.toLowerCase())) return;
-    setModel((m) => ({ ...m, priorities: [...m.priorities, clean] }));
-  };
-
   const kpiNames = current ? current.kpis.map((k) => k.name.trim()).filter(Boolean) : [];
 
   return (
@@ -125,6 +119,11 @@ export default function StrategyEditor({ value, onChange, onProblems, prioritySu
         Applied after discovery: Inspire aligns each final use case to this strategy with evidence from its own data, adds
         KPIs, key results and benefits, and orders the results. The strategy is never used to find, keep or remove a use case.
       </p>
+      {initial.mode === 'path' && (
+        <p className="text-[11px] text-text-secondary leading-relaxed">
+          This strategy comes from the file <span className="font-mono text-text-primary">{initial.path}</span>. Entries you add here replace it.
+        </p>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Column
@@ -316,46 +315,6 @@ export default function StrategyEditor({ value, onChange, onProblems, prioritySu
             ))
           )}
         </Column>
-      </div>
-
-      <div>
-        <p className="text-xs font-semibold text-text-primary mb-1.5">Custom Business priorities (replace the selection above)</p>
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {model.priorities.map((priority) => (
-            <span key={priority} className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border border-db-red/30 bg-db-red-50 text-db-red">
-              {priority}
-              <button
-                type="button"
-                onClick={() => setModel((m) => ({ ...m, priorities: m.priorities.filter((p) => p !== priority) }))}
-                title="Remove this priority"
-              >
-                <Trash2 size={10} />
-              </button>
-            </span>
-          ))}
-        </div>
-        <input
-          value={priorityDraft}
-          onChange={(e) => setPriorityDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              addPriority(priorityDraft);
-              setPriorityDraft('');
-            }
-          }}
-          placeholder="Type a priority in your own words and press Enter"
-          className={inputClass}
-        />
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {prioritySuggestions
-            .filter((s) => !model.priorities.some((p) => p.toLowerCase() === s.toLowerCase()))
-            .map((suggestion) => (
-              <button key={suggestion} type="button" onClick={() => addPriority(suggestion)} className={smallButton}>
-                <Plus size={10} /> {suggestion}
-              </button>
-            ))}
-        </div>
       </div>
 
       <div>

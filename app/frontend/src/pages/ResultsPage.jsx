@@ -48,6 +48,7 @@ import {
   bestOfBestLabel,
   compareBestOfBestFirst,
   copyV130TrackingFields,
+  genieCardActions,
   knownPriorities,
   latestFeedbackMap,
   matchesStrategyFilter,
@@ -819,7 +820,7 @@ export default function ResultsPage({
       const cur = sortUniqueGenieIds(Array.isArray(prev) ? prev : []);
       if (checked) {
         if (cur.length >= 50 && !cur.includes(sid)) {
-          setGenieFlagSyncError('At most 50 use cases can be flagged for Genie generation per run.');
+          setGenieFlagSyncError('At most 50 use cases can be marked for Genie Code generation per run.');
           return prev;
         }
         setGenieFlagSyncError('');
@@ -871,7 +872,7 @@ export default function ResultsPage({
       });
       setGenieJobLastRun(out);
     } catch (e) {
-      setGenieJobError(e.message || 'Generate Genie job failed.');
+      setGenieJobError(e.message || 'Generating the Genie instructions failed.');
     } finally {
       setGenieJobRunning(false);
     }
@@ -3004,14 +3005,14 @@ export default function ResultsPage({
                   if (genieJobLastRun?.run_id != null) {
                     const { key, label } = deriveGenieOverallStatus(genieJobProgress);
                     if (key === 'done') {
-                      return `Last run finished · ${n} selected — expand to change flags or run again.`;
+                      return `Last run finished · ${n} marked. Expand for details.`;
                     }
                     if (key === 'failed') {
                       return `Last run failed (${label}). Expand for details.`;
                     }
                     return `${label} — expand for status and Databricks link.`;
                   }
-                  return `${n} selected — expand to sync flags and run the Genie notebook job.`;
+                  return `${n} marked for Genie Code generation. Expand for details.`;
                 })();
                 return (
                   <div className="mb-4 shrink-0 p-4 bg-gradient-to-br from-db-red-50 to-surface dark:from-db-red/10 dark:to-surface border border-db-red/20 rounded-xl shadow-elevated">
@@ -3044,54 +3045,50 @@ export default function ResultsPage({
                               aria-hidden
                             />
                           </button>
-                          {genieInstructionsPanelExpanded && (
-                            <button
-                              type="button"
-                              disabled={
-                                genieJobRunning ||
-                                genieRegenSelectedIds.length === 0 ||
-                                genieDeltaSyncPending ||
-                                genieFlagSyncing
-                              }
-                              title={
-                                genieDeltaSyncPending || genieFlagSyncing
-                                  ? 'Wait until your checkbox selection is saved to Delta before running the job.'
+                          <button
+                            type="button"
+                            disabled={
+                              genieJobRunning ||
+                              genieRegenSelectedIds.length === 0 ||
+                              genieDeltaSyncPending ||
+                              genieFlagSyncing
+                            }
+                            title={
+                              genieDeltaSyncPending || genieFlagSyncing
+                                ? 'Wait until your marks are saved before generating.'
+                                : genieRegenSelectedIds.length === 0
+                                  ? 'Mark at least one use case with Mark Ready for Genie Code Generation first.'
                                   : undefined
-                              }
-                              onClick={() => void handleGenerateGenieJob()}
-                              className="inline-flex w-full min-[480px]:w-auto shrink-0 items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red hover:bg-db-red-hover shadow-sm shadow-db-red/20 disabled:opacity-50 disabled:pointer-events-none disabled:shadow-none transition-smooth min-[480px]:self-start"
-                            >
-                              {genieJobRunning ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                              Run Genie job
-                            </button>
-                          )}
+                            }
+                            onClick={() => void handleGenerateGenieJob()}
+                            className="inline-flex w-full min-[480px]:w-auto shrink-0 items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-db-red hover:bg-db-red-hover shadow-md shadow-db-red/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none transition-smooth min-[480px]:self-start"
+                          >
+                            {genieJobRunning ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                            Generate Genie Instruction for Marked use cases
+                            <span className="inline-flex min-w-[1.5rem] justify-center rounded-full bg-white/20 px-1.5 py-0.5 text-xs tabular-nums">
+                              {genieRegenSelectedIds.length}
+                            </span>
+                          </button>
                         </div>
                         {genieInstructionsPanelExpanded && (
                           <div className="min-w-0 space-y-2 border-t border-db-red/15 pt-3 sm:pl-0">
                             <p className="text-[11px] text-text-secondary leading-snug">
-                              Check use cases to set <span className="font-mono text-[10px] px-1 py-0.5 rounded bg-bg-subtle border border-border-subtle">generate_genie_code_instruction = Yes</span> in{' '}
-                              <span className="font-mono text-[10px] px-1 py-0.5 rounded bg-bg-subtle border border-border-subtle">__inspire_usecases</span> for this session (synced shortly after you change the selection). Then run the notebook job for only those rows.
+                              Mark use cases with <span className="font-semibold text-text-primary">Mark Ready for Genie Code Generation</span> on their cards, then generate. Inspire writes the Genie instruction and its notebook for the marked use cases only.
                             </p>
                             <p className="text-[11px] text-text-tertiary flex flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-db-red/10 text-db-red font-semibold">
-                                {genieRegenSelectedIds.length} selected
+                                {genieRegenSelectedIds.length} marked
                               </span>
-                              {genieFlagSyncing && (
+                              {(genieFlagSyncing || genieDeltaSyncPending) && (
                                 <span className="inline-flex items-center gap-1 text-db-red">
                                   <Loader2 size={11} className="animate-spin" />
-                                  Syncing to Delta…
-                                </span>
-                              )}
-                              {genieDeltaSyncPending && !genieFlagSyncing && (
-                                <span className="inline-flex items-center gap-1 text-text-secondary">
-                                  <Loader2 size={11} className="animate-spin" />
-                                  Saving selection…
+                                  Saving marks…
                                 </span>
                               )}
                             </p>
                             {(genieFlagSyncing || genieDeltaSyncPending) && (
                               <p className="text-[11px] text-text-secondary leading-snug max-w-xl">
-                                <span className="font-semibold text-text-primary">Run Genie job</span> stays greyed out until this step finishes, so the notebook is launched with the same use-case flags you see here.
+                                <span className="font-semibold text-text-primary">Generate Genie Instruction for Marked use cases</span> stays greyed out until your marks are saved, so it runs on the same use cases you see here.
                               </p>
                             )}
                             {genieFlagSyncError && (
@@ -3566,6 +3563,11 @@ function UseCaseCard({
     const pathSeg = path.startsWith('/') ? path : `/${path}`;
     return `${origin}/#workspace${pathSeg}`;
   })();
+  const genieActions = genieCardActions({
+    hasGenieInstruction: shippedGenie,
+    canMark: typeof onToggleGenieRegenSelect === 'function',
+    notebookHref: workspaceNotebookHref,
+  });
 
   if (!card) return null;
 
@@ -3582,25 +3584,6 @@ function UseCaseCard({
         >
           <Heart size={16} className={isFavorite ? 'fill-rose-500' : ''} />
         </button>
-        {typeof onToggleGenieRegenSelect === 'function' && (
-          <label
-            className={`flex items-center gap-1.5 pl-1 pr-2 py-4 shrink-0 cursor-pointer transition-smooth ${
-              genieRegenSelected ? 'text-db-red' : 'text-text-secondary hover:text-db-red'
-            }`}
-            title="Flag this use case for Genie instruction generation (writes to Inspire tracking table)"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <input
-              type="checkbox"
-              className="rounded border-border text-db-red focus:ring-db-red/30 size-4 shrink-0 accent-db-red"
-              checked={genieRegenSelected}
-              onChange={(e) => onToggleGenieRegenSelect(e.target.checked)}
-              aria-label="Flag for Genie instruction job"
-            />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] hidden sm:inline">Genie</span>
-          </label>
-        )}
       <div
         role="button"
         tabIndex={0}
@@ -3686,29 +3669,6 @@ function UseCaseCard({
                 {priority}
               </span>
             )}
-            {hasNotebook && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium text-db-red bg-db-red/10 inline-flex items-center gap-1.5">
-                Notebook
-                {workspaceNotebookHref ? (
-                  <a
-                    href={workspaceNotebookHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open notebook in Databricks workspace"
-                    onClick={(e) => e.stopPropagation()}
-                    className="font-semibold text-db-red hover:underline ml-0.5"
-                  >
-                    Open
-                  </a>
-                ) : notebookPath && !databricksHost ? (
-                  <span className="text-[9px] font-normal text-text-tertiary normal-case" title="Set Databricks host in setup">
-                    (host required)
-                  </span>
-                ) : !notebookPath && genieInstruction ? (
-                  <span className="text-[9px] font-normal text-text-tertiary normal-case">Preview below</span>
-                ) : null}
-              </span>
-            )}
           </div>
           <div className="text-[10px] text-text-tertiary mt-1.5 leading-snug">
             {[domain || 'Unknown', subdomain, technique || ucType || '—'].filter(Boolean).join(' · ')}
@@ -3716,6 +3676,75 @@ function UseCaseCard({
         </div>
       </div>
       </div>
+
+      {(genieActions.primary || genieActions.openCurrentNotebook) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-4">
+          {genieActions.primary === 'open-notebook' && (
+            workspaceNotebookHref ? (
+              <a
+                href={workspaceNotebookHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red hover:bg-db-red-hover shadow-sm shadow-db-red/20 transition-smooth"
+              >
+                <ExternalLink size={13} />
+                Open Notebook to implement
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!expanded) onToggle();
+                }}
+                title={notebookPath && !databricksHost ? 'Set the Databricks host in setup to open the notebook in the workspace' : 'The Genie instruction is shown in the details'}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red hover:bg-db-red-hover shadow-sm shadow-db-red/20 transition-smooth"
+              >
+                <FileText size={13} />
+                Open Notebook to implement
+              </button>
+            )
+          )}
+          {genieActions.primary === 'mark' && (
+            <button
+              type="button"
+              aria-pressed={genieRegenSelected}
+              onClick={() => onToggleGenieRegenSelect(!genieRegenSelected)}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border transition-smooth ${
+                genieRegenSelected
+                  ? 'border-db-red bg-db-red-50 text-db-red'
+                  : 'border-db-red/40 bg-surface text-db-red hover:bg-db-red-50'
+              }`}
+            >
+              {genieRegenSelected ? <CheckCircle2 size={13} /> : <Sparkles size={13} />}
+              {genieRegenSelected ? 'Marked Ready for Genie Code Generation' : 'Mark Ready for Genie Code Generation'}
+            </button>
+          )}
+          {genieActions.regenerate && (
+            <button
+              type="button"
+              aria-pressed={genieRegenSelected}
+              onClick={() => onToggleGenieRegenSelect(!genieRegenSelected)}
+              className={`inline-flex items-center gap-1 text-[11px] font-medium transition-smooth ${
+                genieRegenSelected ? 'text-db-red' : 'text-text-secondary hover:text-db-red'
+              }`}
+            >
+              {genieRegenSelected ? <CheckCircle2 size={12} /> : <RefreshCw size={12} />}
+              {genieRegenSelected ? 'Marked to regenerate' : 'Mark to regenerate'}
+            </button>
+          )}
+          {genieActions.openCurrentNotebook && (
+            <a
+              href={workspaceNotebookHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-text-secondary hover:text-db-red transition-smooth"
+            >
+              <ExternalLink size={12} />
+              Open the current notebook
+            </a>
+          )}
+        </div>
+      )}
 
       {/* Expanded */}
       {expanded && (

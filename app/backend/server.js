@@ -2731,7 +2731,7 @@ async function handleInspireGenerateGenie(req, res) {
     const claim = await genieJobGuard.claim(sidStr, (runId) => genieRunState(req.dbHost, req.dbToken, runId));
     if (!claim.ok) {
       return res.status(409).json({
-        error: 'A Genie job for this session is already starting or running. Wait for it to finish, then run it again.',
+        error: 'Genie instructions for this session are already being generated. Wait for that run to finish, then try again.',
         run_id: claim.entry?.run_id || null,
         job_run_url: claim.entry?.job_run_url || null,
       });

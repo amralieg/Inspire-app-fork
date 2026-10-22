@@ -87,6 +87,34 @@ export function parseStrategicContext(widgetText) {
   };
 }
 
+export function splitPriorities(priorities, builtInNames) {
+  const known = new Map((builtInNames || []).map((name) => [String(name).trim().toLowerCase(), name]));
+  const builtIn = [];
+  const custom = [];
+  for (const raw of priorities || []) {
+    const name = text(raw);
+    if (!name) continue;
+    const match = known.get(name.toLowerCase());
+    if (match) {
+      if (!builtIn.includes(match)) builtIn.push(match);
+    } else if (!custom.some((c) => c.toLowerCase() === name.toLowerCase())) {
+      custom.push(name);
+    }
+  }
+  return { builtIn, custom };
+}
+
+export function withPriorities(widgetText, priorities) {
+  const parsed = parseStrategicContext(widgetText);
+  if (parsed.mode === 'path' || parsed.error) return String(widgetText ?? '').trim();
+  const merged = [];
+  for (const raw of priorities || []) {
+    const name = text(raw);
+    if (name && !merged.some((m) => m.toLowerCase() === name.toLowerCase())) merged.push(name);
+  }
+  return serializeStrategy({ ...parsed.model, priorities: merged });
+}
+
 export function isEmptyStrategy(model) {
   const m = model || emptyStrategy();
   return !m.strategy.length && !m.priorities.length && !m.sponsors.length;

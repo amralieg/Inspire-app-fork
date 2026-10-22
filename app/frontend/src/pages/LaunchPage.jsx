@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import DocumentLanguagesMultiselect from '../components/DocumentLanguagesMultiselect';
 import StrategyEditor from '../components/StrategyEditor';
-import { parseStrategicContext, validateStrategicContextText } from '../lib/strategyContext';
+import { parseStrategicContext, splitPriorities, validateStrategicContextText, withPriorities } from '../lib/strategyContext';
 import UcPermissionErrorHelp from '../components/UcPermissionErrorHelp';
 import { parseDocumentLanguages, formatDocumentLanguages } from '../constants/documentLanguages';
 import { interpretUcPermissionError, parseApiErrorMessage } from '../lib/ucPermissionErrors';
@@ -240,6 +240,9 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     Presentation: false,
   });
   const [priorityChecks, setPriorityChecks] = useState({});
+  const [customPriorities, setCustomPriorities] = useState([]);
+  const [customPriorityDraft, setCustomPriorityDraft] = useState('');
+  const [strategyBase, setStrategyBase] = useState('');
 
 
   // In Databricks App mode, the proxy injects x-forwarded-access-token automatically.
@@ -545,18 +548,50 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
   };
 
   const strategicContextText = params['10_strategic_context'];
-  const strategicContextRef = useRef(strategicContextText);
+  const strategyBaseRef = useRef(strategyBase);
   useEffect(() => {
-    strategicContextRef.current = strategicContextText;
-  }, [strategicContextText]);
+    strategyBaseRef.current = strategyBase;
+  }, [strategyBase]);
   const [strategyEditorKey, setStrategyEditorKey] = useState(0);
+  const [prioritiesTouched, setPrioritiesTouched] = useState(false);
 
   const handleStrategyChange = useCallback((value) => {
-    if (strategicContextRef.current === value) return;
-    strategicContextRef.current = value;
+    if (strategyBaseRef.current === value) return;
+    strategyBaseRef.current = value;
     setStrategyTouched(true);
-    setParams((p) => ({ ...p, '10_strategic_context': value }));
+    setStrategyBase(value);
   }, []);
+
+  const selectedBuiltInPriorities = useMemo(
+    () => BUSINESS_PRIORITIES.map((bp) => bp.key).filter((key) => priorityChecks[key]),
+    [priorityChecks],
+  );
+
+  useEffect(() => {
+    const merged = customPriorities.length ? [...selectedBuiltInPriorities, ...customPriorities] : [];
+    const value = withPriorities(strategyBase, merged);
+    setParams((p) => (p['10_strategic_context'] === value ? p : { ...p, '10_strategic_context': value }));
+  }, [strategyBase, selectedBuiltInPriorities, customPriorities]);
+
+  const toggleBuiltInPriority = (key) => {
+    setPrioritiesTouched(true);
+    setPriorityChecks((p) => ({ ...p, [key]: !p[key] }));
+  };
+
+  const addCustomPriority = () => {
+    const name = customPriorityDraft.trim();
+    if (!name) return;
+    setPrioritiesTouched(true);
+    const builtIn = BUSINESS_PRIORITIES.find((bp) => bp.key.toLowerCase() === name.toLowerCase());
+    if (builtIn) setPriorityChecks((p) => ({ ...p, [builtIn.key]: true }));
+    else setCustomPriorities((c) => (c.some((x) => x.toLowerCase() === name.toLowerCase()) ? c : [...c, name]));
+    setCustomPriorityDraft('');
+  };
+
+  const removeCustomPriority = (name) => {
+    setPrioritiesTouched(true);
+    setCustomPriorities((c) => c.filter((x) => x !== name));
+  };
 
   useEffect(() => {
     const name = String(params['00_business_name'] || '').trim().toLowerCase();
@@ -574,10 +609,18 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
         if (!discoveryTouched && (wv.discovery_type === 'Deep' || wv.discovery_type === 'Standard')) {
           next['03_discovery_type'] = wv.discovery_type;
         }
-        if (!strategyTouched && wv.strategic_context) next['10_strategic_context'] = wv.strategic_context;
-        if (Object.keys(next).length) {
-          setParams((p) => ({ ...p, ...next }));
-          if (next['10_strategic_context'] !== undefined) setStrategyEditorKey((k) => k + 1);
+        const prefillStrategy = !strategyTouched && wv.strategic_context ? String(wv.strategic_context) : '';
+        if (Object.keys(next).length || prefillStrategy) {
+          if (Object.keys(next).length) setParams((p) => ({ ...p, ...next }));
+          if (prefillStrategy) {
+            const saved = splitPriorities(parseStrategicContext(prefillStrategy).model.priorities, BUSINESS_PRIORITIES.map((bp) => bp.key));
+            if (!prioritiesTouched && (saved.builtIn.length || saved.custom.length)) {
+              setPriorityChecks(Object.fromEntries(saved.builtIn.map((key) => [key, true])));
+              setCustomPriorities(saved.custom);
+            }
+            setStrategyBase(withPriorities(prefillStrategy, []));
+            setStrategyEditorKey((k) => k + 1);
+          }
           setPrefillNote(`Prefilled from this business's last session (${match.session_id}).`);
         }
       } catch {
@@ -590,8 +633,12 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     };
   }, [params['00_business_name'], sessionsList, warehouseId, previewDb]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const strategyProblems = useMemo(() => validateStrategicContextText(strategicContextText), [strategicContextText]);
-  const strategyPriorities = useMemo(() => parseStrategicContext(strategicContextText).model.priorities, [strategicContextText]);
+  const strategyProblems = useMemo(() => [
+    ...validateStrategicContextText(strategicContextText),
+    ...(customPriorities.length && parseStrategicContext(strategyBase).mode === 'path'
+      ? ['Your own business priorities cannot be added to a strategy that comes from a file. Remove them or clear the strategy.']
+      : []),
+  ], [strategicContextText, customPriorities, strategyBase]);
 
   // Launch
   const handleLaunch = async () => {
@@ -1298,10 +1345,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
               </FieldSection>
 
               {/* Business Priorities */}
-              <FieldSection
-                label="Business Priorities"
-                hint={strategyPriorities.length ? 'Overridden by strategy priorities (Strategy and organization)' : 'Select what matters most'}
-              >
+              <FieldSection label="Business Priorities" hint="Pick what matters most, or add your own">
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                   {BUSINESS_PRIORITIES.map((bp) => {
                     const active = !!priorityChecks[bp.key];
@@ -1309,7 +1353,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                       <button
                         key={bp.key}
                         type="button"
-                        onClick={() => setPriorityChecks((p) => ({ ...p, [bp.key]: !p[bp.key] }))}
+                        onClick={() => toggleBuiltInPriority(bp.key)}
                         className={`relative px-3 py-2 rounded-lg text-xs font-medium text-left transition-smooth border ${
                           active
                             ? 'border-db-red/30 bg-db-red-50 text-db-red'
@@ -1324,6 +1368,47 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                       </button>
                     );
                   })}
+                  {customPriorities.map((name) => (
+                    <span
+                      key={name}
+                      className="relative px-3 py-2 rounded-lg text-xs font-medium border border-db-red/30 bg-db-red-50 text-db-red flex items-center gap-1.5"
+                    >
+                      <Target size={13} className="text-db-red shrink-0" />
+                      <span className="truncate" title={name}>{name}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${name}`}
+                        onClick={() => removeCustomPriority(name)}
+                        className="ml-auto shrink-0 text-db-red hover:text-text-primary transition-smooth"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <input
+                    type="text"
+                    value={customPriorityDraft}
+                    onChange={(e) => setCustomPriorityDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addCustomPriority();
+                      }
+                    }}
+                    placeholder="Add your own priority, for example Improve on-time delivery"
+                    aria-label="Add your own business priority"
+                    className="flex-1 px-3 py-2 text-sm border border-border rounded-lg bg-surface text-text-primary placeholder:text-text-tertiary glow-focus transition-smooth"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomPriority}
+                    disabled={!customPriorityDraft.trim()}
+                    className="px-3 py-2 text-xs font-semibold rounded-lg border border-border text-text-secondary hover:border-border-strong disabled:opacity-40 transition-smooth"
+                  >
+                    Add
+                  </button>
                 </div>
               </FieldSection>
 
@@ -1353,24 +1438,19 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                   <span className="text-[10px] text-text-tertiary">
                     Optional · widget 10_strategic_context · aligns and orders results after discovery
                   </span>
-                  {params['10_strategic_context'] && (
+                  {(strategyBase || strategyProblems.length > 0) && (
                     <span className={`ml-auto text-[10px] font-semibold ${strategyProblems.length ? 'text-db-red' : 'text-success'}`}>
                       {strategyProblems.length ? `${strategyProblems.length} problem${strategyProblems.length > 1 ? 's' : ''}` : 'Set'}
                     </span>
                   )}
                   <ChevronDown
                     size={14}
-                    className={`text-text-tertiary transition-transform duration-200 ${params['10_strategic_context'] ? '' : 'ml-auto'} ${showStrategy ? 'rotate-180' : ''}`}
+                    className={`text-text-tertiary transition-transform duration-200 ${strategyBase || strategyProblems.length > 0 ? '' : 'ml-auto'} ${showStrategy ? 'rotate-180' : ''}`}
                   />
                 </button>
                 {showStrategy && (
                   <div className="px-4 pb-4 pt-1 border-t border-border">
-                    <StrategyEditor
-                      key={strategyEditorKey}
-                      value={params['10_strategic_context']}
-                      onChange={handleStrategyChange}
-                      prioritySuggestions={BUSINESS_PRIORITIES.map((bp) => bp.key)}
-                    />
+                    <StrategyEditor key={strategyEditorKey} value={strategyBase} onChange={handleStrategyChange} />
                   </div>
                 )}
               </div>
@@ -1560,7 +1640,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
             <Chip icon={params['03_discovery_type'] === 'Standard' ? <Lock size={10} /> : <Eye size={10} />}>
               {params['03_discovery_type'] || 'Deep'}
             </Chip>
-            {params['10_strategic_context'] && <Chip icon={<Target size={10} />}>Strategy set</Chip>}
+            {strategyBase && <Chip icon={<Target size={10} />}>Strategy set</Chip>}
             <Chip icon={<Star size={10} />}>
               Stars: {bestOfBestText === '0' ? 'off' : bestOfBestText || '20'}
             </Chip>
