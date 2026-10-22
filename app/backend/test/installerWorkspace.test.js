@@ -41,3 +41,42 @@ test('the installer never deletes a service principal an existing app still uses
   assert.equal(run.status, 0, run.stderr);
   assert.equal(run.stdout.trim(), 'ok');
 });
+
+const GRANTS_PROBE = String.raw`
+import ast, sys, types
+path = sys.argv[1]
+tree = ast.parse(open(path, encoding="utf-8").read())
+module = ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "step_grant_permissions"], type_ignores=[])
+class StatementState:
+    SUCCEEDED = "SUCCEEDED"
+executed = []
+class Statements:
+    def execute_statement(self, warehouse_id, statement, wait_timeout):
+        executed.append(statement)
+        return types.SimpleNamespace(status=types.SimpleNamespace(state=StatementState.SUCCEEDED, error=None))
+class Catalogs:
+    def list(self):
+        return [types.SimpleNamespace(name="sales"), types.SimpleNamespace(name="samples")]
+ns = {"StatementState": StatementState}
+exec(compile(module, path, "exec"), ns)
+ctx = {"NEW_SP_APP_ID": "SP", "WAREHOUSE_ID": "wh", "CATALOG": "main", "SCHEMA": "_inspire", "available_catalogs": ["main"],
+       "w": types.SimpleNamespace(statement_execution=Statements(), catalogs=Catalogs()),
+       "api": lambda method, url, body=None: types.SimpleNamespace(status_code=200, text="")}
+ns["step_grant_permissions"](ctx)
+volume = sorted(s for s in executed if "VOLUME" in s)
+assert volume == sorted(f"GRANT {p} VOLUME ON SCHEMA \x60main\x60.\x60_inspire\x60 TO \x60SP\x60" for p in ("CREATE", "READ", "WRITE")), volume
+assert "GRANT MODIFY ON SCHEMA \x60main\x60.\x60_inspire\x60 TO \x60SP\x60" in executed, executed
+assert "GRANT BROWSE ON CATALOG \x60sales\x60 TO \x60SP\x60" in executed, executed
+assert not [s for s in executed if "samples" in s], executed
+print("ok")
+`;
+
+test('the installer lets the app service principal create, read and write volumes in the Inspire schema only', (t) => {
+  if (spawnSync('python3', ['--version']).status !== 0) {
+    t.skip('python3 is not installed');
+    return;
+  }
+  const run = spawnSync('python3', ['-c', GRANTS_PROBE, INSTALLER], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  assert.equal(run.stdout.trim().split('\n').pop(), 'ok');
+});

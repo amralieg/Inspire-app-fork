@@ -857,6 +857,9 @@ def step_grant_permissions(ctx):
             f"GRANT CREATE_TABLE ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
             f"GRANT SELECT ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
             f"GRANT MODIFY ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
+            f"GRANT CREATE VOLUME ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
+            f"GRANT READ VOLUME ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
+            f"GRANT WRITE VOLUME ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
         ]
 
         all_catalogs = set(available_catalogs)
