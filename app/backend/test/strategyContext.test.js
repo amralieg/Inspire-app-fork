@@ -41,12 +41,37 @@ test('the plan example round-trips and validates', async () => {
   assert.deepEqual(lib.validateStrategy(parsed.model), []);
   const out = JSON.parse(lib.serializeStrategy(parsed.model));
   assert.equal(out.schema_version, 1);
-  assert.deepEqual(out.levels, PLAN_EXAMPLE.levels);
+  assert.deepEqual(out.levels, ['Pillar', 'Objective'], 'the layers are always Pillar, Objective, Initiative, Project');
   assert.deepEqual(out.strategy[1].children.map((c) => c.name), ['Cut stockouts', 'Lower delivery cost']);
   assert.deepEqual(out.strategy[0].children[0].key_results, [{ statement: 'Raise repeat purchase rate from 18% to 24%', kpi: 'Repeat purchase rate' }]);
   assert.deepEqual(out.sponsors, [{ role: 'Chief Customer Officer', reports_to: 'Chief Executive Officer', owns: ['Customer'] }]);
-  assert.deepEqual(out.labels, { priority: 'Business Priority', kpi: 'KPI' });
+  assert.equal(out.labels, undefined, 'the App no longer renames Inspire terms');
   assert.deepEqual(lib.parseStrategicContext(lib.serializeStrategy(parsed.model)).model, parsed.model, 'a second round trip is stable');
+});
+
+test('the layers follow the depth of the tree and are never asked for', async () => {
+  const lib = await load();
+  const levels = (tree) => JSON.parse(lib.serializeStrategy(lib.parseStrategicContext(JSON.stringify(tree)).model)).levels;
+  assert.deepEqual(lib.STRATEGY_LAYERS, ['Pillar', 'Objective', 'Initiative', 'Project']);
+  assert.deepEqual(levels({ strategy: ['A', 'B'] }), ['Pillar']);
+  assert.deepEqual(levels({ levels: ['Theme', 'Goal', 'Program'], strategy: [{ name: 'A', children: [{ name: 'B', children: ['C'] }] }] }),
+    ['Pillar', 'Objective', 'Initiative']);
+  assert.equal(levels({ priorities: ['Grow revenue'] }), undefined, 'priorities alone send no layers');
+  assert.deepEqual(lib.validateStrategy(lib.parseStrategicContext(JSON.stringify({ strategy: [{ name: 'A', children: ['B'] }] })).model), []);
+});
+
+test('no message the App shows mentions JSON or a file path', async () => {
+  const lib = await load();
+  const messages = [
+    ...lib.validateStrategicContextText('{not json'),
+    ...lib.validateStrategicContextText('[1, 2]'),
+    ...lib.validateStrategy(lib.parseStrategicContext(JSON.stringify({
+      strategy: Array.from({ length: 150 }, (_, i) => ({ name: `E${i}`, description: 'd'.repeat(6200) })),
+    })).model),
+  ];
+  assert.equal(messages.length, 3, messages.join(' | '));
+  assert.match(messages[0], /could not be read/);
+  for (const message of messages) assert.doesNotMatch(message, /json|file path/i, message);
 });
 
 test('a tree stored by the agent reads back with its KPI links and without ids', async () => {
@@ -75,21 +100,18 @@ test('every rule the agent stops the run for is caught here', async () => {
   const lib = await load();
   const problems = (tree) => lib.validateStrategy(lib.parseStrategicContext(JSON.stringify(tree)).model);
   assert.match(problems({ strategy: ['A', 'a'] }).join(' '), /appears twice/);
-  assert.match(problems({ strategy: [{ name: 'A', children: ['B'] }] }).join(' '), /Name the levels/);
-  assert.match(problems({ levels: ['One'], strategy: [{ name: 'A', children: ['B'] }] }).join(' '), /only 1 level names/);
   const deep = { name: 'L1', children: [{ name: 'L2', children: [{ name: 'L3', children: [{ name: 'L4', children: ['L5'] }] }] }] };
-  assert.match(problems({ levels: ['1', '2', '3', '4'], strategy: [deep] }).join(' '), /5 levels deep; the most is 4/);
+  assert.match(problems({ strategy: [deep] }).join(' '), /5 levels deep; the most is 4/);
   assert.match(problems({ strategy: [{ name: 'A', kpis: [{ name: 'K', direction: 'up' }] }] }).join(' '), /direction must be one of/);
   assert.match(problems({ strategy: [{ name: 'A', kpis: [{ name: ' ' }] }] }).join(' '), /empty name/);
   assert.match(problems({ strategy: [{ name: 'A', key_results: [{ statement: '' }] }] }).join(' '), /empty name/);
   assert.match(problems({ strategy: [''] }).join(' '), /empty name/);
   assert.match(problems({ strategy: ['x'.repeat(301)] }).join(' '), /longer than 300/);
   assert.match(problems({ strategy: Array.from({ length: 201 }, (_, i) => `E${i}`) }).join(' '), /more than 200 entries/);
-  assert.match(problems({ levels: ['Same', 'same'], strategy: ['A'] }).join(' '), /unique/);
   assert.match(problems({ sponsors: [{ role: '', name: 'Ann' }] }).join(' '), /no role/);
-  assert.deepEqual(problems({ strategy: ['A', 'B'] }), [], 'a flat list needs no level names');
-  assert.match(lib.validateStrategicContextText('{not json').join(' '), /Invalid JSON/);
-  assert.match(lib.validateStrategicContextText('[1, 2]').join(' '), /JSON object/);
+  assert.deepEqual(problems({ strategy: ['A', 'B'] }), [], 'a flat list is valid');
+  assert.match(lib.validateStrategicContextText('{not json').join(' '), /could not be read/);
+  assert.match(lib.validateStrategicContextText('[1, 2]').join(' '), /could not be read/);
 });
 
 test('the size limit is the agent limit in bytes', async () => {

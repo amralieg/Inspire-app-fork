@@ -3,13 +3,14 @@ export const STRATEGY_MAX_DEPTH = 4;
 export const STRATEGY_MAX_ENTRIES = 200;
 export const STRATEGY_MAX_NAME_CHARS = 300;
 export const STRATEGY_MAX_BYTES = 900000;
-export const STRATEGY_LABEL_KEYS = ['priority', 'kpi', 'key_result', 'sponsor'];
+export const STRATEGY_LAYERS = ['Pillar', 'Objective', 'Initiative', 'Project'];
 export const KPI_DIRECTIONS = ['increase', 'decrease', 'maintain'];
 
 const text = (value) => String(value ?? '').trim();
+const UNREADABLE = 'The saved strategy could not be read. Start a new one here.';
 
 export function emptyStrategy() {
-  return { levels: [], strategy: [], priorities: [], sponsors: [], labels: {} };
+  return { strategy: [], priorities: [], sponsors: [] };
 }
 
 export function emptyEntry(name = '') {
@@ -60,11 +61,11 @@ export function parseStrategicContext(widgetText) {
   let data;
   try {
     data = JSON.parse(raw);
-  } catch (err) {
-    return { mode: 'tree', model: emptyStrategy(), path: '', error: `Invalid JSON: ${err.message}` };
+  } catch {
+    return { mode: 'tree', model: emptyStrategy(), path: '', error: UNREADABLE };
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return { mode: 'tree', model: emptyStrategy(), path: '', error: 'Strategic Context must be a JSON object.' };
+    return { mode: 'tree', model: emptyStrategy(), path: '', error: UNREADABLE };
   }
   const priorities = (Array.isArray(data.priorities) ? data.priorities : [])
     .map((p) => text(p && typeof p === 'object' ? p.name : p))
@@ -74,18 +75,12 @@ export function parseStrategicContext(widgetText) {
     const owns = Array.isArray(o.owns) ? o.owns : o.owns ? [o.owns] : [];
     return { role: text(o.role), name: text(o.name), reports_to: text(o.reports_to), owns: owns.map(text).filter(Boolean) };
   });
-  const labels = {};
-  for (const key of STRATEGY_LABEL_KEYS) {
-    if (data.labels && text(data.labels[key])) labels[key] = text(data.labels[key]);
-  }
   return {
     mode: 'tree',
     model: {
-      levels: (Array.isArray(data.levels) ? data.levels : []).map(text),
       strategy: (Array.isArray(data.strategy) ? data.strategy : []).map(toEntry),
       priorities,
       sponsors,
-      labels,
     },
     path: '',
     error: null,
@@ -94,7 +89,7 @@ export function parseStrategicContext(widgetText) {
 
 export function isEmptyStrategy(model) {
   const m = model || emptyStrategy();
-  return !m.strategy.length && !m.priorities.length && !m.sponsors.length && !Object.values(m.labels || {}).some(Boolean);
+  return !m.strategy.length && !m.priorities.length && !m.sponsors.length;
 }
 
 export function serializeStrategy(model) {
@@ -116,9 +111,10 @@ export function serializeStrategy(model) {
     return out;
   };
   const out = { schema_version: STRATEGY_SCHEMA_VERSION };
-  const levels = model.levels.map(text).filter(Boolean);
-  if (model.strategy.length && levels.length) out.levels = levels;
-  if (model.strategy.length) out.strategy = model.strategy.map(entry);
+  if (model.strategy.length) {
+    out.levels = STRATEGY_LAYERS.slice(0, treeDepth(model.strategy));
+    out.strategy = model.strategy.map(entry);
+  }
   const priorities = [...new Set(model.priorities.map(text).filter(Boolean))];
   if (priorities.length) out.priorities = priorities;
   const sponsors = model.sponsors.filter((s) => text(s.role)).map((s) => {
@@ -130,9 +126,6 @@ export function serializeStrategy(model) {
     return sponsor;
   });
   if (sponsors.length) out.sponsors = sponsors;
-  const labels = {};
-  for (const key of STRATEGY_LABEL_KEYS) if (text(model.labels?.[key])) labels[key] = text(model.labels[key]);
-  if (Object.keys(labels).length) out.labels = labels;
   return JSON.stringify(out);
 }
 
@@ -155,14 +148,6 @@ const nameProblem = (value, what) => {
 
 export function validateStrategy(model) {
   const problems = [];
-  const levels = model.levels.map(text);
-  levels.forEach((level, index) => {
-    const problem = nameProblem(level, `Level ${index + 1}`);
-    if (problem) problems.push(problem);
-  });
-  if (new Set(levels.filter(Boolean).map((l) => l.toLowerCase())).size !== levels.filter(Boolean).length) {
-    problems.push('Level names must be unique.');
-  }
   const walk = (entries, where) => {
     const seen = new Set();
     entries.forEach((entry, index) => {
@@ -188,11 +173,8 @@ export function validateStrategy(model) {
   };
   walk(model.strategy, 'at the top level');
   const depth = treeDepth(model.strategy);
-  const named = levels.filter(Boolean).length;
   if (depth > STRATEGY_MAX_DEPTH) problems.push(`The tree is ${depth} levels deep; the most is ${STRATEGY_MAX_DEPTH}.`);
   if (countEntries(model.strategy) > STRATEGY_MAX_ENTRIES) problems.push(`The tree has more than ${STRATEGY_MAX_ENTRIES} entries.`);
-  if (depth > 1 && !named) problems.push('Name the levels: the tree is deeper than one level.');
-  if (depth && named && named < depth) problems.push(`The tree is ${depth} levels deep but only ${named} level names are given.`);
   model.priorities.forEach((priority, index) => {
     const problem = nameProblem(priority, `Priority ${index + 1}`);
     if (problem) problems.push(problem);
@@ -201,7 +183,9 @@ export function validateStrategy(model) {
     if (!text(sponsor.role)) problems.push(`Sponsor ${index + 1} has no role.`);
   });
   const size = new TextEncoder().encode(serializeStrategy(model)).length;
-  if (size > STRATEGY_MAX_BYTES) problems.push(`The strategy is ${size} bytes; the limit is ${STRATEGY_MAX_BYTES}. Use a file path instead.`);
+  if (size > STRATEGY_MAX_BYTES) {
+    problems.push(`The strategy is ${size} bytes; the limit is ${STRATEGY_MAX_BYTES}. Remove some entries or shorten their text.`);
+  }
   return problems;
 }
 

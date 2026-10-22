@@ -46,6 +46,7 @@ import { BestOfBestDetail, FeedbackChip, FeedbackControls, StrategyChip, UseCase
 import {
   NOT_ALIGNED_FILTER,
   bestOfBestLabel,
+  compareBestOfBestFirst,
   copyV130TrackingFields,
   knownPriorities,
   latestFeedbackMap,
@@ -54,6 +55,7 @@ import {
   strategyFilterOptions,
   v130View,
 } from '../lib/v130UseCase';
+import { visibleArtifactFiles } from '../lib/artifactFiles';
 
 /* ── Priority sort order ── */
 const PRIORITY_ORDER = [
@@ -1259,6 +1261,8 @@ export default function ResultsPage({
         return true;
       })
       .sort((a, b) => {
+        const starred = compareBestOfBestFirst(a._v130, b._v130);
+        if (starred !== 0) return starred;
         const sa = inspireScoreFromUc(a);
         const sb = inspireScoreFromUc(b);
         const scoreFirst = () => {
@@ -1267,12 +1271,6 @@ export default function ResultsPage({
           if (vb !== va) return vb - va;
           return 0;
         };
-        if (sortBy === 'star') {
-          const ra = a._v130?.bestOfBest?.rank ?? Infinity;
-          const rb = b._v130?.bestOfBest?.rank ?? Infinity;
-          if (ra !== rb) return ra - rb;
-          return scoreFirst() || String(a.Name || '').localeCompare(String(b.Name || ''));
-        }
         if (sortBy === 'inspire') {
           const c = scoreFirst();
           if (c !== 0) return c;
@@ -1462,7 +1460,7 @@ export default function ResultsPage({
         const resp = await fetch(`/api/workspace/list?path=${encodeURIComponent(dir)}`, { headers });
         if (!resp.ok) return;
         const data = await resp.json();
-        const files = data.files || [];
+        const files = visibleArtifactFiles(data.files);
         setArtifactTree(prev => ({ ...prev, [dir]: { files, loading: false, error: null } }));
         for (const f of files) {
           if (f.is_directory) {
@@ -1496,7 +1494,7 @@ export default function ResultsPage({
         if (resp.ok) {
           const data = await resp.json();
           if (data.files && data.files.length > 0) {
-            setArtifactsRootFiles(data.files);
+            setArtifactsRootFiles(visibleArtifactFiles(data.files));
             setArtifactsExpanded(true);
             setArtifactsLoading(false);
             // Auto-scan ALL subfolders to discover notebook paths and previewable files
@@ -1520,7 +1518,7 @@ export default function ResultsPage({
       const resp = await fetch(`/api/workspace/list?path=${encodeURIComponent(folderPath)}`, { headers });
       if (resp.ok) {
         const data = await resp.json();
-        setArtifactTree(prev => ({ ...prev, [folderPath]: { files: data.files || [], loading: false, error: null } }));
+        setArtifactTree(prev => ({ ...prev, [folderPath]: { files: visibleArtifactFiles(data.files), loading: false, error: null } }));
       } else {
         setArtifactTree(prev => ({ ...prev, [folderPath]: { files: [], loading: false, error: 'Could not list folder' } }));
       }
@@ -2823,11 +2821,7 @@ export default function ResultsPage({
                   {starredCount > 0 && (
                     <button
                       type="button"
-                      onClick={() => {
-                        const next = !showBestOfBestOnly;
-                        setShowBestOfBestOnly(next);
-                        if (next) setSortBy('star');
-                      }}
+                      onClick={() => setShowBestOfBestOnly(!showBestOfBestOnly)}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-smooth ${
                         showBestOfBestOnly
                           ? 'bg-amber-50 text-amber-700 border-amber-300'
@@ -2927,7 +2921,6 @@ export default function ResultsPage({
                     className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth"
                   >
                     <option value="inspire">Sort: Inspire score (high → low)</option>
-                    {starredCount > 0 && <option value="star">Sort: Best of Best rank</option>}
                     <option value="priority">Sort: Priority tier</option>
                     <option value="domain">Sort: Domain</option>
                     <option value="name">Sort: Name</option>

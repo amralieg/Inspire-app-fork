@@ -19,7 +19,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 import ResultsPage from './ResultsPage';
-import { countEntries, parseStrategicContext } from '../lib/strategyContext';
+import { countEntries, parseStrategicContext, treeDepth } from '../lib/strategyContext';
 
 // Run lifecycle phases
 const PHASE_PENDING = 'PENDING';
@@ -1181,10 +1181,10 @@ function RunSetupSummary({ widgetValues }) {
   if (!discovery && !strategyText) return null;
   const parsed = parseStrategicContext(strategyText);
   let strategy = 'No strategy given: built-in goals';
-  if (parsed.mode === 'path') strategy = `Strategy from ${parsed.path}`;
+  if (parsed.mode === 'path') strategy = 'Customer strategy';
   else if (parsed.mode === 'tree') {
     const entries = countEntries(parsed.model.strategy);
-    const levels = parsed.model.levels.length;
+    const levels = treeDepth(parsed.model.strategy);
     const priorities = parsed.model.priorities.length;
     strategy = `Strategy: ${entries} entr${entries === 1 ? 'y' : 'ies'}` +
       (levels ? `, ${levels} level${levels === 1 ? '' : 's'}` : '') +

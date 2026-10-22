@@ -197,3 +197,14 @@ test('the use case view exposes the star, the reason it was not starred, and the
   const merged = copyV130TrackingFields({ Name: 'x' }, { best_of_best: 'Y', best_of_best_rank: 1 });
   assert.equal(v130View(merged).bestOfBest.rank, 1);
 });
+
+test('starred use cases always come first in star order and the rest keep their order', async () => {
+  const { compareBestOfBestFirst, v130View } = await load();
+  const make = (name, star, score) => ({ name, score, view: v130View(star ? { best_of_best: 'Y', best_of_best_rank: star } : {}) });
+  const list = [make('plain high', null, 9.5), make('star 2', 2, 7.0), make('plain low', null, 6.0),
+    make('star 1', 1, 6.5), make('star without rank', 'x', 8.0), make('plain mid', null, 8.2)];
+  const ordered = [...list].sort((a, b) => compareBestOfBestFirst(a.view, b.view) || b.score - a.score).map((u) => u.name);
+  assert.deepEqual(ordered, ['star 1', 'star 2', 'star without rank', 'plain high', 'plain mid', 'plain low']);
+  assert.equal(compareBestOfBestFirst(v130View({}), v130View({})), 0, 'two unstarred use cases keep the chosen sort');
+  assert.equal(compareBestOfBestFirst(undefined, null), 0);
+});

@@ -56,6 +56,16 @@ function bestOfBestOf(u) {
   };
 }
 
+export function compareBestOfBestFirst(a, b) {
+  const rank = (view) => (view?.bestOfBest ? view.bestOfBest.rank ?? Number.MAX_SAFE_INTEGER : null);
+  const ra = rank(a);
+  const rb = rank(b);
+  if (ra === null && rb === null) return 0;
+  if (ra === null) return 1;
+  if (rb === null) return -1;
+  return ra - rb;
+}
+
 export function bestOfBestLabel(star) {
   if (!star) return '';
   const rank = star.rank ? ` #${star.rank}` : '';
