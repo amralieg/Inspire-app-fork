@@ -146,17 +146,42 @@ export default function StrategyEditor({ value, onChange, onProblems, prioritySu
                 <div
                   key={path.join('.')}
                   onClick={() => setSelected(path)}
-                  className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 border cursor-pointer transition-smooth ${
+                  className={`rounded-md px-1.5 py-1.5 border cursor-pointer transition-smooth space-y-1 ${
                     active ? 'bg-db-red-50 border-db-red/20' : 'border-transparent hover:bg-bg-subtle'
                   }`}
-                  style={{ paddingLeft: `${0.375 + (depth - 1) * 0.875}rem` }}
+                  style={{ marginLeft: `${(depth - 1) * 0.875}rem` }}
                 >
-                  <span
-                    className={`text-[9px] uppercase tracking-wider w-16 shrink-0 truncate ${active ? 'text-db-red' : 'text-text-tertiary'}`}
-                    title={layerName(depth)}
-                  >
-                    {layerName(depth)}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className={`text-[9px] uppercase tracking-wider ${active ? 'text-db-red' : 'text-text-tertiary'}`}>
+                      {layerName(depth)}
+                    </span>
+                    <span className="ml-auto flex items-center gap-1">
+                      {depth < STRATEGY_MAX_DEPTH && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addChild(path, entry);
+                          }}
+                          className={smallButton}
+                          title={`Add a ${layerName(depth + 1).toLowerCase()} under this ${layerName(depth).toLowerCase()}`}
+                        >
+                          <Plus size={11} /> {layerName(depth + 1)}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeEntry(path);
+                        }}
+                        className={smallButton}
+                        title="Remove this entry and everything under it"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </span>
+                  </div>
                   <input
                     value={entry.name}
                     onFocus={() => setSelected(path)}
@@ -164,30 +189,6 @@ export default function StrategyEditor({ value, onChange, onProblems, prioritySu
                     placeholder="Name, in your own words"
                     className={inputClass}
                   />
-                  {depth < STRATEGY_MAX_DEPTH && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        addChild(path, entry);
-                      }}
-                      className={smallButton}
-                      title={`Add a ${layerName(depth + 1).toLowerCase()} under this ${layerName(depth).toLowerCase()}`}
-                    >
-                      <Plus size={11} /> {layerName(depth + 1)}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeEntry(path);
-                    }}
-                    className={smallButton}
-                    title="Remove this entry and everything under it"
-                  >
-                    <Trash2 size={11} />
-                  </button>
                 </div>
               );
             })
