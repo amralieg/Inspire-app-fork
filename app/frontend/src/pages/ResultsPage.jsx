@@ -31,6 +31,7 @@ import {
   XCircle,
   Compass,
   Flag,
+  Star,
 } from 'lucide-react';
 import AnimatedCounter from '../components/AnimatedCounter';
 import GenieMarkdownPreview from '../components/GenieMarkdownPreview';
@@ -41,9 +42,10 @@ import Celebration from '../components/Celebration';
 import DatabricksLogo from '../components/DatabricksLogo';
 import { SkeletonCard, SkeletonStats } from '../components/SkeletonLoader';
 import { DataAccessBadge, FeedbackPanel, FoundationsPanel, SidebarFilterPanel, StrategyCoveragePanel } from '../components/ResultsInsights';
-import { FeedbackChip, FeedbackControls, StrategyChip, UseCaseStrategyDetail } from '../components/UseCaseStrategyDetail';
+import { BestOfBestDetail, FeedbackChip, FeedbackControls, StrategyChip, UseCaseStrategyDetail } from '../components/UseCaseStrategyDetail';
 import {
   NOT_ALIGNED_FILTER,
+  bestOfBestLabel,
   copyV130TrackingFields,
   knownPriorities,
   latestFeedbackMap,
@@ -579,6 +581,7 @@ export default function ResultsPage({
   const [filterBizPriority, setFilterBizPriority] = useState('all');
   const [sortBy, setSortBy] = useState('inspire');
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [showBestOfBestOnly, setShowBestOfBestOnly] = useState(false);
 
   // Favorites — browser localStorage, keyed by content fingerprint (works across sessions)
   const [favorites, setFavorites] = useState(loadFavoritesMap);
@@ -1264,6 +1267,12 @@ export default function ResultsPage({
           if (vb !== va) return vb - va;
           return 0;
         };
+        if (sortBy === 'star') {
+          const ra = a._v130?.bestOfBest?.rank ?? Infinity;
+          const rb = b._v130?.bestOfBest?.rank ?? Infinity;
+          if (ra !== rb) return ra - rb;
+          return scoreFirst() || String(a.Name || '').localeCompare(String(b.Name || ''));
+        }
         if (sortBy === 'inspire') {
           const c = scoreFirst();
           if (c !== 0) return c;
@@ -1297,6 +1306,11 @@ export default function ResultsPage({
     console.error('Error filtering/sorting use cases:', err);
     filteredUseCases = allUseCases;
   }
+
+  if (showBestOfBestOnly) {
+    filteredUseCases = filteredUseCases.filter((uc) => uc?._v130?.bestOfBest);
+  }
+  const starredCount = allUseCases.filter((uc) => uc?._v130?.bestOfBest).length;
 
   // Apply favorites filter
   if (showFavoritesOnly) {
@@ -1417,7 +1431,8 @@ export default function ResultsPage({
     filterSponsor !== 'all' ||
     filterStrategy !== 'all' ||
     filterBizPriority !== 'all' ||
-    filterHasGenie !== 'all';
+    filterHasGenie !== 'all' ||
+    showBestOfBestOnly;
 
   const clearAllFilters = () => {
     setSearchQuery(''); setFilterDomain('all'); setFilterSubdomain('all');
@@ -1426,6 +1441,7 @@ export default function ResultsPage({
     setFilterBeneficiary('all'); setFilterSponsor('all');
     setFilterStrategy('all'); setFilterBizPriority('all');
     setFilterHasGenie('all');
+    setShowBestOfBestOnly(false);
   };
 
   // Load generation artifacts — tries multiple path variations
@@ -2804,6 +2820,28 @@ export default function ResultsPage({
                     )}
                   </button>
 
+                  {starredCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !showBestOfBestOnly;
+                        setShowBestOfBestOnly(next);
+                        if (next) setSortBy('star');
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-smooth ${
+                        showBestOfBestOnly
+                          ? 'bg-amber-50 text-amber-700 border-amber-300'
+                          : 'bg-bg text-text-secondary border-border hover:border-border-strong'
+                      }`}
+                      title={showBestOfBestOnly ? 'Show all use cases' : 'Show Best of Best use cases only'}
+                      aria-pressed={showBestOfBestOnly}
+                    >
+                      <Star size={13} className={showBestOfBestOnly ? 'fill-amber-400 text-amber-500' : ''} />
+                      Best of Best
+                      <span className="text-[10px]">{starredCount}</span>
+                    </button>
+                  )}
+
                   {/* Priority pills */}
                   {priorities.length > 0 && (
                     <div className="flex items-center gap-1">
@@ -2889,6 +2927,7 @@ export default function ResultsPage({
                     className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth"
                   >
                     <option value="inspire">Sort: Inspire score (high → low)</option>
+                    {starredCount > 0 && <option value="star">Sort: Best of Best rank</option>}
                     <option value="priority">Sort: Priority tier</option>
                     <option value="domain">Sort: Domain</option>
                     <option value="name">Sort: Name</option>
@@ -3590,6 +3629,15 @@ function UseCaseCard({
                 <h3 className="text-lg sm:text-xl font-bold text-text-primary leading-snug">
                   {titlePlain}
                 </h3>
+                {v130?.bestOfBest && (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.14em] px-2 py-0.5 rounded-md border shrink-0 leading-none text-amber-700 border-amber-300 bg-amber-50"
+                    title={bestOfBestLabel(v130.bestOfBest)}
+                  >
+                    <Star size={11} className="fill-amber-400 text-amber-500" />
+                    Best of Best{v130.bestOfBest.rank ? ` #${v130.bestOfBest.rank}` : ''}
+                  </span>
+                )}
                 {showGenieInstructionBadge && (
                   <span
                     className={`text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.14em] px-2 py-0.5 rounded-md border shrink-0 leading-none ${
@@ -3711,6 +3759,7 @@ function UseCaseCard({
             </div>
           )}
 
+          <BestOfBestDetail info={v130} />
           <UseCaseStrategyDetail info={v130} knownPriorities={priorityList} foundationsById={foundationsById} />
 
           {/* Detail chips */}

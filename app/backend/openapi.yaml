@@ -246,6 +246,14 @@ components:
                 One strategy tree (1 to 4 levels, entries with KPIs and key results, priorities, sponsors, labels),
                 applied only after selection. At most 900000 bytes, otherwise 400.
               default: ''
+            16_best_of_best_count:
+              type: string
+              description: |
+                v1.3.0 Best of Best Count: how many use cases are starred (0 to 100). Empty lets the generation
+                instructions or the default of 20 decide. Starring never adds, removes or reorders a use case. Any
+                other value is refused with 400.
+              pattern: '^(\d{1,3})?$'
+              default: ''
             strategic_goals:
               type: string
               description: Business strategic goals to guide analysis

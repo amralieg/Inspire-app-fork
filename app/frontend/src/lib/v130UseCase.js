@@ -8,6 +8,7 @@ export const FEEDBACK_LABELS = { accepted: 'Accepted', planned: 'Planned', imple
 export const V130_TRACKING_FIELDS = [
   'strategy_alignment', 'strategy_path', 'kpis', 'expected_key_results', 'measures_of_success',
   'financial_benefits', 'non_financial_benefits', 'data_evidence', 'foundation_ids', 'use_case_key',
+  'best_of_best', 'best_of_best_rank', 'best_of_best_score', 'best_of_best_reason',
 ];
 
 const KPI_UP = /\b(increase|increasing|up|higher|maximi[sz]e|raise|grow|growth)\b/i;
@@ -42,6 +43,24 @@ function objectList(value) {
 
 function pick(uc, displayKey, trackingKey) {
   return isBlank(uc[displayKey]) ? uc[trackingKey] : uc[displayKey];
+}
+
+function bestOfBestOf(u) {
+  if (String(u.best_of_best ?? '').trim().toUpperCase() !== 'Y') return null;
+  const rank = Number.parseInt(String(u.best_of_best_rank ?? ''), 10);
+  const score = Number.parseFloat(String(u.best_of_best_score ?? ''));
+  return {
+    rank: Number.isFinite(rank) ? rank : null,
+    score: Number.isFinite(score) ? score : null,
+    reason: String(u.best_of_best_reason ?? '').trim(),
+  };
+}
+
+export function bestOfBestLabel(star) {
+  if (!star) return '';
+  const rank = star.rank ? ` #${star.rank}` : '';
+  const score = star.score != null ? ` \u00b7 elite score ${star.score.toFixed(1)}/10` : '';
+  return `Best of Best${rank}${score}`;
 }
 
 export function copyV130TrackingFields(uc, row) {
@@ -91,6 +110,8 @@ export function v130View(uc) {
     foundations: textList(pick(u, 'Foundations', 'foundation_ids')),
     useCaseKey: String(u.use_case_key ?? '').trim(),
     feedbackStatus: String(u['Feedback Status'] ?? '').trim().toLowerCase(),
+    bestOfBest: bestOfBestOf(u),
+    notStarredReason: String(u.best_of_best ?? '').trim().toUpperCase() === 'N' ? String(u.best_of_best_reason ?? '').trim() : '',
     hasValue: kpis.length + keyResults.length + measures.length + financial.length + nonFinancial.length > 0,
   };
 }

@@ -178,3 +178,22 @@ test('a use case hidden because it rewords a rejected one says what was proposed
   assert.equal(lib.excludedFeedbackText({ use_case_key: 'k|t' }), 'k|t');
   assert.equal(lib.excludedFeedbackText(null), '');
 });
+
+test('the use case view exposes the star, the reason it was not starred, and the copied tracking fields', async () => {
+  const { v130View, bestOfBestLabel, copyV130TrackingFields, V130_TRACKING_FIELDS } = await load();
+  const starred = v130View({ best_of_best: 'Y', best_of_best_rank: '2', best_of_best_score: 8.64, best_of_best_reason: 'passed every elite test' });
+  assert.deepEqual(starred.bestOfBest, { rank: 2, score: 8.64, reason: 'passed every elite test' });
+  assert.equal(bestOfBestLabel(starred.bestOfBest), 'Best of Best #2 \u00b7 elite score 8.6/10');
+  assert.equal(starred.notStarredReason, '');
+  const plain = v130View({ best_of_best: 'N', best_of_best_reason: 'did not pass: score:evidence_strength' });
+  assert.equal(plain.bestOfBest, null);
+  assert.equal(plain.notStarredReason, 'did not pass: score:evidence_strength');
+  assert.equal(v130View({}).bestOfBest, null, 'a session from before v1.3.0 has no star');
+  assert.equal(bestOfBestLabel(null), '');
+  assert.equal(bestOfBestLabel({ rank: null, score: null }), 'Best of Best');
+  for (const field of ['best_of_best', 'best_of_best_rank', 'best_of_best_score', 'best_of_best_reason']) {
+    assert.ok(V130_TRACKING_FIELDS.includes(field), field);
+  }
+  const merged = copyV130TrackingFields({ Name: 'x' }, { best_of_best: 'Y', best_of_best_rank: 1 });
+  assert.equal(v130View(merged).bestOfBest.rank, 1);
+});

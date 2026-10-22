@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
+  bestOfBestLabel,
   feedbackLabel,
   kpiSource,
   kpiText,
@@ -48,6 +49,18 @@ export function FeedbackChip({ status }) {
   if (!label) return null;
   return (
     <span className="text-[10px] px-2 py-0.5 rounded-full border border-success/30 bg-success-bg text-success font-medium">{label}</span>
+  );
+}
+
+export function BestOfBestDetail({ info }) {
+  const star = info?.bestOfBest;
+  if (!star && !info?.notStarredReason) return null;
+  return (
+    <div className={`rounded-lg border p-4 ${star ? 'border-amber-300 bg-amber-50' : 'border-border bg-bg'}`}>
+      <Section title={star ? bestOfBestLabel(star) : 'Not starred as Best of Best'} tone={star ? 'text-amber-700' : 'text-text-tertiary'}>
+        <p className="text-sm text-text-secondary leading-relaxed">{star ? star.reason || 'Passed every elite test.' : info.notStarredReason}</p>
+      </Section>
+    </div>
   );
 }
 

@@ -77,6 +77,7 @@ test('sanitizer forwards only notebook widget keys and valid generation choices'
     '09_generation_options',
     '10_strategic_context',
     '13_generate_genie_code_for',
+    '16_best_of_best_count',
   ]);
   assert.equal(params['03_discovery_type'], 'Deep');
   assert.equal(params['10_strategic_context'], '');
@@ -100,7 +101,8 @@ test('below-bar fallback flags are treated as a valid result label', () => {
 test('widget keys follow the notebook order with the two v1.3.0 keys in their slots', () => {
   assert.equal(INSPIRE_NOTEBOOK_WIDGET_KEYS.indexOf('03_discovery_type'), INSPIRE_NOTEBOOK_WIDGET_KEYS.indexOf('02_inspire_database') + 1);
   assert.equal(INSPIRE_NOTEBOOK_WIDGET_KEYS.indexOf('10_strategic_context'), INSPIRE_NOTEBOOK_WIDGET_KEYS.indexOf('09_generation_options') + 1);
-  assert.equal(INSPIRE_NOTEBOOK_WIDGET_KEYS.length, 16);
+  assert.equal(INSPIRE_NOTEBOOK_WIDGET_KEYS.at(-1), '16_best_of_best_count');
+  assert.equal(INSPIRE_NOTEBOOK_WIDGET_KEYS.length, 17);
 });
 
 test('discovery type keeps Deep or Standard, defaults to Deep and refuses anything else', () => {
@@ -156,4 +158,28 @@ test('v1.3.0 use case fields are parsed and stay NULL-safe on older rows', () =>
   assert.equal(legacy.strategy_path, null);
   assert.equal(legacy.use_case_key, null);
   assert.equal(legacy.use_case, 'Old row');
+});
+
+test('the Best of Best count widget is forwarded, kept empty by default and refused outside 0 to 100', () => {
+  const { validateBestOfBestCountParams, BEST_OF_BEST_MAX_COUNT } = require('../lib/inspireJobParams');
+  assert.ok(INSPIRE_NOTEBOOK_WIDGET_KEYS.includes('16_best_of_best_count'));
+  assert.equal(BEST_OF_BEST_MAX_COUNT, 100);
+  for (const value of ['', ' ', '0', '20', ' 15 ', '100']) {
+    assert.equal(validateBestOfBestCountParams({ '16_best_of_best_count': value })['16_best_of_best_count'], value.trim());
+  }
+  for (const value of ['101', 'abc', '-1', '1.5', '1e2', '0020']) {
+    assert.throws(() => validateBestOfBestCountParams({ '16_best_of_best_count': value }), (err) => err.statusCode === 400, value);
+  }
+  const out = sanitizeInspireNotebookJobParams({ '00_business_name': 'Acme', '16_best_of_best_count': ' 12 ' });
+  assert.equal(out['16_best_of_best_count'], '12');
+  assert.equal(sanitizeInspireNotebookJobParams({ '00_business_name': 'Acme' })['16_best_of_best_count'], '');
+});
+
+test('tracking rows carry the star NULL-safe: Y with its rank, N without one, older rows as null', () => {
+  const starred = normalizeV130UseCaseFields({ best_of_best: 'y', best_of_best_rank: '3', best_of_best_score: '8.75', best_of_best_reason: 'passed' });
+  assert.deepEqual([starred.best_of_best, starred.best_of_best_rank, starred.best_of_best_score, starred.best_of_best_reason], ['Y', 3, 8.75, 'passed']);
+  const plain = normalizeV130UseCaseFields({ best_of_best: 'N', best_of_best_rank: '2', best_of_best_score: '', best_of_best_reason: 'did not pass: red_team' });
+  assert.deepEqual([plain.best_of_best, plain.best_of_best_rank, plain.best_of_best_score], ['N', null, null], 'a rank is only kept on a starred row');
+  const older = normalizeV130UseCaseFields({});
+  assert.deepEqual([older.best_of_best, older.best_of_best_rank, older.best_of_best_score, older.best_of_best_reason], [null, null, null, null]);
 });

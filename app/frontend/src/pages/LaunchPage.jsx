@@ -190,6 +190,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     '12_documents_languages': 'English',
     '13_generate_genie_code_for': '5',
     '14_session_id': '',
+    '16_best_of_best_count': '',
   });
 
   // ── Catalog/Schema pickers ──
@@ -672,7 +673,9 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
 
   // Validation state
   const effectiveDb = params['02_inspire_database'] || inspireDatabase;
-  const canLaunch = params['00_business_name'] && effectiveDb && params['01_uc_metadata'] && strategyProblems.length === 0;
+  const bestOfBestText = String(params['16_best_of_best_count'] ?? '').trim();
+  const bestOfBestInvalid = bestOfBestText !== '' && (!/^\d{1,3}$/.test(bestOfBestText) || Number(bestOfBestText) > 100);
+  const canLaunch = params['00_business_name'] && effectiveDb && params['01_uc_metadata'] && strategyProblems.length === 0 && !bestOfBestInvalid;
 
   const launchErrorGuidance = useMemo(
     () => (launchError
@@ -1495,6 +1498,24 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                     className="w-full pl-10 pr-4 py-2.5 text-sm border border-border rounded-lg bg-surface text-text-primary glow-focus transition-smooth font-mono"
                   />
                 </Field>
+                <Field
+                  label="Best of Best stars"
+                  icon={Star}
+                  hint="16_best_of_best_count — how many use cases to star (0 to 100). Empty uses the number in your generation instructions, or 20. Stars never add, remove or reorder a use case."
+                >
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={params['16_best_of_best_count']}
+                    onChange={(e) => updateParam('16_best_of_best_count', e.target.value)}
+                    placeholder="20"
+                    aria-invalid={bestOfBestInvalid}
+                    className={`w-full pl-10 pr-4 py-2.5 text-sm border rounded-lg bg-surface text-text-primary glow-focus transition-smooth font-mono ${bestOfBestInvalid ? 'border-error' : 'border-border'}`}
+                  />
+                  {bestOfBestInvalid && (
+                    <p className="mt-1.5 text-xs text-error">Use a whole number from 0 to 100, or leave it empty for 20.</p>
+                  )}
+                </Field>
               </div>
             </div>
           )}
@@ -1540,6 +1561,9 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
               {params['03_discovery_type'] || 'Deep'}
             </Chip>
             {params['10_strategic_context'] && <Chip icon={<Target size={10} />}>Strategy set</Chip>}
+            <Chip icon={<Star size={10} />}>
+              Stars: {bestOfBestText === '0' ? 'off' : bestOfBestText || '20'}
+            </Chip>
             <Chip icon={<Bot size={10} />}>
               Genie:{' '}
               {String(params['13_generate_genie_code_for'] || '').trim() === '0'

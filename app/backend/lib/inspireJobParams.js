@@ -18,6 +18,7 @@ const INSPIRE_NOTEBOOK_WIDGET_KEYS = [
   '12_documents_languages',
   '13_generate_genie_code_for',
   '14_session_id',
+  '16_best_of_best_count',
 ];
 
 const USE_CASES_QUALITY_VALID = ['Good', 'High', 'Ultra High'];
@@ -27,6 +28,9 @@ const DISCOVERY_TYPE_VALID = ['Deep', 'Standard'];
 const DISCOVERY_TYPE_DEFAULT = 'Deep';
 
 const STRATEGIC_CONTEXT_MAX_BYTES = 900000;
+
+const BEST_OF_BEST_MAX_COUNT = 100;
+const BEST_OF_BEST_DEFAULT_COUNT = 20;
 
 /** Legacy widget labels → v1.2.0 canonical modes (matches notebook USE_CASES_QUALITY_ALIASES). */
 const USE_CASES_QUALITY_ALIASES = {
@@ -97,6 +101,18 @@ function validateStrategicContextParams(params) {
   return params;
 }
 
+function validateBestOfBestCountParams(params) {
+  const text = String(params['16_best_of_best_count'] ?? '').trim();
+  if (text && (!/^\d{1,3}$/.test(text) || Number(text) > BEST_OF_BEST_MAX_COUNT)) {
+    throw paramError(
+      `Best of Best Count "${text}" is not supported. Use a whole number from 0 to ${BEST_OF_BEST_MAX_COUNT}, ` +
+        `or leave it empty for ${BEST_OF_BEST_DEFAULT_COUNT}.`,
+    );
+  }
+  params['16_best_of_best_count'] = text;
+  return params;
+}
+
 function normalizeGenerationOptionsParams(params) {
   const allowed = new Set(['PDF Catalog', 'Presentation']);
   const normalized = String(params['09_generation_options'] || '')
@@ -112,6 +128,7 @@ function sanitizeInspireNotebookJobParams(params) {
   normalizeUseCasesQualityParams(params);
   normalizeDiscoveryTypeParams(params);
   validateStrategicContextParams(params);
+  validateBestOfBestCountParams(params);
   const out = {};
   for (const k of INSPIRE_NOTEBOOK_WIDGET_KEYS) {
     if (!Object.prototype.hasOwnProperty.call(params, k)) continue;
@@ -196,6 +213,13 @@ function normalizeV130UseCaseFields(row) {
   row.foundation_ids = splitText(row.foundation_ids, ',');
   row.strategy_path = row.strategy_path == null || row.strategy_path === '' ? null : String(row.strategy_path);
   row.use_case_key = row.use_case_key == null || row.use_case_key === '' ? null : String(row.use_case_key);
+  const flag = String(row.best_of_best ?? '').trim().toUpperCase();
+  row.best_of_best = flag === 'Y' || flag === 'N' ? flag : null;
+  const rank = Number.parseInt(String(row.best_of_best_rank ?? ''), 10);
+  row.best_of_best_rank = row.best_of_best === 'Y' && Number.isFinite(rank) ? rank : null;
+  const score = Number.parseFloat(String(row.best_of_best_score ?? ''));
+  row.best_of_best_score = Number.isFinite(score) ? score : null;
+  row.best_of_best_reason = row.best_of_best_reason == null || row.best_of_best_reason === '' ? null : String(row.best_of_best_reason);
   return row;
 }
 
@@ -208,12 +232,15 @@ module.exports = {
   DISCOVERY_TYPE_VALID,
   DISCOVERY_TYPE_DEFAULT,
   STRATEGIC_CONTEXT_MAX_BYTES,
+  BEST_OF_BEST_MAX_COUNT,
+  BEST_OF_BEST_DEFAULT_COUNT,
   buildDemoInspireDiscoveryParams,
   sanitizeInspireNotebookJobParams,
   normalizeGenerationOptionsParams,
   normalizeUseCasesQualityParams,
   normalizeDiscoveryTypeParams,
   validateStrategicContextParams,
+  validateBestOfBestCountParams,
   parseMaybeJson,
   belowBarLabelFromUseCase,
   V130_JSON_FIELDS,
