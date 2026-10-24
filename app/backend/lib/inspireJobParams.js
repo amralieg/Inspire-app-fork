@@ -165,6 +165,12 @@ function buildDemoInspireDiscoveryParams({ inspireDatabase, sessionId, generateT
   return sanitizeInspireNotebookJobParams(raw);
 }
 
+function inspireTaskCompute(clusterId) {
+  return clusterId
+    ? { existing_cluster_id: clusterId }
+    : { environment_key: 'Default', disable_auto_optimization: true };
+}
+
 function parseMaybeJson(value) {
   if (value == null || value === '') return null;
   if (typeof value === 'object') return value;
@@ -235,6 +241,7 @@ module.exports = {
   BEST_OF_BEST_MAX_COUNT,
   BEST_OF_BEST_DEFAULT_COUNT,
   buildDemoInspireDiscoveryParams,
+  inspireTaskCompute,
   sanitizeInspireNotebookJobParams,
   normalizeGenerationOptionsParams,
   normalizeUseCasesQualityParams,

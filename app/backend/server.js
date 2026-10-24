@@ -19,6 +19,7 @@ const { resolveInspireAppServicePrincipalId } = require('./lib/inspireSpGrants')
 const { createGenieJobGuard } = require('./lib/genieJobGuard');
 const {
   INSPIRE_AGENT_VERSION,
+  inspireTaskCompute,
   normalizeUseCasesQualityParams,
   sanitizeInspireNotebookJobParams,
   normalizeV130UseCaseFields,
@@ -843,10 +844,7 @@ async function triggerInspireNotebookJob(host, token, { params, notebook_path, c
         base_parameters: params,
         source: 'WORKSPACE',
       },
-      ...(cluster_id
-        ? { existing_cluster_id: cluster_id }
-        : { environment_key: 'Default' }
-      ),
+      ...inspireTaskCompute(cluster_id),
     }],
     ...(!cluster_id ? {
       environments: [{

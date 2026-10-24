@@ -4,6 +4,7 @@ const { buildDemoSchemaName } = require('./demoDataService');
 const {
   INSPIRE_AGENT_VERSION,
   buildDemoInspireDiscoveryParams,
+  inspireTaskCompute,
 } = require('./inspireJobParams');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -213,9 +214,7 @@ async function triggerDemoDataPipeline(
   });
 
   const resolvedClusterId = await resolvePipelineClusterId(dbFetch, host, token, cluster_id);
-  const clusterSpec = resolvedClusterId
-    ? { existing_cluster_id: resolvedClusterId }
-    : { environment_key: 'Default' };
+  const clusterSpec = inspireTaskCompute(resolvedClusterId);
 
   const inspireParams = buildDemoInspireDiscoveryParams({
     inspireDatabase: inspireDb,

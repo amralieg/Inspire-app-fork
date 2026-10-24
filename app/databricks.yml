@@ -59,6 +59,7 @@ resources:
             notebook_path: ${var.notebook_path}
             source: WORKSPACE
           timeout_seconds: 14400
+          disable_auto_optimization: true
 
 artifacts:
   # ── Notebook to deploy ──
