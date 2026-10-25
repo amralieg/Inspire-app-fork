@@ -1,0 +1,702 @@
+const { isMissingTableError } = require('./lib/inspireFeedback');
+const { stepsStatement } = require('./lib/sqlInputs');
+const I = require('./lib/inspireImplement');
+
+function sendError(res, err) {
+  const code = err && Number.isFinite(err.statusCode) ? err.statusCode : 500;
+  return res.status(code).json({ ...(err && err.details), error: err.message || String(err) });
+}
+
+function q(req, key) {
+  const v = req.query[key] ?? req.body?.[key];
+  return v == null ? '' : String(v).trim();
+}
+
+function principalsOf(req) {
+  const raw = q(req, 'principals');
+  if (!raw) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw I.badRequest('principals must be a JSON list of principal names');
+  }
+  if (!Array.isArray(parsed)) throw I.badRequest('principals must be a JSON list of principal names');
+  return parsed.map((p) => String(p == null ? '' : p).trim()).filter(Boolean).slice(0, 100);
+}
+
+function sessionIdOf(req) {
+  const sid = q(req, 'session_id');
+  if (!/^\d+$/.test(sid)) {
+    const err = new Error('session_id must be a numeric Inspire session id.');
+    err.statusCode = 400;
+    throw err;
+  }
+  return sid;
+}
+
+function warehouseOf(req) {
+  const warehouseId = q(req, 'warehouse_id');
+  if (!warehouseId) {
+    const err = new Error('warehouse_id is required.');
+    err.statusCode = 400;
+    throw err;
+  }
+  return warehouseId;
+}
+
+function dbOf(req, splitInspireDatabase) {
+  const inspire_database = q(req, 'inspire_database');
+  const parsed = splitInspireDatabase(inspire_database);
+  if (!parsed) {
+    const err = new Error(inspire_database ? 'inspire_database must be exactly catalog.schema (one dot).' : I.IMPLEMENT_NOT_AVAILABLE);
+    err.statusCode = 400;
+    throw err;
+  }
+  return { inspire_database: inspire_database.trim(), ...parsed };
+}
+
+async function rowsOf(executeSql, sqlResultToObjects, host, token, warehouseId, statement) {
+  const result = await executeSql(host, token, warehouseId, statement.sql, statement.parameters);
+  return sqlResultToObjects(result);
+}
+
+async function jsonOf(dbFetch, host, token, path, opts = {}) {
+  const resp = await dbFetch(host, token, path, opts);
+  const text = await resp.text();
+  let data = {};
+  if (text) {
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  }
+  return { ok: resp.ok, status: resp.status, data };
+}
+
+function identityOf(req, me) {
+  const forwarded = String(req.headers['x-forwarded-email'] || '').trim();
+  return String(me?.userName || me?.emails?.[0]?.value || forwarded || '').trim();
+}
+
+function requesterOf(req, me) {
+  return String(req.headers['x-forwarded-email'] || '').trim() || identityOf(req, me);
+}
+
+function registerImplementRoutes(app, deps) {
+  const {
+    requireToken,
+    executeSql,
+    executeSqlWithDeltaRetry,
+    sqlResultToObjects,
+    dbFetch,
+    fetchInspireSessionWidgetRow,
+    notebookParamsFromSessionForGenerateRun,
+    triggerInspireNotebookJob,
+    splitInspireDatabase,
+    databricksJobRunUrl,
+    ensureTableColumns,
+  } = deps;
+
+  const sqlRows = (host, token, warehouseId, statement) =>
+    rowsOf(executeSql, sqlResultToObjects, host, token, warehouseId, statement);
+
+  async function loadMe(req) {
+    const got = await jsonOf(dbFetch, req.dbHost, req.dbToken, '/api/2.0/preview/scim/v2/Me');
+    return got.ok ? got.data : {};
+  }
+
+  async function implementColumnsOf(host, token, warehouseId, table) {
+    return I.describedColumnNames(await sqlRows(host, token, warehouseId, { sql: `DESCRIBE TABLE ${table}`, parameters: null }));
+  }
+
+  async function ensureImplementTable(host, token, warehouseId, table) {
+    await executeSql(host, token, warehouseId, I.implementTableCreateSql(table));
+    const missing = I.implementMissingColumns(await implementColumnsOf(host, token, warehouseId, table));
+    if (missing.length) await ensureTableColumns(host, token, warehouseId, table, missing);
+  }
+
+  async function loadHistory(host, token, warehouseId, catalog, schema, sid, useCaseId) {
+    const table = I.implementTableName(catalog, schema);
+    try {
+      let rows;
+      try {
+        rows = await sqlRows(host, token, warehouseId, I.implementHistoryStatement(table, sid, useCaseId || null));
+      } catch (err) {
+        if (!I.isMissingColumnError(err)) throw err;
+        const existing = await implementColumnsOf(host, token, warehouseId, table);
+        rows = await sqlRows(host, token, warehouseId, I.implementHistoryStatement(table, sid, useCaseId || null, existing));
+      }
+      return rows.map(I.parseImplementRow);
+    } catch (err) {
+      if (isMissingTableError(err)) return [];
+      throw err;
+    }
+  }
+
+  async function loadUseCase(host, token, warehouseId, catalog, schema, sid, useCaseId) {
+    const table = `\`${catalog}\`.\`${schema}\`.\`__inspire_usecases\``;
+    const rows = await sqlRows(host, token, warehouseId, I.useCaseRowStatement(table, sid, useCaseId));
+    return rows[0] || null;
+  }
+
+  async function loadSession(host, token, warehouseId, catalog, schema, sid) {
+    const session = await fetchInspireSessionWidgetRow(host, token, warehouseId, catalog, schema, sid);
+    if (!session) {
+      const err = new Error(`No __inspire_session row for session_id=${sid}.`);
+      err.statusCode = 404;
+      throw err;
+    }
+    return session;
+  }
+
+  async function loadFeatures(req) {
+    const [apps, spaces, alerts] = await Promise.all([
+      jsonOf(dbFetch, req.dbHost, req.dbToken, '/api/2.0/apps?page_size=1'),
+      jsonOf(dbFetch, req.dbHost, req.dbToken, '/api/2.0/genie/spaces?page_size=1'),
+      jsonOf(dbFetch, req.dbHost, req.dbToken, '/api/2.0/alerts?page_size=1'),
+    ]);
+    return { apps: apps.ok, genie_spaces: spaces.ok, alerts: alerts.ok };
+  }
+
+  async function appWarehouseCheck(req, warehouseId, identity, warehouseName) {
+    const [permissions, me, warehouse] = await Promise.all([
+      jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/permissions/sql/warehouses/${encodeURIComponent(warehouseId)}`),
+      loadMe(req),
+      warehouseName ? null : jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/sql/warehouses/${encodeURIComponent(warehouseId)}`),
+    ]);
+    const identities = [identity, me.userName, me.applicationId, ...(me.emails || []).map((e) => e && e.value)];
+    const groups = (me.groups || []).map((g) => g && (g.display || g.value));
+    const name = warehouseName || (warehouse && warehouse.ok && warehouse.data.name) || warehouseId;
+    return I.warehouseManageCheck(permissions, identities, groups, name);
+  }
+
+  async function checkOutput(req, warehouseId, table, useCaseId, options = {}) {
+    const rows = await sqlRows(req.dbHost, req.dbToken, warehouseId, I.outputAccessStatement(table));
+    const access = I.outputAccess(rows, table);
+    const warnings = I.shareWarnings(table, rows, options.principals);
+    if (warnings.length) access.grant = { ...access.grant, warn: warnings.join(' ') };
+    access.app = I.appAccessCheck(access.app, await appWarehouseCheck(req, warehouseId, access.identity, options.warehouseName));
+    let safety = { ok: true, detail: access.exists ? `${access.table} holds only this use case's rows` : `${access.table} is new; the first run creates it` };
+    if (access.exists && access.write.ok) {
+      const columns = await sqlRows(req.dbHost, req.dbToken, warehouseId, I.columnsStatement(table));
+      let problem = I.resultTableProblem(access.table, columns, 0);
+      if (!problem && columns.length) {
+        const counted = await sqlRows(req.dbHost, req.dbToken, warehouseId, I.otherUseCaseRowsStatement(table, useCaseId));
+        problem = I.resultTableProblem(access.table, columns, counted[0] && counted[0].others);
+      }
+      if (problem) safety = { ok: false, detail: problem };
+      else if (!columns.length) {
+        safety = { ok: true, detail: `${access.table} exists but its columns could not be read, so Inspire could not check whose rows it holds` };
+      }
+    }
+    return { ...access, safety, ok: access.write.ok && safety.ok };
+  }
+
+  async function countApps(req, limit) {
+    let count = 0;
+    let pageToken = '';
+    for (let page = 0; page < 10 && count <= limit; page += 1) {
+      const got = await jsonOf(dbFetch, req.dbHost, req.dbToken,
+        `/api/2.0/apps?page_size=100${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ''}`);
+      if (!got.ok) return null;
+      count += (got.data.apps || []).length;
+      pageToken = String(got.data.next_page_token || '');
+      if (!pageToken) break;
+    }
+    return count;
+  }
+
+  app.get('/api/inspire/implement/context', requireToken, async (req, res) => {
+    try {
+      const sid = sessionIdOf(req);
+      const warehouseId = warehouseOf(req);
+      const { catalog, schema } = dbOf(req, splitInspireDatabase);
+      const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
+      const [session, useCase, history, me, features] = await Promise.all([
+        loadSession(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid),
+        loadUseCase(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId),
+        loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId),
+        loadMe(req),
+        loadFeatures(req),
+      ]);
+      if (!useCase) return res.status(404).json({ error: `No use case ${useCaseId} in this session.` });
+      const latest = history[0] || null;
+      const widgets = I.implementWidgets(history, useCase.genie_instruction || useCase.generate_genie_code_instruction || '');
+      const assets = I.carriedAssets(history);
+      const family = I.executionFamily(useCase.code_structure_mandate);
+      res.json({
+        session_id: sid,
+        use_case: useCase,
+        discovery_type: session.discovery_type || 'Standard',
+        business_name: session.business_name || '',
+        me: { username: requesterOf(req, me) },
+        history,
+        latest,
+        assets,
+        family,
+        trains_model: family ? I.IMPLEMENT_MODEL_FAMILIES.includes(family) : null,
+        evidence: I.parseEvidence(useCase.data_evidence),
+        features,
+        widgets: widgets.widgets,
+        widget_source: widgets.source,
+        widget_groups: I.groupWidgets(widgets.widgets),
+        inspire_database: `${catalog}.${schema}`,
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.get('/api/inspire/implement/history', requireToken, async (req, res) => {
+    try {
+      const sid = sessionIdOf(req);
+      const warehouseId = warehouseOf(req);
+      const { catalog, schema } = dbOf(req, splitInspireDatabase);
+      const useCaseId = q(req, 'use_case_id');
+      const history = await loadHistory(
+        req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId ? I.validateUseCaseId(useCaseId) : null,
+      );
+      const latestByUc = {};
+      for (const row of history) {
+        if (!latestByUc[row.use_case_id]) latestByUc[row.use_case_id] = row;
+      }
+      const latest = Object.values(latestByUc);
+      await Promise.all(latest.map(async (row) => { row.stalled = await stalledOf(req, row); }));
+      res.json({ history, latest });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.get('/api/inspire/implement/columns', requireToken, async (req, res) => {
+    try {
+      const warehouseId = warehouseOf(req);
+      const table = q(req, 'table');
+      const rows = await sqlRows(req.dbHost, req.dbToken, warehouseId, I.columnsStatement(table));
+      res.json({ table, columns: rows });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.post('/api/inspire/implement/swaps', requireToken, async (req, res) => {
+    try {
+      const warehouseId = warehouseOf(req);
+      const table = q(req, 'table');
+      const required = Array.isArray(req.body?.required_columns) ? req.body.required_columns : [];
+      const statement = I.tableSwapStatement(table, required);
+      const rows = await sqlRows(req.dbHost, req.dbToken, warehouseId, statement);
+      const catalog = statement.catalog;
+      res.json({
+        table,
+        swaps: rows.map((r) => ({
+          table: `${catalog}.${r.table_schema}.${r.table_name}`,
+          matched: Number(r.matched) || 0,
+          total: Number(r.total) || 0,
+        })),
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.get('/api/inspire/implement/values', requireToken, async (req, res) => {
+    try {
+      const warehouseId = warehouseOf(req);
+      const statement = I.columnValuesStatement(q(req, 'table'), q(req, 'column'), q(req, 'limit') || 200);
+      const rows = await sqlRows(req.dbHost, req.dbToken, warehouseId, statement);
+      res.json({ values: rows.map((r) => r.value).filter((v) => v != null && v !== '') });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.post('/api/inspire/implement/readiness', requireToken, async (req, res) => {
+    try {
+      const warehouseId = warehouseOf(req);
+      const discovery = String(req.body?.discovery_type || '').trim() || 'Standard';
+      if (discovery === 'Standard') {
+        return res.json({ skipped: true, reason: 'metadata only, readiness checked at preview run', row_count: null, null_share: {} });
+      }
+      const statement = I.readinessStatement(q(req, 'table'), {
+        columns: req.body?.columns || [],
+        filters: req.body?.filters || [],
+        window: req.body?.window || {},
+      });
+      const rows = await sqlRows(req.dbHost, req.dbToken, warehouseId, statement);
+      res.json({ skipped: false, ...I.readinessFromRow(rows[0] || {}, statement.columns) });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.get('/api/inspire/implement/serving-endpoints', requireToken, async (req, res) => {
+    try {
+      const got = await jsonOf(dbFetch, req.dbHost, req.dbToken, '/api/2.0/serving-endpoints');
+      if (!got.ok) return res.status(got.status).json({ error: got.data.message || got.data.error || 'serving endpoints are not available' });
+      const endpoints = (got.data.endpoints || []).map((e) => ({ name: e.name, state: e.state?.ready || e.state, task: e.task }));
+      res.json({ endpoints });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.get('/api/inspire/implement/principals', requireToken, async (req, res) => {
+    try {
+      const filter = q(req, 'q').slice(0, 80);
+      if (filter.length < 2) return res.json({ principals: [] });
+      const encoded = encodeURIComponent(`userName co "${filter}" or displayName co "${filter}"`);
+      const groupEncoded = encodeURIComponent(`displayName co "${filter}"`);
+      const [users, groups] = await Promise.all([
+        jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/preview/scim/v2/Users?filter=${encoded}&count=20`),
+        jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/preview/scim/v2/Groups?filter=${groupEncoded}&count=20`),
+      ]);
+      const principals = [];
+      for (const u of users.data.Resources || []) {
+        principals.push({ type: 'user', name: u.userName || u.displayName, display: u.displayName || u.userName });
+      }
+      for (const g of groups.data.Resources || []) {
+        principals.push({ type: 'group', name: g.displayName, display: g.displayName });
+      }
+      res.json({ principals });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.get('/api/inspire/implement/output-check', requireToken, async (req, res) => {
+    try {
+      const warehouseId = warehouseOf(req);
+      const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
+      res.json(await checkOutput(req, warehouseId, q(req, 'table'), useCaseId));
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.get('/api/inspire/implement/preflight', requireToken, async (req, res) => {
+    try {
+      const sid = sessionIdOf(req);
+      const warehouseId = warehouseOf(req);
+      const { catalog, schema } = dbOf(req, splitInspireDatabase);
+      const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
+      const resultTable = q(req, 'result_table');
+      const appName = q(req, 'app_name');
+      const wantsAlert = q(req, 'alert') === '1';
+      const wantsGenie = q(req, 'genie') === '1';
+      const shares = q(req, 'share') === '1';
+      const principals = principalsOf(req);
+      if (I.resultTableNameError(resultTable)) throw I.badRequest(I.resultTableNameError(resultTable));
+      const [me, features, warehouses, existingApp] = await Promise.all([
+        loadMe(req),
+        loadFeatures(req),
+        jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/sql/warehouses/${encodeURIComponent(warehouseId)}`),
+        appName ? jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/apps/${encodeURIComponent(appName)}`) : null,
+      ]);
+      const warehouseName = warehouses.ok ? (warehouses.data.name || warehouseId) : warehouseId;
+      let output = null;
+      let outputError = '';
+      try {
+        output = await checkOutput(req, warehouseId, resultTable, useCaseId, { principals, warehouseName });
+      } catch (err) {
+        outputError = err.message || String(err);
+      }
+      const checks = {
+        warehouse: output
+          ? { ok: true, detail: `${warehouseName} ran the access check for you` }
+          : { ok: false, detail: `${warehouseName} could not run a statement for you: ${outputError}` },
+        output: output
+          ? { ok: output.ok, detail: output.write.ok ? `${output.write.detail}; ${output.safety.detail}` : output.write.detail }
+          : { ok: false, detail: 'not checked, because the warehouse could not run the access check' },
+      };
+      if (shares) checks.result_grant = output ? output.grant : { ok: false, detail: 'not checked' };
+      if (appName) {
+        const name = I.appNameCheck(appName, existingApp && existingApp.ok ? existingApp.data : null, { useCaseId, sessionId: sid });
+        checks.app_name = name;
+        if (name.creates) checks.app_access = output ? output.app : { ok: false, detail: 'not checked, because the warehouse could not run the access check' };
+        if (!features.apps) checks.apps = { ok: false, detail: 'this workspace cannot create Databricks Apps' };
+        else {
+          const limit = I.appsLimit(req.dbHost);
+          const count = name.creates ? await countApps(req, limit) : 0;
+          checks.apps = count == null
+            ? { ok: false, detail: 'the Apps list is not available to you, so the App quota cannot be checked' }
+            : I.appsQuotaCheck(count, limit, name.creates);
+        }
+      }
+      if (wantsGenie) {
+        checks.genie_spaces = { ok: features.genie_spaces, detail: features.genie_spaces ? 'you can create Genie spaces' : 'you cannot create Genie spaces in this workspace' };
+      }
+      if (wantsAlert) {
+        checks.alerts = { ok: features.alerts, detail: features.alerts ? 'you can create SQL alerts' : 'you cannot create SQL alerts in this workspace' };
+      }
+      res.json({
+        ok: Object.values(checks).every((c) => c.ok),
+        identity: (output && output.identity) || identityOf(req, me),
+        checks,
+        features,
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.get('/api/inspire/implement/destinations', requireToken, async (req, res) => {
+    try {
+      const destinations = [];
+      let pageToken = '';
+      for (let page = 0; page < 10; page += 1) {
+        const got = await jsonOf(dbFetch, req.dbHost, req.dbToken,
+          `/api/2.0/notification-destinations?page_size=100${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ''}`);
+        if (!got.ok) {
+          return res.status(got.status).json({ error: got.data.message || got.data.error || 'notification destinations are not available' });
+        }
+        destinations.push(...I.destinationsFromList(got.data));
+        pageToken = String(got.data.next_page_token || '');
+        if (!pageToken) break;
+      }
+      res.json({ destinations });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  async function stalledOf(req, row) {
+    if (!row || !I.IMPLEMENT_ACTIVE_STATUSES.includes(row.status)) return null;
+    const runId = String(row.implement_run_id ?? '');
+    const got = /^\d{1,19}$/.test(runId)
+      ? await jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.1/jobs/runs/get?run_id=${runId}`).catch(() => null)
+      : null;
+    return I.implementStalled(row, got && got.ok ? got.data : null);
+  }
+
+  async function prepareSubmission(req) {
+    const sid = sessionIdOf(req);
+    const warehouseId = warehouseOf(req);
+    const { inspire_database, catalog, schema } = dbOf(req, splitInspireDatabase);
+    const { spec, errors } = I.validateImplementSpec(req.body?.spec || req.body);
+    if (errors.length) throw I.badRequest(errors.join('; '));
+    const useCaseId = I.validateUseCaseId(spec.use_case_id);
+    const [session, useCase, history] = await Promise.all([
+      loadSession(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid),
+      loadUseCase(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId),
+      loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId),
+    ]);
+    if (!useCase) throw I.badRequest(`No use case ${useCaseId} in this session.`, 404);
+    const problems = I.removedTableProblems(spec, I.useCaseTables(useCase), I.primaryTableOf(useCase));
+    if (problems.length) throw I.badRequest(problems.join('; '));
+    const widgets = I.implementWidgets(history, useCase.genie_instruction || useCase.generate_genie_code_instruction || '');
+    const widgetIssues = I.widgetProblems(widgets.widgets, spec.config.widgets);
+    if (widgetIssues.length) throw I.badRequest(`widget values are out of range: ${widgetIssues.join('; ')}`);
+    const stalled = await stalledOf(req, history[0]);
+    return { sid, warehouseId, inspire_database, catalog, schema, spec, useCaseId, session, history,
+      plan: I.planSubmission(history, spec, stalled) };
+  }
+
+  app.post('/api/inspire/implement/plan', requireToken, async (req, res) => {
+    try {
+      const { useCaseId, plan } = await prepareSubmission(req);
+      res.json({ use_case_id: useCaseId, spec_version: plan.nextVersion, based_on_version: plan.built ? plan.built.spec_version : null,
+        summary: plan.summary });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.post('/api/inspire/implement/submit', requireToken, async (req, res) => {
+    try {
+      const { sid, warehouseId, inspire_database, catalog, schema, spec, useCaseId, session, plan } = await prepareSubmission(req);
+      if (spec.config.result_table) {
+        const output = await checkOutput(req, warehouseId, spec.config.result_table, useCaseId);
+        if (!output.ok) throw I.badRequest(output.write.ok ? output.safety.detail : output.write.detail, 403);
+      }
+      const params = I.implementJobParams(notebookParamsFromSessionForGenerateRun(session, sid), useCaseId, plan.nextVersion);
+      if (!params['02_inspire_database']) params['02_inspire_database'] = inspire_database;
+      if (!params['01_uc_metadata']) {
+        const err = new Error('This session has no UC metadata stored on __inspire_session. Run Discover from this app first.');
+        err.statusCode = 400;
+        throw err;
+      }
+      const me = await loadMe(req);
+      const createdBy = requesterOf(req, me);
+      const table = I.implementTableName(catalog, schema);
+      await ensureImplementTable(req.dbHost, req.dbToken, warehouseId, table);
+      const insert = I.implementInsertStatement(table, {
+        sessionId: sid,
+        useCaseId,
+        specVersion: plan.nextVersion,
+        basedOnVersion: spec.based_on_version == null ? (plan.built ? plan.built.spec_version : null) : spec.based_on_version,
+        spec,
+        createdBy,
+        statusMessage: 'queued',
+        changeClasses: plan.summary.classes,
+      });
+      await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, warehouseId, insert.sql, { parameters: insert.parameters });
+
+      const version = { sessionId: sid, useCaseId, specVersion: plan.nextVersion };
+      let out;
+      try {
+        out = await triggerInspireNotebookJob(req.dbHost, req.dbToken, {
+          params,
+          notebook_path: req.body?.notebook_path,
+          cluster_id: req.body?.cluster_id,
+          jobType: 'implement',
+        });
+      } catch (err) {
+        const failed = I.implementStartFailedStatement(table, { ...version, message: `the Implement run could not start: ${err.message}` });
+        try {
+          await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, warehouseId, failed.sql, { parameters: failed.parameters });
+        } catch (e) {
+          console.warn(`implement start-failure write failed: ${e.message}`);
+        }
+        throw err;
+      }
+      const started = I.implementRunStartedStatement(table, { ...version, runId: out.run_id, message: out.job_run_url || `run ${out.run_id}` });
+      try {
+        await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, warehouseId, started.sql, { parameters: started.parameters });
+      } catch (e) {
+        console.warn(`implement run id write failed: ${e.message}`);
+      }
+      res.json({
+        session_id: sid,
+        use_case_id: useCaseId,
+        spec_version: plan.nextVersion,
+        summary: plan.summary,
+        ...out,
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.get('/api/inspire/implement/status', requireToken, async (req, res) => {
+    try {
+      const sid = sessionIdOf(req);
+      const warehouseId = warehouseOf(req);
+      const { catalog, schema } = dbOf(req, splitInspireDatabase);
+      const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
+      const history = await loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId);
+      const stepTable = `\`${catalog}\`.\`${schema}\`.\`__inspire_step\``;
+      const stepStmt = stepsStatement(stepTable, sid, q(req, 'since') || '');
+      let steps = [];
+      try {
+        steps = I.filterImplementSteps(await sqlRows(req.dbHost, req.dbToken, warehouseId, stepStmt), useCaseId);
+      } catch (err) {
+        if (!isMissingTableError(err)) throw err;
+      }
+      const session = await loadSession(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid).catch(() => null);
+      const logPath = I.liveLogPath(`${catalog}.${schema}`, session?.business_name, sid);
+      let log_lines = [];
+      if (logPath) {
+        const got = await jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/fs/files${logPath}`);
+        if (got.ok) {
+          const text = typeof got.data === 'string' ? got.data : (got.data.raw || '');
+          log_lines = I.useCaseLogLines(text, useCaseId).slice(-200);
+        }
+      }
+      const appName = I.carriedAssets(history).app;
+      const jobId = (history.find((r) => r.job_id) || {}).job_id;
+      const [appInfo, runInfo, stalled] = await Promise.all([
+        appName ? jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/apps/${encodeURIComponent(appName)}`) : null,
+        jobId ? jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.1/jobs/runs/list?job_id=${Number(jobId)}&limit=10`) : null,
+        stalledOf(req, history[0]),
+      ]);
+      const listedNone = runInfo && runInfo.ok && !(Array.isArray(runInfo.data && runInfo.data.runs) && runInfo.data.runs.length);
+      const jobInfo = listedNone ? await jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.1/jobs/get?job_id=${Number(jobId)}`) : null;
+      res.json({
+        latest: history[0] || null,
+        stalled,
+        history,
+        steps,
+        log_path: logPath,
+        log_lines,
+        rerun_widgets: I.rerunWidgets(history),
+        app_status: I.appStatusFrom(appInfo, { useCaseId, sessionId: sid }),
+        runs: I.jobRunsFrom(runInfo, jobInfo),
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.get('/api/inspire/implement/results', requireToken, async (req, res) => {
+    try {
+      const sid = sessionIdOf(req);
+      const warehouseId = warehouseOf(req);
+      const { catalog, schema } = dbOf(req, splitInspireDatabase);
+      const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
+      const history = await loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId);
+      const latest = history.find((r) => r.spec_json && r.spec_json.config && r.spec_json.config.result_table) || history[0];
+      const spec = latest ? I.validateImplementSpec(latest.spec_json).spec : null;
+      const table = spec && spec.config.result_table;
+      if (!table) return res.json({ rows: [], summary: [], result_table: '' });
+      const statement = I.resultsStatement(table, {
+        tier: q(req, 'tier'),
+        segment: q(req, 'segment'),
+        limit: q(req, 'limit') || 500,
+      });
+      const [rows, summary, segments] = await Promise.all([
+        sqlRows(req.dbHost, req.dbToken, warehouseId, statement),
+        sqlRows(req.dbHost, req.dbToken, warehouseId, { sql: statement.summarySql, parameters: null }),
+        sqlRows(req.dbHost, req.dbToken, warehouseId, { sql: statement.segmentsSql, parameters: null }),
+      ]);
+      res.json({ result_table: table, rows, summary, segments });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.post('/api/inspire/implement/rerun', requireToken, async (req, res) => {
+    try {
+      const sid = sessionIdOf(req);
+      const warehouseId = warehouseOf(req);
+      const { catalog, schema } = dbOf(req, splitInspireDatabase);
+      const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
+      const history = await loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId);
+      const latest = history[0];
+      if (!latest || !latest.job_id) {
+        const err = new Error('this use case has no Implement job to re-run yet');
+        err.statusCode = 400;
+        throw err;
+      }
+      const widgets = I.rerunWidgets(history);
+      const overrides = I.rerunOverrides(req.body?.overrides);
+      const notebookParams = I.rerunParams(widgets.map((w) => w.name), overrides);
+      const overrideIssues = I.widgetProblems(widgets, overrides);
+      if (overrideIssues.length) throw I.badRequest(`widget values are out of range: ${overrideIssues.join('; ')}`);
+      const useCase = await loadUseCase(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId);
+      const sources = I.sourceTables(latest.spec_json, I.useCaseTables(useCase));
+      const probes = await Promise.all(sources.map((table) => sqlRows(req.dbHost, req.dbToken, warehouseId, I.tableProbeStatement(table))
+        .then(() => null)
+        .catch((err) => {
+          const reason = I.tableAccessReason(table, err && err.message);
+          return reason ? { table, reason, error: String(err.message || '').slice(0, 300) } : null;
+        })));
+      const missing = probes.filter(Boolean);
+      if (missing.length) {
+        const err = I.badRequest(I.missingTablesMessage(missing), 409);
+        err.details = { missing_tables: missing };
+        throw err;
+      }
+      const resp = await dbFetch(req.dbHost, req.dbToken, '/api/2.1/jobs/run-now', {
+        method: 'POST',
+        body: JSON.stringify({ job_id: Number(latest.job_id), notebook_params: notebookParams, only: [I.IMPLEMENT_NOTEBOOK_TASK_KEY] }),
+      });
+      const text = await resp.text();
+      let data = {};
+      try { data = JSON.parse(text); } catch { data = { raw: text }; }
+      if (!resp.ok) {
+        const err = new Error(data.message || data.error || text);
+        err.statusCode = resp.status;
+        throw err;
+      }
+      res.json({
+        run_id: data.run_id,
+        job_id: latest.job_id,
+        job_run_url: databricksJobRunUrl(req.dbHost, latest.job_id, data.run_id),
+        notebook_params: notebookParams,
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+}
+
+module.exports = { registerImplementRoutes };

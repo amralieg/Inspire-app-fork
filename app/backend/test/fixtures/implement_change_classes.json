@@ -1,0 +1,2651 @@
+{
+  "cases": [
+    {
+      "name": "first submission",
+      "previous": null,
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "initial"
+      ]
+    },
+    {
+      "name": "unchanged resubmission",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": []
+    },
+    {
+      "name": "table swap",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {
+            "main.s.orders": "main.s.orders_v2"
+          },
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "data"
+      ]
+    },
+    {
+      "name": "new filter",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [
+            {
+              "table": "main.s.orders",
+              "column": "region",
+              "op": "=",
+              "values": [
+                "EU"
+              ]
+            }
+          ],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "data"
+      ]
+    },
+    {
+      "name": "widget value",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "25"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "config"
+      ]
+    },
+    {
+      "name": "schedule enabled",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": true,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "schedule"
+      ]
+    },
+    {
+      "name": "genie space added",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": true,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "outputs"
+      ]
+    },
+    {
+      "name": "dashboard unticked",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": false,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "deselect"
+      ]
+    },
+    {
+      "name": "app renamed",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": true,
+          "app_name": "churn-app"
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": true,
+          "app_name": "churn-desk"
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "outputs"
+      ]
+    },
+    {
+      "name": "share with a group",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": [
+            {
+              "type": "group",
+              "name": "planners"
+            }
+          ]
+        }
+      },
+      "classes": [
+        "sharing"
+      ]
+    },
+    {
+      "name": "swap dashboard for app and change data",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "full",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": false,
+          "genie_space": false,
+          "app": true,
+          "app_name": "churn-desk"
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "data",
+        "outputs",
+        "deselect"
+      ]
+    },
+    {
+      "name": "dashboard renamed",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "dashboard_name": "Churn desk"
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "outputs"
+      ]
+    },
+    {
+      "name": "goal reworded",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "use_case": {
+          "goal": "Cut churn among premium members"
+        }
+      },
+      "classes": [
+        "config"
+      ]
+    },
+    {
+      "name": "failure email added",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC",
+          "failure_emails": [
+            "ops@example.com"
+          ]
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "schedule"
+      ]
+    },
+    {
+      "name": "column role mapped",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": "",
+          "column_roles": {
+            "event_date": "main.s.orders.order_date"
+          }
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "data"
+      ]
+    },
+    {
+      "name": "alert added",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "alert": true,
+          "alert_recipients": [
+            "owner@example.com"
+          ]
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "outputs"
+      ]
+    },
+    {
+      "name": "alert threshold raised",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "alert": true,
+          "alert_recipients": [
+            "owner@example.com"
+          ]
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "alert": true,
+          "alert_recipients": [
+            "owner@example.com"
+          ],
+          "alert_threshold": 3
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "outputs"
+      ]
+    },
+    {
+      "name": "alert unticked",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "alert": true,
+          "alert_recipients": [
+            "owner@example.com"
+          ]
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "alert": false,
+          "alert_recipients": [
+            "owner@example.com"
+          ]
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "deselect"
+      ]
+    },
+    {
+      "name": "dashboard retried",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "retry_outputs": [
+          "dashboard"
+        ]
+      },
+      "classes": [
+        "retry"
+      ]
+    },
+    {
+      "name": "table removed",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": "",
+          "removed_tables": [
+            "main.s.returns"
+          ]
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "data"
+      ]
+    }
+  ],
+  "columns": [
+    [
+      "session_id",
+      "BIGINT"
+    ],
+    [
+      "use_case_id",
+      "STRING"
+    ],
+    [
+      "spec_version",
+      "INT"
+    ],
+    [
+      "based_on_version",
+      "INT"
+    ],
+    [
+      "spec_json",
+      "VARIANT"
+    ],
+    [
+      "status",
+      "STRING"
+    ],
+    [
+      "status_message",
+      "STRING"
+    ],
+    [
+      "change_classes",
+      "STRING"
+    ],
+    [
+      "notebook_path",
+      "STRING"
+    ],
+    [
+      "job_id",
+      "BIGINT"
+    ],
+    [
+      "last_preview_run_id",
+      "BIGINT"
+    ],
+    [
+      "result_rows",
+      "BIGINT"
+    ],
+    [
+      "dashboard_id",
+      "STRING"
+    ],
+    [
+      "dashboard_url",
+      "STRING"
+    ],
+    [
+      "genie_space_id",
+      "STRING"
+    ],
+    [
+      "genie_space_url",
+      "STRING"
+    ],
+    [
+      "app_name",
+      "STRING"
+    ],
+    [
+      "app_url",
+      "STRING"
+    ],
+    [
+      "genie_widgets",
+      "VARIANT"
+    ],
+    [
+      "data_profiles",
+      "VARIANT"
+    ],
+    [
+      "suggested_schedule",
+      "VARIANT"
+    ],
+    [
+      "asset_status",
+      "VARIANT"
+    ],
+    [
+      "created_by",
+      "STRING"
+    ],
+    [
+      "created_at",
+      "TIMESTAMP"
+    ],
+    [
+      "updated_at",
+      "TIMESTAMP"
+    ],
+    [
+      "alert_id",
+      "STRING"
+    ],
+    [
+      "alert_url",
+      "STRING"
+    ],
+    [
+      "implement_run_id",
+      "BIGINT"
+    ]
+  ],
+  "stale_after_seconds": 14400,
+  "invalid": [
+    {
+      "name": "tables as a list",
+      "patch": {
+        "data": {
+          "tables": [
+            "main.s.orders"
+          ]
+        }
+      },
+      "error": "data.tables must be an object"
+    },
+    {
+      "name": "filters as text",
+      "patch": {
+        "data": {
+          "filters": "region"
+        }
+      },
+      "error": "data.filters must be a list"
+    },
+    {
+      "name": "roles as a list",
+      "patch": {
+        "data": {
+          "column_roles": [
+            "segment"
+          ]
+        }
+      },
+      "error": "data.column_roles must be an object"
+    },
+    {
+      "name": "removed tables as text",
+      "patch": {
+        "data": {
+          "removed_tables": "main.s.returns"
+        }
+      },
+      "error": "data.removed_tables must be a list"
+    },
+    {
+      "name": "window as text",
+      "patch": {
+        "data": {
+          "window": "2026"
+        }
+      },
+      "error": "data.window must be an object"
+    },
+    {
+      "name": "widgets as a list",
+      "patch": {
+        "config": {
+          "widgets": [
+            "top_k"
+          ]
+        }
+      },
+      "error": "config.widgets must be an object"
+    },
+    {
+      "name": "profiles as text",
+      "patch": {
+        "config": {
+          "profiles": "fast"
+        }
+      },
+      "error": "config.profiles must be an object"
+    },
+    {
+      "name": "preview profile as a number",
+      "patch": {
+        "config": {
+          "profiles": {
+            "preview": 5
+          }
+        }
+      },
+      "error": "config.profiles.preview must be an object"
+    },
+    {
+      "name": "failure emails as text",
+      "patch": {
+        "schedule": {
+          "failure_emails": "ops@example.com"
+        }
+      },
+      "error": "schedule.failure_emails must be a list"
+    },
+    {
+      "name": "questions as text",
+      "patch": {
+        "outputs": {
+          "genie_space": true,
+          "genie_questions": "why"
+        }
+      },
+      "error": "outputs.genie_questions must be a list"
+    },
+    {
+      "name": "dashboard filters as text",
+      "patch": {
+        "outputs": {
+          "dashboard_filters": "top_k"
+        }
+      },
+      "error": "outputs.dashboard_filters must be a list"
+    },
+    {
+      "name": "alert recipients as text",
+      "patch": {
+        "outputs": {
+          "alert": true,
+          "alert_recipients": "ops@example.com"
+        }
+      },
+      "error": "outputs.alert_recipients must be a list"
+    },
+    {
+      "name": "alert destinations as text",
+      "patch": {
+        "outputs": {
+          "alert": true,
+          "alert_recipients": [
+            "ops@example.com"
+          ],
+          "alert_destinations": "abcdefgh"
+        }
+      },
+      "error": "outputs.alert_destinations must be a list"
+    },
+    {
+      "name": "removed outputs as a list",
+      "patch": {
+        "removed_outputs": [
+          "app"
+        ]
+      },
+      "error": "removed_outputs must be an object"
+    },
+    {
+      "name": "retry outputs as text",
+      "patch": {
+        "retry_outputs": "dashboard"
+      },
+      "error": "retry_outputs must be a list"
+    },
+    {
+      "name": "principals as text",
+      "patch": {
+        "sharing": {
+          "principals": "planners"
+        }
+      },
+      "error": "sharing.principals must be a list"
+    },
+    {
+      "name": "principal as text",
+      "patch": {
+        "sharing": {
+          "principals": [
+            "planners"
+          ]
+        }
+      },
+      "error": "and a name without backticks"
+    },
+    {
+      "name": "success measures as text",
+      "patch": {
+        "use_case": {
+          "success_measures": "more sales"
+        }
+      },
+      "error": "use_case.success_measures must be a list"
+    },
+    {
+      "name": "use case section as text",
+      "patch": {
+        "use_case": "churn"
+      },
+      "error": "use_case must be an object"
+    },
+    {
+      "name": "data section as a list",
+      "patch": {
+        "data": []
+      },
+      "error": "data must be an object"
+    },
+    {
+      "name": "config section as text",
+      "patch": {
+        "config": "fast"
+      },
+      "error": "config must be an object"
+    },
+    {
+      "name": "schedule section as a number",
+      "patch": {
+        "schedule": 1
+      },
+      "error": "schedule must be an object"
+    },
+    {
+      "name": "outputs section as a list",
+      "patch": {
+        "outputs": [
+          "dashboard"
+        ]
+      },
+      "error": "outputs must be an object"
+    },
+    {
+      "name": "sharing section as text",
+      "patch": {
+        "sharing": "everyone"
+      },
+      "error": "sharing must be an object"
+    },
+    {
+      "name": "removed table without a schema",
+      "patch": {
+        "data": {
+          "removed_tables": [
+            "returns"
+          ]
+        }
+      },
+      "error": "removed table 'returns' must be catalog.schema.table"
+    },
+    {
+      "name": "removed table also swapped",
+      "patch": {
+        "data": {
+          "tables": {
+            "main.s.orders": "main.s.orders_v2"
+          },
+          "removed_tables": [
+            "main.s.orders"
+          ]
+        }
+      },
+      "error": "main.s.orders cannot be swapped and removed at once"
+    },
+    {
+      "name": "role in a removed table",
+      "patch": {
+        "data": {
+          "column_roles": {
+            "segment": "main.s.returns.region"
+          },
+          "removed_tables": [
+            "main.s.returns"
+          ]
+        }
+      },
+      "error": "the segment column main.s.returns.region is in a table you removed"
+    },
+    {
+      "name": "filter on a removed table",
+      "patch": {
+        "data": {
+          "filters": [
+            {
+              "table": "main.s.returns",
+              "column": "region",
+              "op": "=",
+              "values": [
+                "EU"
+              ]
+            }
+          ],
+          "removed_tables": [
+            "main.s.returns"
+          ]
+        }
+      },
+      "error": "the filter on main.s.returns.region reads a table you removed"
+    },
+    {
+      "name": "cron hour out of range",
+      "patch": {
+        "schedule": {
+          "cron": "0 0 25 * * ?"
+        }
+      },
+      "error": "is not a valid Quartz cron: the hour value '25' is not 0 to 23"
+    },
+    {
+      "name": "cron with both day fields",
+      "patch": {
+        "schedule": {
+          "cron": "0 0 6 * * *"
+        }
+      },
+      "error": "exactly one of day of month and day of week must be '?'"
+    },
+    {
+      "name": "a fractional profile number",
+      "patch": {
+        "config": {
+          "profiles": {
+            "training": {
+              "window_days": 2.5
+            }
+          }
+        }
+      },
+      "error": "training window_days 2.5 must be a whole number"
+    },
+    {
+      "name": "a boolean profile number",
+      "patch": {
+        "config": {
+          "profiles": {
+            "preview": {
+              "entity_cap": true
+            }
+          }
+        }
+      },
+      "error": "must be a whole number"
+    },
+    {
+      "name": "a profile number with an underscore",
+      "patch": {
+        "config": {
+          "profiles": {
+            "full_load": {
+              "window_days": "5_000"
+            }
+          }
+        }
+      },
+      "error": "must be a whole number"
+    },
+    {
+      "name": "a fractional based_on_version",
+      "patch": {
+        "based_on_version": 1.5
+      },
+      "error": "based_on_version 1.5 must be an integer"
+    },
+    {
+      "name": "a drift threshold of 0",
+      "patch": {
+        "config": {
+          "profiles": {
+            "retrain": {
+              "drift_threshold": 0
+            }
+          }
+        }
+      },
+      "error": "retrain drift_threshold 0 must be a number above 0 and at most 1"
+    },
+    {
+      "name": "a boolean drift threshold",
+      "patch": {
+        "config": {
+          "profiles": {
+            "retrain": {
+              "drift_threshold": true
+            }
+          }
+        }
+      },
+      "error": "must be a number above 0 and at most 1"
+    },
+    {
+      "name": "an alert threshold with an underscore",
+      "patch": {
+        "outputs": {
+          "alert": true,
+          "alert_threshold": "1_0"
+        }
+      },
+      "error": "must be a number of rows, 0 or more"
+    }
+  ],
+  "removal": [
+    {
+      "name": "nothing removed",
+      "involved": [
+        "main.s.orders",
+        "main.s.returns"
+      ],
+      "primary": "main.s.orders",
+      "removed": [],
+      "problems": []
+    },
+    {
+      "name": "a side table removed",
+      "involved": [
+        "main.s.orders",
+        "main.s.returns"
+      ],
+      "primary": "main.s.orders",
+      "removed": [
+        "main.s.returns"
+      ],
+      "problems": []
+    },
+    {
+      "name": "the primary table removed",
+      "involved": [
+        "main.s.orders",
+        "main.s.returns"
+      ],
+      "primary": "`main`.`s`.`orders`",
+      "removed": [
+        "main.s.orders"
+      ],
+      "problems": [
+        "main.s.orders is the primary table of this use case; swap it instead of removing it"
+      ]
+    },
+    {
+      "name": "a stranger removed",
+      "involved": [
+        "main.s.orders"
+      ],
+      "primary": "",
+      "removed": [
+        "main.s.other",
+        "main.s.more"
+      ],
+      "problems": [
+        "main.s.other, main.s.more are not among the tables of this use case"
+      ]
+    },
+    {
+      "name": "every table removed",
+      "involved": [
+        "main.s.orders",
+        "main.s.returns"
+      ],
+      "primary": "",
+      "removed": [
+        "main.s.orders",
+        "MAIN.S.RETURNS"
+      ],
+      "problems": [
+        "every table of this use case was removed; keep at least one"
+      ]
+    }
+  ],
+  "table_names": [
+    {
+      "tables_involved": "samples.tpcds_sf1.store_sales,samples.tpcds_sf1.item",
+      "primary_table": "samples.tpcds_sf1.store_sales",
+      "names": [
+        "samples.tpcds_sf1.store_sales",
+        "samples.tpcds_sf1.item"
+      ]
+    },
+    {
+      "tables_involved": " `main`.`s`.`orders` , main.s.returns;\nmain.s.web.",
+      "primary_table": "main.s.orders",
+      "names": [
+        "main.s.orders",
+        "main.s.returns",
+        "main.s.web"
+      ]
+    },
+    {
+      "tables_involved": "(main.s.orders) MAIN.S.ORDERS main.s main..x",
+      "primary_table": "main.s.customers",
+      "names": [
+        "main.s.orders",
+        "main.s.customers"
+      ]
+    },
+    {
+      "tables_involved": "",
+      "primary_table": "main.s.orders",
+      "names": [
+        "main.s.orders"
+      ]
+    },
+    {
+      "tables_involved": null,
+      "primary_table": null,
+      "names": []
+    }
+  ],
+  "crons": {
+    "valid": [
+      "0 0 6 ? * MON",
+      "0 0 6 * * ?",
+      "0 0/15 * * * ?",
+      "0 */5 * * * ?",
+      "0 30 18 ? * MON-FRI",
+      "0 0 6,18 ? * 2,4,6",
+      "0 15 7 L * ?",
+      "0 0 6 LW * ?",
+      "0 0 6 15W * ?",
+      "0 0 6 L-3 * ?",
+      "0 0 6 ? * 6L",
+      "0 0 6 ? * FRIL",
+      "0 0 6 ? * MON#2",
+      "0 0 6 * * ? 2027",
+      "0 0 6 ? JAN-MAR mon-fri",
+      "0 0 22-2 * * ?",
+      "0 5/15 * * * ?",
+      "0 0 6 ? * L"
+    ],
+    "invalid": [
+      [
+        "0 6 * * *",
+        "it has 5 fields; a Quartz cron has 6 or 7: second, minute, hour, day of month, month, day of week and an optional year"
+      ],
+      [
+        "0 0 6 * * ? 2027 1",
+        "it has 8 fields; a Quartz cron has 6 or 7: second, minute, hour, day of month, month, day of week and an optional year"
+      ],
+      [
+        "0 0 25 * * ?",
+        "the hour value '25' is not 0 to 23"
+      ],
+      [
+        "60 0 6 * * ?",
+        "the second value '60' is not 0 to 59"
+      ],
+      [
+        "? 0 6 * * ?",
+        "the second value '?' is not 0 to 59"
+      ],
+      [
+        "0 0 6- * * ?",
+        "the hour value '' is not 0 to 23"
+      ],
+      [
+        "0 0 6 * * *",
+        "exactly one of day of month and day of week must be '?'"
+      ],
+      [
+        "0 0 6 ? * ?",
+        "exactly one of day of month and day of week must be '?'"
+      ],
+      [
+        "0 0 6 ? 13 MON",
+        "the month value '13' is not 1 to 12 or JAN to DEC"
+      ],
+      [
+        "0 0 6 ? * 8",
+        "the day of week value '8' is not 1 to 7 or SUN to SAT"
+      ],
+      [
+        "0 0 6 ? * MONDAY",
+        "the day of week value 'MONDAY' is not 1 to 7 or SUN to SAT"
+      ],
+      [
+        "0 0 6 ? * MON#6",
+        "the day of week occurrence '6' is not 1 to 5"
+      ],
+      [
+        "0 0/0 * * * ?",
+        "the minute step '0' is not 1 to 59"
+      ],
+      [
+        "0 0/60 * * * ?",
+        "the minute step '60' is not 1 to 59"
+      ],
+      [
+        "0 0 6 L-31 * ?",
+        "the day of month offset '31' is not 1 to 30"
+      ],
+      [
+        "0 0 6 32W * ?",
+        "the day of month value '32' is not 1 to 31"
+      ],
+      [
+        "0 0 6 1,? * ?",
+        "the day of month value '?' is not 1 to 31"
+      ],
+      [
+        "0 0 6 * * ? 1969",
+        "the year value '1969' is not 1970 to 2099"
+      ]
+    ]
+  },
+  "widget_ranges": {
+    "allowed": [
+      [
+        "0 to 1",
+        {
+          "low": 0,
+          "high": 1,
+          "whole": false
+        },
+        "0 to 1"
+      ],
+      [
+        "whole number, at least 1",
+        {
+          "low": 1,
+          "high": null,
+          "whole": true
+        },
+        "whole number, at least 1"
+      ],
+      [
+        "whole number",
+        {
+          "low": null,
+          "high": null,
+          "whole": true
+        },
+        "whole number"
+      ],
+      [
+        "at most 5",
+        {
+          "low": null,
+          "high": 5,
+          "whole": false
+        },
+        "at most 5"
+      ],
+      [
+        "-1 to 1",
+        {
+          "low": -1,
+          "high": 1,
+          "whole": false
+        },
+        "-1 to 1"
+      ],
+      [
+        "0.5 to 1",
+        {
+          "low": 0.5,
+          "high": 1,
+          "whole": false
+        },
+        "0.5 to 1"
+      ],
+      [
+        "whole number, 1 to 10",
+        {
+          "low": 1,
+          "high": 10,
+          "whole": true
+        },
+        "whole number, 1 to 10"
+      ],
+      [
+        "",
+        {
+          "low": null,
+          "high": null,
+          "whole": false
+        },
+        ""
+      ],
+      [
+        "any",
+        {
+          "low": null,
+          "high": null,
+          "whole": false
+        },
+        ""
+      ],
+      [
+        "1-5",
+        null,
+        null
+      ],
+      [
+        "between 1 and 5",
+        null,
+        null
+      ],
+      [
+        "whole number at least 1",
+        null,
+        null
+      ]
+    ],
+    "values": [
+      [
+        "act_now_share",
+        "0.05",
+        "0 to 1",
+        ""
+      ],
+      [
+        "act_now_share",
+        "1.5",
+        "0 to 1",
+        "act_now_share is '1.5'; allowed: 0 to 1"
+      ],
+      [
+        "act_now_share",
+        "abc",
+        "0 to 1",
+        "act_now_share is 'abc'; allowed: 0 to 1"
+      ],
+      [
+        "horizon",
+        "12",
+        "whole number, at least 1",
+        ""
+      ],
+      [
+        "horizon",
+        "2.5",
+        "whole number, at least 1",
+        "horizon is '2.5'; allowed: whole number, at least 1"
+      ],
+      [
+        "horizon",
+        "0",
+        "whole number, at least 1",
+        "horizon is '0'; allowed: whole number, at least 1"
+      ],
+      [
+        "min_silhouette",
+        "-0.2",
+        "-1 to 1",
+        ""
+      ],
+      [
+        "min_auc",
+        " 0.7 ",
+        "0.5 to 1",
+        ""
+      ],
+      [
+        "min_auc",
+        "0.4",
+        "0.5 to 1",
+        "min_auc is '0.4'; allowed: 0.5 to 1"
+      ],
+      [
+        "lookback_months",
+        "anything",
+        "",
+        ""
+      ],
+      [
+        "lookback_months",
+        "",
+        "whole number",
+        "lookback_months is ''; allowed: whole number"
+      ],
+      [
+        "lookback_months",
+        "36",
+        "1-5",
+        ""
+      ]
+    ],
+    "problems": [
+      {
+        "name": "one bad value, shares over 1 and a min above its max",
+        "widgets": [
+          {
+            "name": "act_now_share",
+            "default": "0.05",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "review_share",
+            "default": "0.2",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "min_class_rate",
+            "default": "0.01",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "max_class_rate",
+            "default": "0.5",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "horizon",
+            "default": "12",
+            "allowed": "whole number, at least 1"
+          },
+          {
+            "name": "segment_note",
+            "default": "x",
+            "allowed": ""
+          }
+        ],
+        "values": {
+          "act_now_share": "0.9",
+          "horizon": "2.5",
+          "min_class_rate": "0.6",
+          "segment_note": "free text"
+        },
+        "problems": [
+          "horizon is '2.5'; allowed: whole number, at least 1",
+          "act_now_share + review_share is 1.1; allowed: at most 1",
+          "min_class_rate is 0.6, above max_class_rate 0.5"
+        ]
+      },
+      {
+        "name": "the defaults pass",
+        "widgets": [
+          {
+            "name": "act_now_share",
+            "default": "0.05",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "review_share",
+            "default": "0.2",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "min_class_rate",
+            "default": "0.01",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "max_class_rate",
+            "default": "0.5",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "horizon",
+            "default": "12",
+            "allowed": "whole number, at least 1"
+          },
+          {
+            "name": "segment_note",
+            "default": "x",
+            "allowed": ""
+          }
+        ],
+        "values": {
+          "act_now_share": "0.05"
+        },
+        "problems": []
+      },
+      {
+        "name": "a widget with no known range passes",
+        "widgets": [
+          {
+            "name": "act_now_share",
+            "default": "0.05",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "review_share",
+            "default": "0.2",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "min_class_rate",
+            "default": "0.01",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "max_class_rate",
+            "default": "0.5",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "horizon",
+            "default": "12",
+            "allowed": "whole number, at least 1"
+          },
+          {
+            "name": "segment_note",
+            "default": "x",
+            "allowed": ""
+          }
+        ],
+        "values": {
+          "brand_new": "5"
+        },
+        "problems": []
+      },
+      {
+        "name": "a changed share with the other share's default",
+        "widgets": [
+          {
+            "name": "act_now_share",
+            "default": "0.05",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "review_share",
+            "default": "0.2",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "min_class_rate",
+            "default": "0.01",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "max_class_rate",
+            "default": "0.5",
+            "allowed": "0 to 1"
+          },
+          {
+            "name": "horizon",
+            "default": "12",
+            "allowed": "whole number, at least 1"
+          },
+          {
+            "name": "segment_note",
+            "default": "x",
+            "allowed": ""
+          }
+        ],
+        "values": {
+          "review_share": "0.96"
+        },
+        "problems": [
+          "act_now_share + review_share is 1.01; allowed: at most 1"
+        ]
+      }
+    ]
+  },
+  "widget_groups": {
+    "threshold_names": [
+      "alert_quantile",
+      "fdr_alpha",
+      "max_ai_error_rate",
+      "max_alerts_per_run",
+      "max_class_rate",
+      "max_key_signal_null_rate",
+      "max_mase",
+      "max_missing_period_rate",
+      "max_staleness_cadences",
+      "min_auc",
+      "min_auc_gain",
+      "min_backtest_folds",
+      "min_bootstrap_ari",
+      "min_c_index",
+      "min_class_rate",
+      "min_entities_per_k",
+      "min_group_rows",
+      "min_interactions",
+      "min_items",
+      "min_join_coverage",
+      "min_median_text_length",
+      "min_numeric_features",
+      "min_outcome_windows",
+      "min_periods",
+      "min_positives",
+      "min_pr_auc_lift",
+      "min_precision_lift",
+      "min_reference_rows",
+      "min_reportable_groups",
+      "min_rows",
+      "min_seasonal_cycles",
+      "min_segment_share",
+      "min_silhouette",
+      "min_simulation_draws",
+      "min_text_non_null_rate",
+      "min_topk_stability",
+      "min_users",
+      "spot_check_rows"
+    ],
+    "inspire_widgets": [
+      "result_table",
+      "as_of_date",
+      "run_profile"
+    ]
+  },
+  "result_key_columns": [
+    "use_case_id",
+    "run_id",
+    "as_of_date"
+  ],
+  "model_families": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "execution_patterns": [
+    [
+      "Execution pattern: family A, Supervised scoring.\nRun pattern: x.",
+      "A"
+    ],
+    [
+      "Execution pattern: family B, Anomaly scoring.\nRun pattern: x.",
+      "B"
+    ],
+    [
+      "Execution pattern: family C, Segmentation.\nRun pattern: x.",
+      "C"
+    ],
+    [
+      "Execution pattern: family D, Recommendation.\nRun pattern: x.",
+      "D"
+    ],
+    [
+      "Execution pattern: family E, Forecasting.\nRun pattern: x.",
+      "E"
+    ],
+    [
+      "Execution pattern: family F, Analytical refresh.\nRun pattern: x.",
+      "F"
+    ],
+    [
+      "Execution pattern: family G, AI text processing.\nRun pattern: x.",
+      "G"
+    ],
+    [
+      "Execution pattern: family H, Optimization and simulation.\nRun pattern: x.",
+      "H"
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      "Family A, predictive.",
+      ""
+    ],
+    [
+      "Execution pattern: family Z, other.",
+      ""
+    ]
+  ],
+  "app_owner_tags": [
+    {
+      "use_case_id": "N01-U01",
+      "session_id": "1792812930252888616",
+      "tag": "Inspire use case N01-U01 (session 1792812930252888616)"
+    }
+  ],
+  "task_keys": {
+    "notebook": "inspire_task",
+    "alert": "inspire_alert"
+  },
+  "alert_triggers": [
+    [
+      {},
+      "Act now rows in the latest run >= 1"
+    ],
+    [
+      {
+        "alert_tiers": "act_now",
+        "alert_operator": ">=",
+        "alert_threshold": 1
+      },
+      "Act now rows in the latest run >= 1"
+    ],
+    [
+      {
+        "alert_tiers": "act_now_review",
+        "alert_operator": ">",
+        "alert_threshold": "5",
+        "alert_condition_text": "refunds above 10 today"
+      },
+      "Act now or Review rows in the latest run > 5, or refunds above 10 today"
+    ],
+    [
+      {
+        "alert_threshold": 1000000
+      },
+      "Act now rows in the latest run >= 1000000"
+    ],
+    [
+      {
+        "alert_threshold": "2.50"
+      },
+      "Act now rows in the latest run >= 2.5"
+    ],
+    [
+      {
+        "alert_threshold": " 3 "
+      },
+      "Act now rows in the latest run >= 3"
+    ],
+    [
+      {
+        "alert_threshold": "1e3"
+      },
+      "Act now rows in the latest run >= 1000"
+    ],
+    [
+      {
+        "alert_threshold": ".5",
+        "alert_operator": "<"
+      },
+      "Act now rows in the latest run < 0.5"
+    ],
+    [
+      {
+        "alert_threshold": "-0"
+      },
+      "Act now rows in the latest run >= 0"
+    ],
+    [
+      {
+        "alert_threshold": ""
+      },
+      "Act now rows in the latest run >= 1"
+    ]
+  ],
+  "stopped_states": [
+    "deleted",
+    "released"
+  ]
+}

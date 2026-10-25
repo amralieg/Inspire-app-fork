@@ -276,18 +276,28 @@ def _unpack_bundle(source_zip, bundle_root, stage="/tmp/inspire_ws_zip_stage"):
     return dest
 
 
-def _remove_old_bundles(w, bundle_root, keep):
+def _workspace_api_path(path):
+    path = str(path or "").rstrip("/")
+    return path[len("/Workspace"):] if path.startswith("/Workspace/") else path
+
+
+def _remove_old_bundles(w, bundle_root, keep, in_use):
+    if in_use is None:
+        return []
     keep_name = os.path.basename(keep.rstrip("/"))
-    api_root = bundle_root[len("/Workspace"):] if bundle_root.startswith("/Workspace/") else bundle_root
     try:
-        entries = list(w.workspace.list(api_root))
+        entries = list(w.workspace.list(_workspace_api_path(bundle_root)))
     except Exception as exc:
         print(f"  (older bundles not removed: {exc})")
         return []
     removed = []
     for entry in entries:
-        path = str(getattr(entry, "path", "") or "")
-        if not path or os.path.basename(path.rstrip("/")) == keep_name:
+        path = _workspace_api_path(getattr(entry, "path", ""))
+        if not path or os.path.basename(path) == keep_name:
+            continue
+        users = sorted({name for source, name in in_use.items() if source == path or source.startswith(path + "/")})
+        if users:
+            print(f"  Keeping {path}: app {', '.join(users)} still runs from it")
             continue
         try:
             w.workspace.delete(path, recursive=True)
@@ -343,16 +353,60 @@ def _is_own_service_principal(display_name, app_name, sp_name):
     return name in (app_name, sp_name, app_name.replace("-", "_")) or name.endswith(f" {app_name}")
 
 
-def _app_service_principal_ids(api_get):
-    in_use, token = set(), ""
+def _list_apps(api_get):
+    apps, token = [], ""
     while True:
         page = api_get("/api/2.0/apps" + (f"?page_token={token}" if token else ""))
-        for app in page.get("apps", []):
-            if app.get("service_principal_client_id"):
-                in_use.add(app["service_principal_client_id"])
+        apps.extend(page.get("apps", []))
         token = page.get("next_page_token") or ""
         if not token:
-            return in_use
+            return apps
+
+
+def _implemented_use_case_job(api_get, sp_app_id):
+    token = ""
+    while True:
+        page = api_get("/api/2.1/jobs/list?limit=100" + (f"&page_token={token}" if token else ""))
+        for job in page.get("jobs", []):
+            tags = (job.get("settings") or {}).get("tags") or {}
+            if job.get("creator_user_name") == sp_app_id and tags.get("dbx_inspire_ai_run_type") == "implement" \
+                    and tags.get("dbx_inspire_ai_usecase"):
+                return job
+        token = page.get("next_page_token") or ""
+        if not token:
+            return None
+
+
+def _app_kept_reason(api, api_get, app_name):
+    try:
+        resp = api("GET", f"/api/2.0/apps/{app_name}")
+        if resp.status_code == 404:
+            return ""
+        resp.raise_for_status()
+        sp_app_id = resp.json().get("service_principal_client_id")
+        job = _implemented_use_case_job(api_get, sp_app_id) if sp_app_id else None
+    except Exception as exc:
+        return f"it could not be checked ({exc}), so the use cases it may run are kept"
+    if not job:
+        return ""
+    name = (job.get("settings") or {}).get("name") or ""
+    return f"it runs implemented use cases, for example job {job.get('job_id')} {name}".rstrip()
+
+
+def _app_service_principal_ids(api_get):
+    return {app["service_principal_client_id"] for app in _list_apps(api_get) if app.get("service_principal_client_id")}
+
+
+def _app_source_paths(api_get):
+    in_use = {}
+    for app in _list_apps(api_get):
+        sources = [app.get("default_source_code_path")]
+        sources += [(app.get(key) or {}).get("source_code_path") for key in ("active_deployment", "pending_deployment")]
+        for source in sources:
+            source = _workspace_api_path(source)
+            if source:
+                in_use.setdefault(source, str(app.get("name") or ""))
+    return in_use
 
 
 def _deletable_service_principals(service_principals, app_name, sp_name, in_use):
@@ -568,26 +622,30 @@ def step_cleanup(ctx):
     sp_name = ctx["SP_NAME"]
 
     print("Cleaning up...")
-    try:
-        resp = api("DELETE", f"/api/2.0/apps/{app_name}")
-        if resp.status_code == 404:
-            print("  No existing app")
-        elif resp.status_code >= 400:
-            print(f"  ⚠️ Deleting app '{app_name}' returned {resp.status_code}: {resp.text[:200]}")
-        else:
-            print(f"  Deleted app '{app_name}' — waiting for deletion to complete...")
-            for _ in range(60):  # up to 5 minutes
-                resp = api("GET", f"/api/2.0/apps/{app_name}")
-                if resp.status_code == 404:
-                    print("  App gone ✅")
-                    break
-                state = resp.json().get("compute_status", {}).get("state", "?")
-                print(f"  Still {state}, waiting...")
-                time.sleep(5)
+    kept = _app_kept_reason(api, api_get, app_name)
+    if kept:
+        print(f"  Keeping app '{app_name}' and its service principal: {kept}")
+    else:
+        try:
+            resp = api("DELETE", f"/api/2.0/apps/{app_name}")
+            if resp.status_code == 404:
+                print("  No existing app")
+            elif resp.status_code >= 400:
+                print(f"  ⚠️ Deleting app '{app_name}' returned {resp.status_code}: {resp.text[:200]}")
             else:
-                print(f"  ⚠️ App '{app_name}' still exists; it is redeployed and its service principal is kept")
-    except Exception as exc:
-        print(f"  ⚠️ Could not delete app '{app_name}': {exc}")
+                print(f"  Deleted app '{app_name}' — waiting for deletion to complete...")
+                for _ in range(60):  # up to 5 minutes
+                    resp = api("GET", f"/api/2.0/apps/{app_name}")
+                    if resp.status_code == 404:
+                        print("  App gone ✅")
+                        break
+                    state = resp.json().get("compute_status", {}).get("state", "?")
+                    print(f"  Still {state}, waiting...")
+                    time.sleep(5)
+                else:
+                    print(f"  ⚠️ App '{app_name}' still exists; it is redeployed and its service principal is kept")
+        except Exception as exc:
+            print(f"  ⚠️ Could not delete app '{app_name}': {exc}")
 
     try:
         in_use = _app_service_principal_ids(api_get)
@@ -764,12 +822,18 @@ def step_deploy_and_find_sp(ctx):
         raise RuntimeError(f"Create failed: {resp.text[:300]}")
 
     compute_ready = False
+    start_requested = False
     for _ in range(30):
         state = api_get(f"/api/2.0/apps/{app_name}").get("compute_status", {}).get("state", "?")
         if state == "ACTIVE":
             print("Compute: ACTIVE ✅")
             compute_ready = True
             break
+        if state == "STOPPED" and not start_requested:
+            print("  Compute: STOPPED, starting it")
+            api("POST", f"/api/2.0/apps/{app_name}/start")
+            start_requested = True
+            continue
         print(f"  Compute: {state}")
         time.sleep(10)
 
@@ -803,7 +867,12 @@ def step_deploy_and_find_sp(ctx):
 
     print("Deployed ✅")
     if ctx.get("BUNDLE_ROOT"):
-        _remove_old_bundles(ctx["w"], ctx["BUNDLE_ROOT"], source_folder)
+        try:
+            in_use = _app_source_paths(api_get)
+        except Exception as exc:
+            print(f"  ⚠️ Could not list apps ({exc}); no older bundle is removed")
+            in_use = None
+        _remove_old_bundles(ctx["w"], ctx["BUNDLE_ROOT"], source_folder, in_use)
     print("\nFinding new service principal...")
     time.sleep(5)
 
@@ -865,6 +934,34 @@ def step_deploy_and_find_sp(ctx):
 # COMMAND ----------
 
 # DBTITLE 1,Grant step
+def _catalog_access_for_new_apps(w, warehouse_id, catalog, sp):
+    try:
+        owner = str(getattr(w.catalogs.get(catalog), "owner", "") or "")
+        stmt = w.statement_execution.execute_statement(
+            warehouse_id=warehouse_id, statement=f"SHOW GRANTS ON CATALOG `{catalog}`", wait_timeout="15s"
+        )
+        if not (stmt.status and stmt.status.state == StatementState.SUCCEEDED):
+            raise RuntimeError(stmt.status.error.message if stmt.status and stmt.status.error else str(stmt.status))
+        names = [str(c.name).lower() for c in stmt.manifest.schema.columns]
+        rows = [dict(zip(names, row)) for row in ((stmt.result.data_array if stmt.result else None) or [])]
+    except Exception as exc:
+        return f"⚠️ Could not check who can use catalog `{catalog}`: {str(exc)[:120]}"
+    held = {
+        (str(r.get("principal") or "").strip().lower(), str(r.get("actiontype") or "").strip().upper().replace("_", " "))
+        for r in rows
+    }
+    if held & {("account users", "USE CATALOG"), ("account users", "ALL PRIVILEGES")}:
+        return f"New Apps can use catalog `{catalog}`: account users hold USE CATALOG ✅"
+    if owner.lower() == sp.lower() or (sp.lower(), "MANAGE") in held:
+        return f"New Apps can use catalog `{catalog}`: Inspire can grant them USE CATALOG ✅"
+    return (
+        f"⚠️ Apps that Implement creates cannot read result tables in `{catalog}` yet: their service principals need "
+        f"USE CATALOG, which account users do not hold, and Inspire can grant it only with MANAGE on the catalog. "
+        f"A catalog owner can run GRANT MANAGE ON CATALOG `{catalog}` TO `{sp}`, "
+        f"or GRANT USE CATALOG ON CATALOG `{catalog}` TO `account users`"
+    )
+
+
 def step_grant_permissions(ctx):
     new_sp_app_id = ctx.get("NEW_SP_APP_ID")
     warehouse_id = ctx["WAREHOUSE_ID"]
@@ -889,6 +986,7 @@ def step_grant_permissions(ctx):
             f"GRANT CREATE VOLUME ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
             f"GRANT READ VOLUME ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
             f"GRANT WRITE VOLUME ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
+            f"GRANT MANAGE ON SCHEMA `{catalog}`.`{schema}` TO `{sp}`",
         ]
 
         all_catalogs = set(available_catalogs)
@@ -917,12 +1015,16 @@ def step_grant_permissions(ctx):
             except Exception as exc:
                 print(f"  ⚠️ {str(exc)[:120]}")
 
+        print(f"  {_catalog_access_for_new_apps(w, warehouse_id, catalog, sp)}")
         resp = api(
             "PATCH",
             f"/api/2.0/permissions/sql/warehouses/{warehouse_id}",
-            {"access_control_list": [{"service_principal_name": sp, "permission_level": "CAN_USE"}]},
+            {"access_control_list": [{"service_principal_name": sp, "permission_level": "CAN_MANAGE"}]},
         )
-        print(f"  CAN_USE on warehouse: {'✅' if resp.status_code == 200 else '⚠️ ' + resp.text[:100]}")
+        print(
+            "  CAN_MANAGE on warehouse, so Implement can attach it to the Apps it creates: "
+            f"{'✅' if resp.status_code == 200 else '⚠️ ' + resp.text[:100]}"
+        )
     elif not new_sp_app_id:
         print("⚠️ Skipped — SP not found. Grant manually after checking /api/health.")
     elif not warehouse_id:

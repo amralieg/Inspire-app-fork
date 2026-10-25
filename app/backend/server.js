@@ -26,6 +26,7 @@ const {
 } = require('./lib/inspireJobParams');
 const { notebookParamsFromSessionForGenerateRun } = require('./lib/inspireSessionParams');
 const { splitInspireDatabase, isTimestampText, stepsStatement } = require('./lib/sqlInputs');
+const { registerImplementRoutes } = require('./implementRoutes');
 const {
   FEEDBACK_NOT_AVAILABLE,
   isMissingTableError,
@@ -604,17 +605,12 @@ function isAlterAddColumnAlreadyExistsError(message) {
   );
 }
 
-/**
- * Older __inspire_usecases Delta tables lack Route-1 Genie columns; add them before UPDATE.
- * Tries `ADD COLUMN` (Spark/Inspire notebook style), then `ADD COLUMNS (...)` if the warehouse
- * rejects the first form. Ignores "already exists" so this is safe to repeat.
- */
-async function ensureUsecasesGenieRoute1Columns(host, token, warehouseId, ucTable) {
+async function ensureTableColumns(host, token, warehouseId, table, columns) {
   const tryAddColumn = async (colName, colType) => {
     const colSql = `${colName} ${colType}`;
     const variants = [
-      `ALTER TABLE ${ucTable} ADD COLUMN ${colSql}`,
-      `ALTER TABLE ${ucTable} ADD COLUMNS (${colSql})`,
+      `ALTER TABLE ${table} ADD COLUMN ${colSql}`,
+      `ALTER TABLE ${table} ADD COLUMNS (${colSql})`,
     ];
     for (let i = 0; i < variants.length; i++) {
       const sql = variants[i];
@@ -640,8 +636,19 @@ async function ensureUsecasesGenieRoute1Columns(host, token, warehouseId, ucTabl
       }
     }
   };
-  await tryAddColumn('generate_genie_code_instruction', 'STRING');
-  await tryAddColumn('has_genie_code', 'STRING');
+  for (const [colName, colType] of columns) await tryAddColumn(colName, colType);
+}
+
+/**
+ * Older __inspire_usecases Delta tables lack Route-1 Genie columns; add them before UPDATE.
+ * Tries `ADD COLUMN` (Spark/Inspire notebook style), then `ADD COLUMNS (...)` if the warehouse
+ * rejects the first form. Ignores "already exists" so this is safe to repeat.
+ */
+async function ensureUsecasesGenieRoute1Columns(host, token, warehouseId, ucTable) {
+  await ensureTableColumns(host, token, warehouseId, ucTable, [
+    ['generate_genie_code_instruction', 'STRING'],
+    ['has_genie_code', 'STRING'],
+  ]);
 }
 
 function workspaceOriginFromHost(host) {
@@ -769,7 +776,7 @@ async function resolveWorkspaceNotebookObjectPath(host, token, candidatePath) {
  * @param {Record<string,string>} opts.params notebook base_parameters
  * @param {string} [opts.notebook_path]
  * @param {string} [opts.cluster_id]
- * @param {'discovery'|'genie_regen'} [opts.jobType]
+ * @param {'discovery'|'genie_regen'|'implement'} [opts.jobType]
  */
 async function triggerInspireNotebookJob(host, token, { params, notebook_path, cluster_id, jobType = 'discovery' }) {
   normalizeUseCasesQualityParams(params);
@@ -824,7 +831,7 @@ async function triggerInspireNotebookJob(host, token, { params, notebook_path, c
   const jobName = `Inspire AI - ${businessName} - ${new Date().toISOString().slice(0, 19)}`;
   const jobSessionId = crypto.randomUUID();
   const notebookFilename = resolvedPath.split('/').pop() || 'inspire_notebook';
-  const inspireRunType = jobType === 'genie_regen' ? 'genie_regen' : 'discovery';
+  const inspireRunType = jobType === 'genie_regen' ? 'genie_regen' : (jobType === 'implement' ? 'implement' : 'discovery');
 
   const createPayload = {
     name: jobName,
@@ -2772,6 +2779,20 @@ async function handleInspireGenerateGenie(req, res) {
 
 app.post('/api/inspire/generate-genie', requireToken, handleInspireGenerateGenie);
 app.post('/api/inspire/generate_genie', requireToken, handleInspireGenerateGenie);
+
+registerImplementRoutes(app, {
+  requireToken,
+  executeSql,
+  executeSqlWithDeltaRetry,
+  sqlResultToObjects,
+  dbFetch,
+  fetchInspireSessionWidgetRow,
+  notebookParamsFromSessionForGenerateRun,
+  triggerInspireNotebookJob,
+  splitInspireDatabase,
+  databricksJobRunUrl,
+  ensureTableColumns,
+});
 
 /**
  * Sync Route 1 flags to Delta while selecting (debounced in UI). Same SQL as generate-genie minus the job.

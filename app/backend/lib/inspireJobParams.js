@@ -19,6 +19,8 @@ const INSPIRE_NOTEBOOK_WIDGET_KEYS = [
   '13_generate_genie_code_for',
   '14_session_id',
   '16_best_of_best_count',
+  'inspire_implement_use_case',
+  'inspire_implement_spec_version',
 ];
 
 const USE_CASES_QUALITY_VALID = ['Good', 'High', 'Ultra High'];

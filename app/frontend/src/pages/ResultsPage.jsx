@@ -57,6 +57,10 @@ import {
   v130View,
 } from '../lib/v130UseCase';
 import { visibleArtifactFiles } from '../lib/artifactFiles';
+import ImplementWizard from './ImplementWizard';
+import UseCaseStudio from './UseCaseStudio';
+import { caseIdOf } from '../lib/implementWizard';
+import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
 
 /* ── Priority sort order ── */
 const PRIORITY_ORDER = [
@@ -631,6 +635,9 @@ export default function ResultsPage({
 
   // Only one card expanded at a time
   const [expandedUseCase, setExpandedUseCase] = useState(null);
+  const [implementUc, setImplementUc] = useState(null);
+  const [implementFocus, setImplementFocus] = useState(null);
+  const [studioUseCaseId, setStudioUseCaseId] = useState(null);
 
   /** Inspire `__inspire_usecases` Route 1 flags: user selection → debounced POST sync-genie-flags. */
   const [genieRegenSelectedIds, setGenieRegenSelectedIds] = useState(() => []);
@@ -651,50 +658,8 @@ export default function ResultsPage({
     genieRegenSelectedIdsRef.current = genieRegenSelectedIds;
   }, [genieRegenSelectedIds]);
 
-  const apiFetch = useCallback(
-    async (url) => {
-      const headers = {};
-      if (token) { headers['Authorization'] = `Bearer ${token}`; headers['X-DB-PAT-Token'] = token; }
-      if (databricksHost) headers['X-Databricks-Host'] = databricksHost;
-      const resp = await fetch(url, { headers });
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => '');
-        let msg = errText || `${resp.status}`;
-        try {
-          const j = JSON.parse(errText);
-          if (j.error) msg = typeof j.error === 'string' ? j.error : JSON.stringify(j.error);
-        } catch { /* plain text */ }
-        throw new Error(`${resp.status}: ${msg}`);
-      }
-      return resp.json();
-    },
-    [token, databricksHost]
-  );
-
-  const apiPostJson = useCallback(
-    async (url, body) => {
-      const headers = { 'Content-Type': 'application/json' };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-        headers['X-DB-PAT-Token'] = token;
-      }
-      if (databricksHost) headers['X-Databricks-Host'] = databricksHost;
-      const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => '');
-        let msg = errText || `${resp.status}`;
-        try {
-          const j = JSON.parse(errText);
-          if (j.error) msg = typeof j.error === 'string' ? j.error : JSON.stringify(j.error);
-        } catch {
-          /* plain text */
-        }
-        throw new Error(`${resp.status}: ${msg}`);
-      }
-      return resp.json();
-    },
-    [token, databricksHost]
-  );
+  const apiFetch = useMemo(() => makeApiFetch({ token, databricksHost }), [token, databricksHost]);
+  const apiPostJson = useMemo(() => makeApiPostJson({ token, databricksHost }), [token, databricksHost]);
 
   const resultsDiscoveryType = results?.discovery_type || '';
   const feedbackBusiness = useMemo(() => {
@@ -3246,6 +3211,8 @@ export default function ResultsPage({
                         feedbackBusy={!!uc._v130?.useCaseKey && feedbackBusyKey === uc._v130.useCaseKey}
                         feedbackError={uc._v130?.useCaseKey && feedbackError.key === uc._v130.useCaseKey ? feedbackError.message : ''}
                         onFeedback={(status, reason) => submitFeedback(uc, uc._v130, status, reason)}
+                        onImplement={() => { setImplementFocus(null); setImplementUc(uc); }}
+                        onOpenStudio={() => setStudioUseCaseId(caseIdOf(uc))}
                       />
                       );
                     })}
@@ -3266,6 +3233,42 @@ export default function ResultsPage({
             </div>
           </div>
         </>
+      )}
+
+      {implementUc && selectedSessionId && inspireDb && warehouseId && (
+        <ImplementWizard
+          uc={implementUc}
+          sessionId={selectedSessionId}
+          settings={{ ...settings, warehouseId, inspireDatabase: inspireDb, notebookPath: settingsNotebookPath }}
+          discoveryType={resultsDiscoveryType}
+          apiFetch={apiFetch}
+          apiPostJson={apiPostJson}
+          focus={implementFocus}
+          onClose={() => { setImplementUc(null); setImplementFocus(null); }}
+          onImplemented={(data) => {
+            setImplementUc(null);
+            setImplementFocus(null);
+            setStudioUseCaseId(data.use_case_id);
+          }}
+        />
+      )}
+      {studioUseCaseId && selectedSessionId && inspireDb && warehouseId && (
+        <UseCaseStudio
+          sessionId={selectedSessionId}
+          settings={{ ...settings, warehouseId, inspireDatabase: inspireDb, notebookPath: settingsNotebookPath }}
+          useCaseId={studioUseCaseId}
+          useCases={allUseCases}
+          apiFetch={apiFetch}
+          apiPostJson={apiPostJson}
+          onClose={() => setStudioUseCaseId(null)}
+          onEdit={(id, focus) => {
+            const found = allUseCases.find((u) => caseIdOf(u) === id);
+            setStudioUseCaseId(null);
+            setImplementFocus(focus || null);
+            if (found) setImplementUc(found);
+          }}
+          onOpenUseCase={setStudioUseCaseId}
+        />
       )}
 
     </div>
@@ -3379,6 +3382,8 @@ function UseCaseCard({
   feedbackBusy = false,
   feedbackError = '',
   onFeedback,
+  onImplement,
+  onOpenStudio,
 }) {
   const [notebookContent, setNotebookContent] = useState(null);
   const [notebookLoading, setNotebookLoading] = useState(false);
@@ -3677,6 +3682,27 @@ function UseCaseCard({
       </div>
       </div>
 
+      <div className="px-5 pb-3 flex flex-wrap items-center gap-2">
+        {typeof onImplement === 'function' && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onImplement(); }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red hover:bg-db-red-hover shadow-sm shadow-db-red/20 transition-smooth"
+          >
+            <Sparkles size={13} />
+            Implement with Genie
+          </button>
+        )}
+        {typeof onOpenStudio === 'function' && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOpenStudio(); }}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-text-secondary hover:text-db-red"
+          >
+            Open Studio
+          </button>
+        )}
+      </div>
       {(genieActions.primary || genieActions.openCurrentNotebook) && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-4">
           {genieActions.primary === 'open-notebook' && (

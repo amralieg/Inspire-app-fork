@@ -101,8 +101,9 @@ test('below-bar fallback flags are treated as a valid result label', () => {
 test('widget keys follow the notebook order with the two v1.3.0 keys in their slots', () => {
   assert.equal(INSPIRE_NOTEBOOK_WIDGET_KEYS.indexOf('03_discovery_type'), INSPIRE_NOTEBOOK_WIDGET_KEYS.indexOf('02_inspire_database') + 1);
   assert.equal(INSPIRE_NOTEBOOK_WIDGET_KEYS.indexOf('10_strategic_context'), INSPIRE_NOTEBOOK_WIDGET_KEYS.indexOf('09_generation_options') + 1);
-  assert.equal(INSPIRE_NOTEBOOK_WIDGET_KEYS.at(-1), '16_best_of_best_count');
-  assert.equal(INSPIRE_NOTEBOOK_WIDGET_KEYS.length, 17);
+  const { IMPLEMENT_USE_CASE_PARAM, IMPLEMENT_SPEC_VERSION_PARAM } = require('../lib/inspireImplement');
+  assert.deepEqual(INSPIRE_NOTEBOOK_WIDGET_KEYS.slice(-3), ['16_best_of_best_count', IMPLEMENT_USE_CASE_PARAM, IMPLEMENT_SPEC_VERSION_PARAM]);
+  assert.equal(INSPIRE_NOTEBOOK_WIDGET_KEYS.length, 19);
 });
 
 test('discovery type keeps Deep or Standard, defaults to Deep and refuses anything else', () => {
