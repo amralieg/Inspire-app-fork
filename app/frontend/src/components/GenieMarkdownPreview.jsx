@@ -291,7 +291,7 @@ function NotebookCell({ cell, index }) {
           {cell?.cell_type === 'code' && lang && (
             <>
               <span className="text-border">·</span>
-              <span className="text-warning font-semibold uppercase">{lang}</span>
+              <span className="text-warning-fg font-semibold uppercase">{lang}</span>
             </>
           )}
           <span className="text-border">·</span>

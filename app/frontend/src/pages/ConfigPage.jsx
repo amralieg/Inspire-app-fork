@@ -164,8 +164,8 @@ export default function ConfigPage({ settings, update, onConfigured }) {
             </div>
             {step0Done && (
               <div className="flex items-center gap-2 mt-3 p-2.5 bg-success-bg rounded-md">
-                <CheckCircle2 size={14} className="text-success" />
-                <span className="text-sm text-success">Host configured</span>
+                <CheckCircle2 size={14} className="text-success-fg" />
+                <span className="text-sm text-success-fg">Host configured</span>
               </div>
             )}
           </div>
@@ -215,16 +215,16 @@ export default function ConfigPage({ settings, update, onConfigured }) {
             {/* Status */}
             {tokenStatus === 'valid' && (
               <div className="flex items-center gap-2 mt-3 p-2.5 bg-success-bg rounded-md">
-                <CheckCircle2 size={14} className="text-success" />
-                <span className="text-sm text-success">
+                <CheckCircle2 size={14} className="text-success-fg" />
+                <span className="text-sm text-success-fg">
                   Connected as <span className="font-medium">{username}</span>
               </span>
             </div>
             )}
             {tokenStatus === 'invalid' && (
               <div className="flex items-center gap-2 mt-3 p-2.5 bg-error-bg rounded-md">
-                <XCircle size={14} className="text-error" />
-                <span className="text-sm text-error">
+                <XCircle size={14} className="text-error-fg" />
+                <span className="text-sm text-error-fg">
                   {authError || 'Authentication failed.'}
                 </span>
         </div>
@@ -273,7 +273,7 @@ export default function ConfigPage({ settings, update, onConfigured }) {
                           {w.name}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className={`inline-flex items-center gap-1 text-xs ${running ? 'text-success' : 'text-text-tertiary'}`}>
+                          <span className={`inline-flex items-center gap-1 text-xs ${running ? 'text-success-fg' : 'text-text-tertiary'}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${running ? 'bg-success' : 'bg-text-tertiary'}`} />
                             {w.state}
                           </span>
@@ -338,14 +338,14 @@ export default function ConfigPage({ settings, update, onConfigured }) {
             {/* Publish status */}
             {publishStatus === 'done' && (
               <div className="flex items-center gap-2 mt-3 p-2.5 bg-success-bg rounded-md">
-                <CheckCircle2 size={14} className="text-success" />
-                <span className="text-sm text-success">{publishMessage}</span>
+                <CheckCircle2 size={14} className="text-success-fg" />
+                <span className="text-sm text-success-fg">{publishMessage}</span>
               </div>
             )}
             {publishStatus === 'error' && (
               <div className="flex items-center gap-2 mt-3 p-2.5 bg-error-bg rounded-md">
-                <AlertCircle size={14} className="text-error" />
-                <span className="text-sm text-error">{publishMessage}</span>
+                <AlertCircle size={14} className="text-error-fg" />
+                <span className="text-sm text-error-fg">{publishMessage}</span>
               </div>
             )}
           </div>

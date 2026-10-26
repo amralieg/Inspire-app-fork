@@ -5,6 +5,7 @@ const { pathToFileURL } = require('node:url');
 const C = require('../lib/implementControl');
 const I = require('../lib/inspireImplement');
 const { makeApp, listen } = require('./support/implementApp');
+const formatWhenFn = async () => (await import(pathToFileURL(path.join(__dirname, '../../frontend/src/lib/formatWhen.js')).href)).formatWhen;
 
 const OURS = 'Inspire use case N01-U01 (session 42): Predict churn';
 const SPEC = {
@@ -175,6 +176,9 @@ test('every control click is written to the control log with who did it', () => 
   assert.equal(insert.parameters.find((p) => p.name === 'message').value.length, 2000);
   assert.deepEqual(insert.parameters.find((p) => p.name === 'sid'), { name: 'sid', value: '42', type: 'BIGINT' });
   assert.match(C.controlLogSelect(table, { sessionId: '42', useCaseId: 'N01-U01', limit: 10000 }).sql, /LIMIT 200$/);
+  const select = C.controlLogSelect(table, { sessionId: '42', useCaseId: 'N01-U01' }).sql;
+  assert.ok(select.includes("date_format(l.acted_at, 'yyyy-MM-dd\\'T\\'HH:mm:ss.SSSXXX') AS acted_at"), 'times carry their offset, so a browser outside UTC shows the right time');
+  assert.ok(select.includes('ORDER BY l.acted_at DESC'), 'newest first by the timestamp, not by its text');
   assert.match(C.controlLogSelect(table, { sessionId: '42', useCaseId: 'N01-U01', limit: 'x' }).sql, /LIMIT 50$/);
 });
 
@@ -269,7 +273,7 @@ test('stopping a build cancels the run of the version that builds', async () => 
 });
 
 test('live status lists the latest control actions, tolerates a missing control log and fails on any other error', async () => {
-  const done = { asset: 'app', asset_id: 'churn-desk', action: 'stop', result: 'done', message: 'Stop the App: done', acted_by: 'amr@x', acted_at: '2026-10-26 10:00:00' };
+  const done = { asset: 'app', asset_id: 'churn-desk', action: 'stop', result: 'done', message: 'Stop the App: done', acted_by: 'amr@x', acted_at: '2026-10-26T10:00:00.000Z' };
   await withApp({ history: [BUILT], controlLog: [done], responses: { 'GET /api/2.0/apps/churn-desk': [APP_OURS] } }, async (url) => {
     const got = await call(url, `/api/inspire/implement/live?${Q}`);
     assert.equal(got.status, 200, JSON.stringify(got.data));
@@ -338,7 +342,10 @@ test('the dashboard, Genie space, alert and job rows read their live state and o
   const v = await view();
   const one = (id, entry, latest = LATEST) => row(v.controlRows({ targets: { [id]: LIVE_TARGETS[id] }, assets: { [id]: entry } }, latest), id);
   assert.deepEqual(actionsOf(one('dashboard', { ok: true, published: true, published_at: '2026-10-26' })), ['dashboard:unpublish']);
-  assert.equal(one('dashboard', { ok: true, published: true, published_at: '2026-10-26' }).detail, 'Published 2026-10-26');
+  const when = await formatWhenFn();
+  assert.equal(one('dashboard', { ok: true, published: true, published_at: '2026-10-26T11:59:42.625Z' }).detail, `Published ${when('2026-10-26T11:59:42.625Z')}`);
+  assert.doesNotMatch(one('dashboard', { ok: true, published: true, published_at: '2026-10-26T11:59:42.625Z' }).detail, /T11|\.625|Z$/);
+  assert.equal(one('dashboard', { ok: true, published: true, published_at: 'soon' }).detail, 'Published soon', 'a time Inspire cannot read is shown as sent');
   assert.deepEqual(actionsOf(one('dashboard', { ok: true, published: false })), ['dashboard:publish']);
   assert.deepEqual([one('dashboard', { ok: true, trashed: true, published: true }).state.label, one('dashboard', { ok: true, trashed: true }).actions], ['In the trash', []]);
   assert.deepEqual([one('genie_space', { ok: true }).state, one('genie_space', { ok: true }).actions], [{ label: 'Live', tone: 'success' }, []]);
@@ -346,7 +353,7 @@ test('the dashboard, Genie space, alert and job rows read their live state and o
     [{ label: 'Triggered', tone: 'warning' }, { label: 'OK', tone: 'success' }, { label: 'Check failed', tone: 'error' },
       { label: 'Not checked yet', tone: 'idle' }, { label: 'Not checked yet', tone: 'idle' }, { label: 'PAUSED_STATE', tone: 'warning' }],
     'a failed check is an error, never read as not checked');
-  assert.equal(one('alert', { ok: true, state: 'OK', checked_at: '2026-10-26T06:00:05Z' }).detail, 'The latest check found nothing to act on (checked 2026-10-26T06:00:05Z)');
+  assert.equal(one('alert', { ok: true, state: 'OK', checked_at: '2026-10-26T06:00:05Z' }).detail, `The latest check found nothing to act on (checked ${when('2026-10-26T06:00:05Z')})`);
   assert.equal(one('alert', { ok: true, state: 'ERROR' }).detail, 'The alert query failed on its latest check; open the alert to see why');
   assert.deepEqual(one('alert', { ok: true, state: 'OK' }).actions, []);
   const running = one('job', { ok: true, schedule: { cron: '0 0 6 * * ?', timezone: 'UTC', paused: true }, active_runs: [{ run_id: 5, url: 'https://w/run/5' }] });
@@ -384,7 +391,9 @@ test('Remove needs the exact use case id typed, and nothing else confirms it', a
   assert.equal(v.removeConfirmed('  N01-U01 ', 'N01-U01'), true);
   for (const typed of ['', 'n01-u01', 'N01-U0', 'N01-U01x', 'yes', null, undefined]) assert.equal(v.removeConfirmed(typed, 'N01-U01'), false, String(typed));
   assert.equal(v.removeConfirmed('', ''), false, 'an empty id never confirms');
-  assert.equal(v.controlActionText({ message: 'Stop the App: done', acted_by: 'amr@x', acted_at: '2026-10-26 10:00:00' }), 'Stop the App: done by amr@x, 2026-10-26 10:00:00');
+  const when = await formatWhenFn();
+  assert.equal(v.controlActionText({ message: 'Stop the App: done', acted_by: 'amr@x', acted_at: '2026-10-26T10:00:00.000Z' }), `Stop the App: done by amr@x, ${when('2026-10-26T10:00:00.000Z')}`);
+  assert.equal(v.controlActionText({ message: 'Stop the App: done', acted_at: 'yesterday' }), 'Stop the App: done, yesterday');
   assert.equal(v.controlActionText({ asset: 'app', action: 'stop' }), 'app stop');
 });
 
@@ -423,4 +432,17 @@ test('the first action hands the App-created control log to the tracking tables\
     assert.ok(made.fetches.some((f) => f.path === '/api/2.0/apps/churn-desk/stop'));
     assert.ok(made.sqlCalls.some((c) => String(c.sql).startsWith('INSERT INTO `main`.`inspire`.`__inspire_control_log`')), 'the action is still recorded');
   });
+});
+
+test('times read as a local date and time, honour their offset, and fall back instead of showing a broken date', async () => {
+  const when = await formatWhenFn();
+  const utc = when('2026-10-26T11:59:44.096Z');
+  assert.match(utc, /2026/);
+  assert.doesNotMatch(utc, /T11|Z|:44|\.096/, 'no ISO separator, zone letter, seconds or microseconds');
+  assert.equal(when('2026-10-26T15:59:44.096+04:00'), utc, 'the same instant in another offset reads the same');
+  assert.notEqual(when('2026-10-26T15:59:44.096Z'), utc);
+  for (const empty of ['', null, undefined]) assert.equal(when(empty), '');
+  assert.equal(when('', '—'), '—');
+  assert.equal(when('not a date', 'not a date'), 'not a date');
+  assert.equal(when('not a date'), '');
 });

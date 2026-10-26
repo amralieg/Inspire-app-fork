@@ -1,8 +1,8 @@
 const TONE = {
-  success: 'text-success border-success/35 bg-success-bg',
-  warning: 'text-warning border-warning/35 bg-warning-bg',
-  error: 'text-error border-error/30 bg-error-bg',
-  busy: 'text-db-red border-db-red/30 bg-db-red-50',
+  success: 'text-success-fg border-success/35 bg-success-bg',
+  warning: 'text-warning-fg border-warning/35 bg-warning-bg',
+  error: 'text-error-fg border-error/30 bg-error-bg',
+  busy: 'text-db-red-fg border-db-red/30 bg-db-red-50',
   idle: 'text-text-secondary border-border bg-bg-subtle',
 };
 

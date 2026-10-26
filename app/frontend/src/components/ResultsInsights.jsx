@@ -107,7 +107,7 @@ export function DataAccessBadge({ results }) {
   if (!access.deep) {
     return (
       <div className="mb-4 flex items-start gap-2 rounded-xl border border-border bg-surface px-3 py-2.5 text-[11px] text-text-secondary shadow-sm">
-        <Lock size={13} className="mt-0.5 shrink-0 text-success" />
+        <Lock size={13} className="mt-0.5 shrink-0 text-success-fg" />
         <span>
           <span className="font-semibold text-text-primary">Standard discovery: no data read.</span> Inspire used table and column
           metadata, metric views, lineage and access counts only.
@@ -184,7 +184,7 @@ export function StrategyCoveragePanel({ coverage, onSelectPath, onSelectNotAlign
               </button>
               {isGap && (
                 <span
-                  className="shrink-0 rounded border border-warning/35 bg-warning-bg px-1.5 py-0.5 text-[9px] font-semibold text-warning"
+                  className="shrink-0 rounded border border-warning/35 bg-warning-bg px-1.5 py-0.5 text-[9px] font-semibold text-warning-fg"
                   title={gaps.find((g) => g.id === e.id)?.reason || ''}
                 >
                   Gap
@@ -211,7 +211,7 @@ export function StrategyCoveragePanel({ coverage, onSelectPath, onSelectNotAlign
               <li key={p.priority} className="flex items-center gap-2 text-[11px]">
                 <span className="min-w-0 flex-1 truncate text-text-primary" title={p.priority}>{p.priority}</span>
                 {priorityGaps.has(p.priority) && (
-                  <span className="shrink-0 rounded border border-warning/35 bg-warning-bg px-1.5 py-0.5 text-[9px] font-semibold text-warning">Gap</span>
+                  <span className="shrink-0 rounded border border-warning/35 bg-warning-bg px-1.5 py-0.5 text-[9px] font-semibold text-warning-fg">Gap</span>
                 )}
                 <span className="shrink-0 font-mono text-[10px] text-text-secondary">{p.use_cases}</span>
               </li>

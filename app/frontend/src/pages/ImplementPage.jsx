@@ -122,8 +122,8 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
           />
         </label>
       </div>
-      {listError && <p className="text-xs text-error bg-error-bg border border-error/20 rounded-md px-3 py-2">{listError}</p>}
-      {railError && <p className="text-xs text-error bg-error-bg border border-error/20 rounded-md px-3 py-2">{railError}</p>}
+      {listError && <p className="text-xs text-error-fg bg-error-bg border border-error/20 rounded-md px-3 py-2">{listError}</p>}
+      {railError && <p className="text-xs text-error-fg bg-error-bg border border-error/20 rounded-md px-3 py-2">{railError}</p>}
       <div className="flex gap-4 items-start">
         <nav aria-label="Use cases" className="w-72 shrink-0 bg-surface border border-border rounded-xl p-3 space-y-4 max-h-[calc(100dvh-11rem)] overflow-y-auto">
           {listLoading && (
@@ -199,8 +199,8 @@ function NotebookPanel({ notebook, notebookPath, databricksHost, notebookRunErro
         <span className="font-medium text-text-primary">Genie Code notebook</span>
         <ImplementStatusBadge state={notebook} />
       </div>
-      {notebook.reason && <p className={notebook.state === 'failed' ? 'text-error' : 'text-text-secondary'}>{notebook.reason}</p>}
-      {notebookRunError && <p className="text-error">{notebookRunError}</p>}
+      {notebook.reason && <p className={notebook.state === 'failed' ? 'text-error-fg' : 'text-text-secondary'}>{notebook.reason}</p>}
+      {notebookRunError && <p className="text-error-fg">{notebookRunError}</p>}
       {notebookPath && <p className="font-mono text-[11px] text-text-secondary break-all">{notebookPath}</p>}
       <div className="flex flex-wrap gap-3">
         {href && (
@@ -343,7 +343,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     if (!failed) return null;
     return (
       <div className="border border-error/30 bg-error-bg rounded-md px-3 py-2 text-[12px] space-y-2">
-        <p className="text-error">The {failed.label} failed on v{failed.spec_version}: {failed.error || 'no error text was recorded'}</p>
+        <p className="text-error-fg">The {failed.label} failed on v{failed.spec_version}: {failed.error || 'no error text was recorded'}</p>
         <button
           type="button"
           disabled={active || submitBusy}
@@ -415,15 +415,15 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
           </div>
           <div className="p-4 space-y-3">
             {failedOutputs.length > 0 && tab !== 'Edit' && (
-              <p className="text-xs text-error bg-error-bg border border-error/20 rounded-md px-3 py-2">
+              <p className="text-xs text-error-fg bg-error-bg border border-error/20 rounded-md px-3 py-2">
                 {failedOutputs.map((o) => `The ${o.label}`).join(', ')} failed.{' '}
                 <button type="button" className="underline font-semibold" onClick={() => setTab('Edit')}>Retry on the Edit tab</button>
               </p>
             )}
-            {error && <p className="text-xs text-error bg-error-bg border border-error/20 rounded-md px-3 py-2">{error}</p>}
+            {error && <p className="text-xs text-error-fg bg-error-bg border border-error/20 rounded-md px-3 py-2">{error}</p>}
             {missing.length > 0 && (
               <div className="border border-error/30 bg-error-bg rounded-md px-3 py-2 text-[12px] space-y-2">
-                <p className="text-error">{lostTablesText(missing)}</p>
+                <p className="text-error-fg">{lostTablesText(missing)}</p>
                 <button
                   type="button"
                   disabled={active}
@@ -436,7 +436,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
             )}
             {edited && (
               <div className="border border-error/30 bg-error-bg rounded-md px-3 py-2 text-[12px] space-y-2">
-                <p className="text-error">
+                <p className="text-error-fg">
                   {statusReason(latest) || 'The notebook was edited after Inspire last built it, so this version did not rebuild it.'}
                 </p>
                 <button
@@ -581,7 +581,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                   </div>
                 ))}
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary pt-2">Job runs</div>
-                {status?.runs?.ok === false && <p className="text-[12px] text-error">{status.runs.error}</p>}
+                {status?.runs?.ok === false && <p className="text-[12px] text-error-fg">{status.runs.error}</p>}
                 {(status?.runs?.runs || []).map((run) => (
                   <div key={run.run_id} className="border border-border rounded-md px-3 py-2 text-[12px]">
                     <div>{run.state || 'unknown'} · {runProfileText(run.profile)} · {run.trigger === 'PERIODIC' ? 'scheduled' : 'started by hand'}</div>
@@ -656,7 +656,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                         disabled={active || submitBusy}
                         onClick={() => retryOutput(o.id)}
                         title={o.error}
-                        className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-error/40 text-error disabled:opacity-50"
+                        className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-error/40 text-error-fg disabled:opacity-50"
                       >
                         <RotateCcw size={12} /> Retry the {o.label}
                       </button>
@@ -690,9 +690,9 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
 }
 
 function toneClass(tone) {
-  if (tone === 'success') return 'text-success';
-  if (tone === 'warning') return 'text-warning';
-  if (tone === 'error') return 'text-error';
+  if (tone === 'success') return 'text-success-fg';
+  if (tone === 'warning') return 'text-warning-fg';
+  if (tone === 'error') return 'text-error-fg';
   if (tone === 'busy') return 'text-db-red';
   return 'text-text-tertiary';
 }

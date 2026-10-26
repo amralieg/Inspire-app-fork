@@ -1,4 +1,5 @@
 import { IMPLEMENT_OUTPUTS } from './implementWizard.js';
+import { formatWhen } from './formatWhen.js';
 
 export const CONTROL_REFRESH_MS = 15000;
 
@@ -33,7 +34,7 @@ function dashboardRow(entry) {
   if (!entry?.ok) return unreadable(entry);
   if (entry.trashed) return { state: { label: 'In the trash', tone: 'error' }, detail: '', actions: [] };
   return entry.published
-    ? { state: { label: 'Published', tone: 'success' }, detail: entry.published_at ? `Published ${entry.published_at}` : '', actions: [action('dashboard', 'unpublish', 'Unpublish', true)] }
+    ? { state: { label: 'Published', tone: 'success' }, detail: entry.published_at ? `Published ${formatWhen(entry.published_at, entry.published_at)}` : '', actions: [action('dashboard', 'unpublish', 'Unpublish', true)] }
     : { state: { label: 'Not published', tone: 'idle' }, detail: 'People with access cannot open the published view', actions: [action('dashboard', 'publish', 'Publish')] };
 }
 
@@ -44,7 +45,7 @@ function genieRow(entry) {
 function alertRow(entry) {
   if (!entry?.ok) return unreadable(entry);
   if (entry.trashed) return { state: { label: 'In the trash', tone: 'error' }, detail: '', actions: [] };
-  const when = entry.checked_at ? ` (checked ${entry.checked_at})` : '';
+  const when = entry.checked_at ? ` (checked ${formatWhen(entry.checked_at, entry.checked_at)})` : '';
   if (entry.state === 'TRIGGERED') return { state: { label: 'Triggered', tone: 'warning' }, detail: `The latest check found rows to act on${when}`, actions: [] };
   if (entry.state === 'OK') return { state: { label: 'OK', tone: 'success' }, detail: `The latest check found nothing to act on${when}`, actions: [] };
   if (entry.state === 'ERROR') return { state: { label: 'Check failed', tone: 'error' }, detail: `The alert query failed on its latest check${when}; open the alert to see why`, actions: [] };
@@ -113,6 +114,6 @@ export function removeConfirmed(typed, useCaseId) {
 
 export function controlActionText(entry) {
   const who = entry?.acted_by ? ` by ${entry.acted_by}` : '';
-  const when = entry?.acted_at ? `, ${entry.acted_at}` : '';
+  const when = entry?.acted_at ? `, ${formatWhen(entry.acted_at, entry.acted_at)}` : '';
   return `${entry?.message || `${entry?.asset} ${entry?.action}`}${who}${when}`;
 }

@@ -145,7 +145,7 @@ export default function TableBrowser({
 
       {/* Error */}
       {error && (
-        <div className="mx-4 mt-2 p-2 bg-error-bg text-error text-xs rounded-md">
+        <div className="mx-4 mt-2 p-2 bg-error-bg text-error-fg text-xs rounded-md">
           {error}
         </div>
       )}

@@ -48,7 +48,7 @@ export function FeedbackChip({ status }) {
   const label = feedbackLabel(status);
   if (!label) return null;
   return (
-    <span className="text-[10px] px-2 py-0.5 rounded-full border border-success/30 bg-success-bg text-success font-medium">{label}</span>
+    <span className="text-[10px] px-2 py-0.5 rounded-full border border-success/30 bg-success-bg text-success-fg font-medium">{label}</span>
   );
 }
 
@@ -118,7 +118,7 @@ export function UseCaseStrategyDetail({ info, knownPriorities, foundationsById }
         </Section>
       )}
       {info.keyResults.length > 0 && (
-        <Section title="Expected key results" tone="text-success">
+        <Section title="Expected key results" tone="text-success-fg">
           <ul className="space-y-1">
             {info.keyResults.map((kr, i) => (
               <li key={`${kr.id || 'p'}-${i}`} className="text-sm text-text-secondary leading-relaxed">
@@ -132,14 +132,14 @@ export function UseCaseStrategyDetail({ info, knownPriorities, foundationsById }
         </Section>
       )}
       {info.measures.length > 0 && (
-        <Section title="Measures of success" tone="text-warning">
+        <Section title="Measures of success" tone="text-warning-fg">
           <Bullets items={info.measures} />
         </Section>
       )}
       {(info.financial.length > 0 || info.nonFinancial.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {info.financial.length > 0 && (
-            <Section title="Financial benefits" tone="text-success"><Bullets items={info.financial} /></Section>
+            <Section title="Financial benefits" tone="text-success-fg"><Bullets items={info.financial} /></Section>
           )}
           {info.nonFinancial.length > 0 && (
             <Section title="Non-financial benefits" tone="text-info"><Bullets items={info.nonFinancial} /></Section>
@@ -246,7 +246,7 @@ export function FeedbackControls({ useCaseKey, available, current, busy, error, 
       <p className="mt-2 text-[10px] text-text-tertiary leading-snug">
         A rejected use case is left out of this business&apos;s next runs. For an implemented one, the next run tracks its KPIs against the baseline.
       </p>
-      {error && <p className="mt-1 text-[11px] text-error">{error}</p>}
+      {error && <p className="mt-1 text-[11px] text-error-fg">{error}</p>}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { ExternalLink, Loader2, Pause, Play, RefreshCw, Square, Trash2, Eye, Eye
 import BodyPortal from './BodyPortal';
 import ImplementStatusBadge from './ImplementStatusBadge';
 import { controlRows, controlActionText, removeConfirmed } from '../lib/implementControl';
+import { formatWhen } from '../lib/formatWhen';
 
 const ACTION_ICONS = { stop: Square, start: Play, unpublish: EyeOff, publish: Eye, cancel: Ban };
 
@@ -60,14 +61,14 @@ export default function ImplementControlTower({ live, liveError, latest, useCase
         <div>
           <h3 className="text-xs font-semibold text-text-primary">Control tower</h3>
           <p className="text-[11px] text-text-tertiary">
-            {live?.checked_at ? `Live status checked ${live.checked_at}` : 'Reading the live status of every asset'}
+            {live?.checked_at ? `Live status checked ${formatWhen(live.checked_at, live.checked_at)}` : 'Reading the live status of every asset'}
           </p>
         </div>
         <button type="button" onClick={onRefresh} aria-label="Check the live status now" className="p-1.5 rounded-md border border-border text-text-secondary">
           <RefreshCw size={12} />
         </button>
       </header>
-      {liveError && <p className="px-3 py-2 text-[12px] text-error">Inspire cannot read the live status: {liveError}</p>}
+      {liveError && <p className="px-3 py-2 text-[12px] text-error-fg">Inspire cannot read the live status: {liveError}</p>}
       {live && rows.length === 0 && <p className="px-3 py-2 text-[12px] text-text-tertiary">This PoC has no job or outputs yet.</p>}
       <ul className="divide-y divide-border">
         {rows.map((row) => (
@@ -78,7 +79,7 @@ export default function ImplementControlTower({ live, liveError, latest, useCase
                 <span className="text-text-secondary truncate">{row.name}</span>
                 <ImplementStatusBadge state={row.state} />
               </div>
-              {row.detail && <p data-control-detail="" className={row.state.tone === 'error' ? 'text-error' : 'text-text-tertiary'}>{row.detail}</p>}
+              {row.detail && <p data-control-detail="" className={row.state.tone === 'error' ? 'text-error-fg' : 'text-text-tertiary'}>{row.detail}</p>}
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               {row.url && (
@@ -97,7 +98,7 @@ export default function ImplementControlTower({ live, liveError, latest, useCase
                     disabled={blocked}
                     title={blocked && active ? 'Wait for the build to finish, or stop the build first' : undefined}
                     onClick={() => onAction(a)}
-                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-xs font-medium disabled:opacity-50 ${a.danger ? 'border-error/40 text-error' : 'border-border text-text-primary'}`}
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-xs font-medium disabled:opacity-50 ${a.danger ? 'border-error/40 text-error-fg' : 'border-border text-text-primary'}`}
                   >
                     {actionBusy === key ? <Loader2 size={11} className="animate-spin" /> : <Icon size={11} />} {a.label}
                   </button>
@@ -118,7 +119,7 @@ export default function ImplementControlTower({ live, liveError, latest, useCase
                   type="button"
                   disabled={active || submitBusy}
                   onClick={() => setRemoving(row)}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-error/40 text-error text-xs font-medium disabled:opacity-50"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-error/40 text-error-fg text-xs font-medium disabled:opacity-50"
                 >
                   <Trash2 size={11} /> Remove
                 </button>
@@ -132,7 +133,7 @@ export default function ImplementControlTower({ live, liveError, latest, useCase
           <p className="text-[11px] font-semibold text-text-secondary">Recent actions</p>
           <ul aria-label="Recent control actions" className="text-[11px] text-text-tertiary space-y-0.5">
             {actions.map((entry, i) => (
-              <li key={`${entry.acted_at}-${i}`} className={entry.result === 'done' ? '' : 'text-error'}>{controlActionText(entry)}</li>
+              <li key={`${entry.acted_at}-${i}`} className={entry.result === 'done' ? '' : 'text-error-fg'}>{controlActionText(entry)}</li>
             ))}
           </ul>
         </div>

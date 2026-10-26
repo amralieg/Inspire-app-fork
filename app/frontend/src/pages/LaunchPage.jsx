@@ -40,6 +40,7 @@ import { parseStrategicContext, splitPriorities, validateStrategicContextText, w
 import UcPermissionErrorHelp from '../components/UcPermissionErrorHelp';
 import { parseDocumentLanguages, formatDocumentLanguages } from '../constants/documentLanguages';
 import { interpretUcPermissionError, parseApiErrorMessage } from '../lib/ucPermissionErrors';
+import { formatWhen } from '../lib/formatWhen';
 
 /* ─── Constants — notebook v1.2.0 widget `05_use_cases_quality` ─── */
 const QUALITY_OPTIONS = ['Good', 'High', 'Ultra High'];
@@ -149,17 +150,6 @@ function useCaseTitle(uc) {
 
 function useCaseBlurb(uc) {
   return uc.Statement || uc.description || uc.problem_statement || uc.Solution || '';
-}
-
-function formatSessionWhen(iso) {
-  if (!iso) return '—';
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-  } catch {
-    return '—';
-  }
 }
 
 /** Optional warehouse_id improves UC browsing for service principals (SQL SHOW … fallback). */
@@ -857,7 +847,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
           {(overviewError || allCreatedError) && (
             <div className="space-y-2 border-b border-border bg-surface/60 px-5 py-2.5">
               {overviewError && (
-                <p className="flex items-center gap-1.5 text-xs text-error">
+                <p className="flex items-center gap-1.5 text-xs text-error-fg">
                   <AlertCircle size={14} className="shrink-0" />
                   {overviewError}
                 </p>
@@ -921,7 +911,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                           </div>
                           <div className="flex items-center gap-1.5 text-[11px] text-text-secondary">
                             <Calendar size={12} className="shrink-0 text-text-tertiary" aria-hidden />
-                            <span>{formatSessionWhen(s.create_at)}</span>
+                            <span>{formatWhen(s.create_at, '—')}</span>
                           </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -1234,12 +1224,12 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                       onClick={() => setMetadataPreviewExpanded(!metadataPreviewExpanded)}
                       className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-success/5 transition-smooth"
                     >
-                      <CheckCircle2 size={14} className="text-success shrink-0" />
-                      <p className="text-[10px] text-success font-semibold uppercase tracking-wider flex-1">Metadata Selected</p>
-                      <span className="text-[10px] text-success/70 font-mono">
+                      <CheckCircle2 size={14} className="text-success-fg shrink-0" />
+                      <p className="text-[10px] text-success-fg font-semibold uppercase tracking-wider flex-1">Metadata Selected</p>
+                      <span className="text-[10px] text-success-fg/70 font-mono">
                         {params['01_uc_metadata'].split(',').length} item{params['01_uc_metadata'].split(',').length > 1 ? 's' : ''}
                       </span>
-                      <ChevronDown size={12} className={`text-success transition-transform duration-200 ${metadataPreviewExpanded ? 'rotate-180' : ''}`} />
+                      <ChevronDown size={12} className={`text-success-fg transition-transform duration-200 ${metadataPreviewExpanded ? 'rotate-180' : ''}`} />
                     </button>
                     {metadataPreviewExpanded && (
                       <div className="px-4 pb-3 max-h-32 overflow-y-auto">
@@ -1439,7 +1429,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                     Optional · widget 10_strategic_context · aligns and orders results after discovery
                   </span>
                   {(strategyBase || strategyProblems.length > 0) && (
-                    <span className={`ml-auto text-[10px] font-semibold ${strategyProblems.length ? 'text-db-red' : 'text-success'}`}>
+                    <span className={`ml-auto text-[10px] font-semibold ${strategyProblems.length ? 'text-db-red' : 'text-success-fg'}`}>
                       {strategyProblems.length ? `${strategyProblems.length} problem${strategyProblems.length > 1 ? 's' : ''}` : 'Set'}
                     </span>
                   )}
@@ -1593,7 +1583,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                     className={`w-full pl-10 pr-4 py-2.5 text-sm border rounded-lg bg-surface text-text-primary glow-focus transition-smooth font-mono ${bestOfBestInvalid ? 'border-error' : 'border-border'}`}
                   />
                   {bestOfBestInvalid && (
-                    <p className="mt-1.5 text-xs text-error">Use a whole number from 0 to 100, or leave it empty for 20.</p>
+                    <p className="mt-1.5 text-xs text-error-fg">Use a whole number from 0 to 100, or leave it empty for 20.</p>
                   )}
                 </Field>
               </div>

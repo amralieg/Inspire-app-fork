@@ -15,8 +15,8 @@ const STEPS = [
 ];
 
 function StatusIcon({ status, size = 16 }) {
-  if (status === 'ok') return <CheckCircle2 size={size} className="text-success" />;
-  if (status === 'error') return <XCircle size={size} className="text-error" />;
+  if (status === 'ok') return <CheckCircle2 size={size} className="text-success-fg" />;
+  if (status === 'error') return <XCircle size={size} className="text-error-fg" />;
   if (status === 'loading') return <Loader2 size={size} className="animate-spin text-info" />;
   return <div className="w-4 h-4 rounded-full border-2 border-border" />;
 }
@@ -245,7 +245,7 @@ export default function SetupWizard({ settings, update, onComplete }) {
                 onClick={() => i < step && setStep(i)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-all ${
                   i === step ? 'bg-db-red text-white' :
-                  i < step ? 'bg-success/10 text-success cursor-pointer hover:bg-success/20' :
+                  i < step ? 'bg-success/10 text-success-fg cursor-pointer hover:bg-success/20' :
                   'bg-bg-subtle text-text-tertiary'
                 }`}
               >
@@ -279,7 +279,7 @@ export default function SetupWizard({ settings, update, onComplete }) {
                 </p>
               </div>
               {databricksHost && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-success-bg text-success text-xs">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-success-bg text-success-fg text-xs">
                   <CheckCircle2 size={14} /> Workspace URL configured
                 </div>
               )}
@@ -290,7 +290,7 @@ export default function SetupWizard({ settings, update, onComplete }) {
           {step === 1 && (
             <div className="space-y-4">
               {isDatabricksApp ? (
-                <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-success-bg text-success text-sm">
+                <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-success-bg text-success-fg text-sm">
                   <CheckCircle2 size={16} /> Authenticated automatically via Databricks App. No PAT needed.
                 </div>
               ) : (
@@ -344,7 +344,7 @@ export default function SetupWizard({ settings, update, onComplete }) {
                   )}
 
                   {token && (
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-success-bg text-success text-xs">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-success-bg text-success-fg text-xs">
                       <CheckCircle2 size={14} /> Token configured ({token.slice(0, 6)}...{token.slice(-4)})
                     </div>
                   )}
@@ -473,9 +473,9 @@ export default function SetupWizard({ settings, update, onComplete }) {
 
                   {publishResult?.ok && (
                     <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-success/20 bg-success-bg">
-                      <CheckCircle2 size={16} className="text-success" />
+                      <CheckCircle2 size={16} className="text-success-fg" />
                       <div>
-                        <p className="text-xs font-semibold text-success">Notebook published!</p>
+                        <p className="text-xs font-semibold text-success-fg">Notebook published!</p>
                         <p className="text-[10px] text-text-secondary font-mono">{publishResult.path}</p>
                       </div>
                     </div>

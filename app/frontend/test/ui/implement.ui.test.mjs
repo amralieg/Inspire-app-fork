@@ -336,7 +336,7 @@ test('a new App that could not get access is disabled up front with the reason, 
     assert.ok(reason.includes(`Inspire cannot create this App: a new App could not read ${RESULT_TABLE}: its service principal needs USE CATALOG on catalog \`main\` (owner admins)`), reason);
     assert.ok(reason.includes('Inspire cannot manage'), reason);
     assert.equal(await page.getByRole('checkbox', { name: /^Genie space/ }).isDisabled(), false);
-    const warn = page.locator('span.text-warning', { hasText: `${OWNER} may not be able to read the result table` });
+    const warn = page.locator('span.text-warning-fg', { hasText: `${OWNER} may not be able to read the result table` });
     await warn.waitFor();
     assert.equal(await warn.count(), 1, 'the warning shows on the main view, once');
     await implementWhenReady(page);
@@ -1039,6 +1039,86 @@ test('the control tower shows each asset live, stops the App through Inspire, an
     assert.deepEqual(spec.removed_outputs, { dashboard: 'delete' });
     assert.equal(made.jobs[0].params['15_operation'], 'Implement Use Cases');
     await dialog.waitFor({ state: 'detached' });
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+async function lowContrast(page) {
+  return page.evaluate(() => {
+    const parse = (c) => {
+      const m = String(c).match(/rgba?\(([^)]+)\)/);
+      if (!m) return null;
+      const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+      return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+    };
+    const lum = ({ r, g, b }) => {
+      const f = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const behind = (el) => {
+      const layers = [];
+      for (let e = el; e; e = e.parentElement) {
+        const c = parse(getComputedStyle(e).backgroundColor);
+        if (c && c.a > 0) { layers.push(c); if (c.a >= 1) break; }
+      }
+      let base = layers.length && layers[layers.length - 1].a >= 1 ? { r: 0, g: 0, b: 0 } : parse(getComputedStyle(document.body).backgroundColor);
+      for (let i = layers.length - 1; i >= 0; i -= 1) {
+        const c = layers[i];
+        base = { r: c.r * c.a + base.r * (1 - c.a), g: c.g * c.a + base.g * (1 - c.a), b: c.b * c.a + base.b * (1 - c.a) };
+      }
+      return base;
+    };
+    const roots = [document.querySelector('[aria-label="Control tower"]'), document.querySelector('[role="dialog"]')].filter(Boolean);
+    const low = [];
+    let checked = 0;
+    for (const root of roots) {
+      for (const el of [root, ...root.querySelectorAll('*')]) {
+        const own = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent.trim()).join(' ');
+        if ((!own && el.tagName !== 'INPUT') || el.closest('button:disabled')) continue;
+        const fg = parse(getComputedStyle(el).color);
+        const bg = behind(el);
+        const mixed = { r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a) };
+        const [x, y] = [lum(mixed), lum(bg)].sort((m, n) => n - m);
+        const ratio = (x + 0.05) / (y + 0.05);
+        checked += 1;
+        if (ratio < 4.5) low.push(`${(own || el.value || el.getAttribute('aria-label')).slice(0, 40)}: ${ratio.toFixed(2)}`);
+      }
+    }
+    return { checked, low };
+  });
+}
+
+test('the control tower and its Remove dialog read at 4.5:1 or better in light and in dark', async () => {
+  const pocJob = { job_id: 77, settings: { tags: { dbx_inspire_ai_run_type: 'implement', dbx_inspire_ai_session_id: '42', dbx_inspire_ai_usecase_id: 'N01-U01' },
+    schedule: { quartz_cron_expression: '0 0 6 * * ?', timezone_id: 'UTC', pause_status: 'UNPAUSED' } } };
+  const ui = await openUi('implement', { ...STUDIO_STATE, job: pocJob, spacesOk: true, alertsOk: true,
+    controlLog: [{ asset: 'app', asset_id: 'churn-desk', action: 'stop', result: 'done', message: 'Stop the App: done', acted_by: OWNER, acted_at: '2026-10-26T10:00:00.000Z' },
+      { asset: 'dashboard', asset_id: 'd1', action: 'unpublish', result: 'failed', message: 'Unpublish the dashboard: failed', acted_by: OWNER, acted_at: '2026-10-26T09:00:00.000Z' }] });
+  const { page } = ui;
+  try {
+    const tower = page.getByRole('region', { name: 'Control tower' });
+    await tower.locator('[data-control="app"]').getByText('Running', { exact: true }).waitFor();
+    await tower.getByRole('list', { name: 'Recent control actions' }).waitFor();
+    for (const dark of [false, true]) {
+      await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
+      await page.waitForTimeout(400);
+      const mode = dark ? 'dark' : 'light';
+      const plain = await lowContrast(page);
+      assert.ok(plain.checked >= 20, `${mode}: measured ${plain.checked} text elements`);
+      assert.deepEqual(plain.low, [], `${mode} tower`);
+      await tower.locator('[data-control="dashboard"]').getByRole('button', { name: 'Remove' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Remove the Dashboard' });
+      await dialog.getByLabel('Type the use case id to confirm').fill('N01');
+      const withDialog = await lowContrast(page);
+      assert.ok(withDialog.checked > plain.checked, `${mode}: the dialog was measured`);
+      assert.deepEqual(withDialog.low, [], `${mode} Remove dialog`);
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await dialog.waitFor({ state: 'detached' });
+    }
+    const times = await tower.getByRole('list', { name: 'Recent control actions' }).innerText();
+    assert.doesNotMatch(times, /T10:00|\.000Z/, 'times read as a local date and time');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();

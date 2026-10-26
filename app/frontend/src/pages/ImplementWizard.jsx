@@ -78,7 +78,7 @@ function ProfileInput({ spec, path, onChange }) {
   return (
     <Field label={`${PROFILE_FIELDS[path].label} (${PROFILE_FIELDS[path].allowed})`}>
       <input className={inputCls} value={value} onChange={(e) => onChange(section, { ...spec.config.profiles[section], [name]: e.target.value })} />
-      {problem && <p className="text-[11px] text-error">{problem}</p>}
+      {problem && <p className="text-[11px] text-error-fg">{problem}</p>}
     </Field>
   );
 }
@@ -113,7 +113,7 @@ function WidgetInput({ widget, value, endpoints, onChange }) {
       </div>
       {input}
       {widget.label && <p className="text-[11px] text-text-secondary">Used for: {widget.label}</p>}
-      {problem && <p className="text-[11px] text-error">{problem}</p>}
+      {problem && <p className="text-[11px] text-error-fg">{problem}</p>}
     </div>
   );
 }
@@ -131,9 +131,9 @@ function Advanced({ open, onToggle, children }) {
 
 function CheckLine({ check, label }) {
   return (
-    <p className={`text-[11px] ${check.ok ? 'text-success' : 'text-error'}`}>
+    <p className={`text-[11px] ${check.ok ? 'text-success-fg' : 'text-error-fg'}`}>
       {label}: {check.detail}
-      {check.warn && <span className="block text-warning">{check.warn}</span>}
+      {check.warn && <span className="block text-warning-fg">{check.warn}</span>}
     </p>
   );
 }
@@ -650,11 +650,11 @@ export default function ImplementWizard({
                   <div key={original} data-table={original} className={`border rounded-lg px-3 py-2.5 space-y-2 ${lost ? 'border-error/50' : 'border-border'} ${removed ? 'opacity-60' : ''}`}>
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2 min-w-0">
-                        {!removed && <Check size={14} className="shrink-0 text-success" aria-hidden="true" />}
+                        {!removed && <Check size={14} className="shrink-0 text-success-fg" aria-hidden="true" />}
                         <span className={`font-mono text-[12px] text-text-primary truncate ${removed ? 'line-through' : ''}`}>{chosen}</span>
                         {primary && <span className="text-[9px] uppercase tracking-[0.18em] text-text-tertiary">Primary</span>}
                         {chosen !== original && !removed && <span className="text-[10px] text-text-tertiary">instead of {original}</span>}
-                        {lost && <span className="text-[9px] uppercase tracking-[0.18em] text-error">{lost}</span>}
+                        {lost && <span className="text-[9px] uppercase tracking-[0.18em] text-error-fg">{lost}</span>}
                       </div>
                       {removed ? (
                         <button type="button" className="text-[11px] text-db-red shrink-0" onClick={() => { setSpec((prev) => restoreTable(prev, original)); setNotice(''); }}>
@@ -772,8 +772,8 @@ export default function ImplementWizard({
                 <input className={inputCls} value={spec.config.result_table} onChange={(e) => { patch('config.result_table', e.target.value); setOutputCheck(null); }} />
                 {outputCheck ? (
                   <div className="text-[11px] space-y-0.5">
-                    <p className={outputCheck.write?.ok ? 'text-success' : 'text-error'}>{outputCheck.write?.detail}</p>
-                    {outputCheck.write?.ok && <p className={outputCheck.safety?.ok ? 'text-success' : 'text-error'}>{outputCheck.safety?.detail}</p>}
+                    <p className={outputCheck.write?.ok ? 'text-success-fg' : 'text-error-fg'}>{outputCheck.write?.detail}</p>
+                    {outputCheck.write?.ok && <p className={outputCheck.safety?.ok ? 'text-success-fg' : 'text-error-fg'}>{outputCheck.safety?.detail}</p>}
                     {outputCheck.write?.ok && outputCheck.safety?.ok && <p className="text-text-tertiary">Sharing: {outputCheck.grant?.detail}</p>}
                     {outputCheck.identity && <p className="text-text-tertiary">Checked live as {outputCheck.identity}.</p>}
                   </div>
@@ -859,7 +859,7 @@ export default function ImplementWizard({
                         <input type="checkbox" className="mt-0.5" checked={on} disabled={unavailable && !on} onChange={(e) => toggleOutput(item.id, e.target.checked)} />
                         <span className="flex-1">
                           <span className="flex items-center gap-2 text-sm font-semibold text-text-primary"><Icon size={14} /> {item.label}</span>
-                          <span className={`block text-[11px] mt-1 ${unavailable ? 'text-error' : 'text-text-secondary'}`}>
+                          <span className={`block text-[11px] mt-1 ${unavailable ? 'text-error-fg' : 'text-text-secondary'}`}>
                             {!unavailable && item.blurb}
                             {unavailable && noAppAccess && `Inspire cannot create this App: ${outputCheck.app.detail}.${on ? ' Turn it off, or fix the access and check again.' : ''}`}
                             {unavailable && !noAppAccess && (on ? 'You cannot create this in this workspace any more. Turn it off, or ask a workspace admin.' : 'You cannot create this in this workspace.')}
@@ -872,9 +872,9 @@ export default function ImplementWizard({
                             <input className={inputCls} value={spec.outputs.app_name} onChange={(e) => patch('outputs.app_name', e.target.value.toLowerCase())} />
                           </Field>
                           {spec.outputs.app_name && !APP_NAME_RE.test(spec.outputs.app_name) ? (
-                            <p className="text-[11px] text-error">3-30 lowercase letters, digits and dashes, starting with a letter</p>
+                            <p className="text-[11px] text-error-fg">3-30 lowercase letters, digits and dashes, starting with a letter</p>
                           ) : appTaken ? (
-                            <p className="text-[11px] text-error">
+                            <p className="text-[11px] text-error-fg">
                               {preflight.checks.app_name.detail}.{' '}
                               <button type="button" className="text-db-red underline" onClick={() => patch('outputs.app_name', nextAppName(spec.outputs.app_name))}>
                                 Use {nextAppName(spec.outputs.app_name)}
@@ -941,7 +941,7 @@ export default function ImplementWizard({
                   {notebookEdit.edited_at ? ` on ${new Date(notebookEdit.edited_at).toLocaleString()}` : ''}
                   <span className="block text-text-tertiary">Leave it off to keep them: then change only the outputs or the schedule.</span>
                   {plan?.summary?.refill && !spec.confirm_notebook_overwrite && (
-                    <span className="block text-warning">This version rebuilds the notebook, so it stops and asks again unless you tick this.</span>
+                    <span className="block text-warning-fg">This version rebuilds the notebook, so it stops and asks again unless you tick this.</span>
                   )}
                 </span>
               </label>
@@ -1036,7 +1036,7 @@ export default function ImplementWizard({
                 <Field label="Cron (Quartz)">
                   <input className={inputCls} value={spec.schedule.cron} onChange={(e) => patch('schedule.cron', e.target.value)} />
                   {String(spec.schedule.cron || '').trim() && cronProblem(spec.schedule.cron) ? (
-                    <p className="text-[11px] text-error">Not a valid Quartz cron: {cronProblem(spec.schedule.cron)}</p>
+                    <p className="text-[11px] text-error-fg">Not a valid Quartz cron: {cronProblem(spec.schedule.cron)}</p>
                   ) : (
                     <p className="text-[11px] text-text-tertiary">Runs {cronInWords(spec.schedule.cron, spec.schedule.timezone)}{spec.schedule.enabled ? '' : ' once Keep it fresh is on'}</p>
                   )}
@@ -1113,7 +1113,7 @@ export default function ImplementWizard({
       <footer className="border-t border-border px-6 py-3 space-y-2">
         {footerErrors.length > 0 && (
           <div role="alert" className="bg-error-bg border border-error/20 rounded-md px-3 py-2 space-y-0.5">
-            {footerErrors.map((e) => <p key={e} className="text-xs text-error">{e}</p>)}
+            {footerErrors.map((e) => <p key={e} className="text-xs text-error-fg">{e}</p>)}
           </div>
         )}
         <div className="flex items-center justify-between gap-3">

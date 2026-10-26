@@ -30,9 +30,9 @@ const PHASE_TERMINATED = 'TERMINATED';
 const STATUS_FILTERS = [
   { key: 'all', label: 'All', color: 'text-text-secondary' },
   { key: 'running', label: 'In Progress', color: 'text-info' },
-  { key: 'success', label: 'Success', color: 'text-success' },
-  { key: 'warning', label: 'Warning', color: 'text-warning' },
-  { key: 'error', label: 'Error', color: 'text-error' },
+  { key: 'success', label: 'Success', color: 'text-success-fg' },
+  { key: 'warning', label: 'Warning', color: 'text-warning-fg' },
+  { key: 'error', label: 'Error', color: 'text-error-fg' },
 ];
 
 export default function MonitorPage({ settings, update, sessionId, runId, onComplete, onResultsSession, onOpenImplement }) {
@@ -374,13 +374,13 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
             <StatusIcon isPending={isPending} isRunning={isRunning} isComplete={isComplete} isFailed={isFailed} />
             <div>
               <span className={`text-base font-bold ${
-                isComplete ? 'text-success' : isFailed ? 'text-error' : 'text-text-primary'
+                isComplete ? 'text-success-fg' : isFailed ? 'text-error-fg' : 'text-text-primary'
               }`}>
                 {statusLabel}
               </span>
               {statusDetail && (
                 <p className={`text-xs mt-0.5 ${
-                  isComplete ? 'text-success' : isFailed ? 'text-error' : 'text-text-secondary'
+                  isComplete ? 'text-success-fg' : isFailed ? 'text-error-fg' : 'text-text-secondary'
                 }`}>
                   {statusDetail}
                 </p>
@@ -396,8 +396,8 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
             )}
             {runInfo?.life_cycle_state && (
               <span className={`font-mono px-2.5 py-1 rounded-lg font-medium text-[11px] ${
-                isComplete ? 'bg-success-bg text-success' :
-                isFailed ? 'bg-error-bg text-error' :
+                isComplete ? 'bg-success-bg text-success-fg' :
+                isFailed ? 'bg-error-bg text-error-fg' :
                 isPending ? 'bg-info-bg text-info' :
                 'bg-db-red-50 text-db-red'
               }`}>
@@ -478,7 +478,7 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
               <p className="text-xs text-text-secondary">
                 {stageNames.length} stage{stageNames.length !== 1 ? 's' : ''} &middot; {totalCount} step{totalCount !== 1 ? 's' : ''}
                 {statusCounts.running > 0 && <> &middot; <span className="text-info font-medium">{statusCounts.running} in progress</span></>}
-                {statusCounts.error > 0 && <> &middot; <span className="text-error font-medium">{statusCounts.error} error{statusCounts.error > 1 ? 's' : ''}</span></>}
+                {statusCounts.error > 0 && <> &middot; <span className="text-error-fg font-medium">{statusCounts.error} error{statusCounts.error > 1 ? 's' : ''}</span></>}
               </p>
             </div>
             <div className={`transition-transform duration-200 ${showFilters ? 'rotate-180' : ''}`}>
@@ -554,7 +554,7 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
                       {/* Status indicator */}
                       {errors > 0 ? (
                         <div className="w-5 h-5 rounded-full bg-error-bg flex items-center justify-center shrink-0 mt-0.5">
-                          <XCircle size={10} className="text-error" />
+                          <XCircle size={10} className="text-error-fg" />
                         </div>
                       ) : running > 0 ? (
                         <div className="w-5 h-5 rounded-full bg-info-bg flex items-center justify-center shrink-0 mt-0.5">
@@ -562,7 +562,7 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
                         </div>
                       ) : done === total && total > 0 ? (
                         <div className="w-5 h-5 rounded-full bg-success-bg flex items-center justify-center shrink-0 mt-0.5">
-                          <CheckCircle2 size={10} className="text-success" />
+                          <CheckCircle2 size={10} className="text-success-fg" />
                         </div>
                       ) : (
                         <div className="w-5 h-5 rounded-full bg-bg-subtle flex items-center justify-center shrink-0 mt-0.5">
@@ -588,7 +588,7 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
                           <span className="text-[10px] font-mono text-text-tertiary shrink-0">{done}/{total}</span>
                         </div>
                         {errors > 0 && (
-                          <span className="text-[10px] text-error font-medium mt-0.5 block">
+                          <span className="text-[10px] text-error-fg font-medium mt-0.5 block">
                             {errors} error{errors > 1 ? 's' : ''}
                           </span>
                         )}
@@ -711,18 +711,18 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
                           <ChevronDown size={14} className="text-text-tertiary" />
                         </div>
                         {errorCount > 0 ? (
-                          <div className="w-5 h-5 rounded-full bg-error-bg flex items-center justify-center"><XCircle size={11} className="text-error" /></div>
+                          <div className="w-5 h-5 rounded-full bg-error-bg flex items-center justify-center"><XCircle size={11} className="text-error-fg" /></div>
                         ) : runningCount > 0 ? (
                           <div className="w-5 h-5 rounded-full bg-info-bg flex items-center justify-center"><Loader2 size={11} className="animate-spin text-info" /></div>
                         ) : doneCount === stageSteps.length ? (
-                          <div className="w-5 h-5 rounded-full bg-success-bg flex items-center justify-center"><CheckCircle2 size={11} className="text-success" /></div>
+                          <div className="w-5 h-5 rounded-full bg-success-bg flex items-center justify-center"><CheckCircle2 size={11} className="text-success-fg" /></div>
                         ) : (
                           <div className="w-5 h-5 rounded-full bg-bg-subtle flex items-center justify-center"><Clock size={11} className="text-text-tertiary" /></div>
                         )}
                         <h3 className="text-xs font-bold text-text-primary flex-1">{stageName}</h3>
                         <div className="flex items-center gap-2">
                           {errorCount > 0 && (
-                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-error-bg text-error">
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-error-bg text-error-fg">
                               {errorCount} error{errorCount > 1 ? 's' : ''}
                             </span>
                           )}
@@ -795,9 +795,9 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
               const priBadge = priorityLower.includes('ultra') || priorityLower.includes('very high')
                 ? 'text-db-red bg-db-red-50'
                 : priorityLower.includes('high')
-                  ? 'text-error bg-error-bg'
+                  ? 'text-error-fg bg-error-bg'
                   : priorityLower.includes('medium')
-                    ? 'text-warning bg-warning-bg'
+                    ? 'text-warning-fg bg-warning-bg'
                     : 'text-text-secondary bg-bg';
               return (
                 <div key={uc.id || i} className="flex items-center gap-3 px-4 py-2.5">
@@ -842,7 +842,7 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
       {isFailed && (
         <div className="mt-6 bg-error-bg border border-error/20 rounded-xl p-5">
           <div className="flex items-start gap-3">
-            <XCircle size={18} className="text-error mt-0.5 shrink-0" />
+            <XCircle size={18} className="text-error-fg mt-0.5 shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-bold text-text-primary">Pipeline failed</p>
               {runInfo?.state_message && (
@@ -871,7 +871,7 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
           <div className="bg-success-bg border border-success/20 rounded-xl p-5 flex items-center justify-between shadow-sm">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center">
-                <CheckCircle2 size={22} className="text-success" />
+                <CheckCircle2 size={22} className="text-success-fg" />
               </div>
               <div>
                 <p className="text-sm font-bold text-text-primary">Pipeline completed successfully</p>
@@ -927,8 +927,8 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
 
 function StatusIcon({ isPending, isRunning, isComplete, isFailed }) {
   const base = 'w-10 h-10 rounded-xl flex items-center justify-center';
-  if (isComplete) return <div className={`${base} bg-success/10`}><CheckCircle2 size={22} className="text-success" /></div>;
-  if (isFailed) return <div className={`${base} bg-error/10`}><XCircle size={22} className="text-error" /></div>;
+  if (isComplete) return <div className={`${base} bg-success/10`}><CheckCircle2 size={22} className="text-success-fg" /></div>;
+  if (isFailed) return <div className={`${base} bg-error/10`}><XCircle size={22} className="text-error-fg" /></div>;
   if (isPending) return <div className={`${base} bg-info/10`}><Clock size={22} className="text-info" /></div>;
   if (isRunning) return <div className={`${base} bg-db-red/10`}><Loader2 size={22} className="animate-spin text-db-red" /></div>;
   return <div className={`${base} bg-bg-subtle`}><Play size={22} className="text-text-tertiary" /></div>;
@@ -947,13 +947,13 @@ function getStatusCategory(status) {
 function getStepStyle(status) {
   switch (status) {
     case 'ended_success': case 'completed':
-      return { icon: <CheckCircle2 size={14} className="text-success" />, badge: 'bg-success-bg text-success', label: 'Success' };
+      return { icon: <CheckCircle2 size={14} className="text-success-fg" />, badge: 'bg-success-bg text-success-fg', label: 'Success' };
     case 'started': case 'running':
       return { icon: <Loader2 size={14} className="animate-spin text-info" />, badge: 'bg-info-bg text-info', label: 'In Progress' };
     case 'ended_warning':
-      return { icon: <AlertCircle size={14} className="text-warning" />, badge: 'bg-warning-bg text-warning', label: 'Warning' };
+      return { icon: <AlertCircle size={14} className="text-warning-fg" />, badge: 'bg-warning-bg text-warning-fg', label: 'Warning' };
     case 'ended_error': case 'failed': case 'error':
-      return { icon: <XCircle size={14} className="text-error" />, badge: 'bg-error-bg text-error', label: 'Error' };
+      return { icon: <XCircle size={14} className="text-error-fg" />, badge: 'bg-error-bg text-error-fg', label: 'Error' };
     default:
       return { icon: <Clock size={14} className="text-text-tertiary" />, badge: 'bg-bg text-text-tertiary', label: status || 'Pending' };
   }
@@ -1044,7 +1044,7 @@ function ResultJsonDisplay({ resultJson }) {
   if (rj.error) {
     return (
       <div className="text-xs bg-error-bg/50 rounded-lg p-2.5 border border-error/10">
-        <span className="text-error font-semibold">Error:</span>{' '}
+        <span className="text-error-fg font-semibold">Error:</span>{' '}
         <span className="text-text-secondary">{rj.error}</span>
       </div>
     );
@@ -1055,10 +1055,10 @@ function ResultJsonDisplay({ resultJson }) {
     return (
       <div className="text-xs space-y-1.5">
         <div className="flex items-center gap-2">
-          <span className="px-1.5 py-0.5 rounded bg-success-bg text-success font-semibold text-[10px]">
+          <span className="px-1.5 py-0.5 rounded bg-success-bg text-success-fg font-semibold text-[10px]">
             {rj.use_cases_count || rj.use_cases.length} use cases
           </span>
-          {rj.is_truncated && <span className="px-1.5 py-0.5 rounded bg-warning-bg text-warning text-[10px]">truncated</span>}
+          {rj.is_truncated && <span className="px-1.5 py-0.5 rounded bg-warning-bg text-warning-fg text-[10px]">truncated</span>}
         </div>
         <div className="flex flex-wrap gap-1">
           {rj.use_cases.slice(0, 10).map((uc, i) => (
@@ -1132,7 +1132,7 @@ function ResultJsonDisplay({ resultJson }) {
   if (prompt === 'SUMMARY_GEN_PROMPT') {
     return (
       <div className="flex items-center gap-2 text-xs">
-        <span className="px-1.5 py-0.5 rounded bg-success-bg text-success font-semibold text-[10px]">Summary generated</span>
+        <span className="px-1.5 py-0.5 rounded bg-success-bg text-success-fg font-semibold text-[10px]">Summary generated</span>
         {rj.response_chars && <span className="text-text-tertiary text-[10px]">{rj.response_chars.toLocaleString()} chars</span>}
       </div>
     );

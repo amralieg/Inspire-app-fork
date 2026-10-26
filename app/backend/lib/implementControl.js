@@ -200,8 +200,8 @@ function controlLogInsert(table, { sessionId, useCaseId, asset, assetId, action,
 
 function controlLogSelect(table, { sessionId, useCaseId, limit = 50 }) {
   return {
-    sql: `SELECT asset, asset_id, action, result, message, acted_by, CAST(acted_at AS STRING) AS acted_at FROM ${table} `
-      + `WHERE session_id = :sid AND use_case_id = :uc ORDER BY acted_at DESC LIMIT ${Math.max(1, Math.min(200, Number(limit) || 50))}`,
+    sql: `SELECT l.asset, l.asset_id, l.action, l.result, l.message, l.acted_by, date_format(l.acted_at, 'yyyy-MM-dd\\'T\\'HH:mm:ss.SSSXXX') AS acted_at FROM ${table} AS l `
+      + `WHERE l.session_id = :sid AND l.use_case_id = :uc ORDER BY l.acted_at DESC LIMIT ${Math.max(1, Math.min(200, Number(limit) || 50))}`,
     parameters: [
       { name: 'sid', value: String(sessionId), type: 'BIGINT' },
       { name: 'uc', value: str(useCaseId), type: 'STRING' },

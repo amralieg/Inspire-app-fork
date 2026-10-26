@@ -1338,7 +1338,7 @@ export default function ResultsPage({
             <div className="bg-surface border border-error/20 rounded-xl p-6">
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-xl bg-error/10 flex items-center justify-center shrink-0">
-                  <AlertCircle size={20} className="text-error" />
+                  <AlertCircle size={20} className="text-error-fg" />
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-text-primary mb-1">Could not load sessions</p>
@@ -1406,8 +1406,8 @@ export default function ResultsPage({
                       <span
                         className={`text-[10px] px-2.5 py-1 rounded-full font-semibold border tabular-nums ${
                           isDone
-                            ? 'bg-success-bg text-success border-success/20'
-                            : 'bg-warning-bg text-warning border-warning/20'
+                            ? 'bg-success-bg text-success-fg border-success/20'
+                            : 'bg-warning-bg text-warning-fg border-warning/20'
                         }`}
                       >
                         {isDone
@@ -1461,8 +1461,8 @@ export default function ResultsPage({
       {/* Error */}
       {error && (
         <div className="flex items-center gap-2 p-3 bg-error-bg border border-error/20 rounded-lg mb-6">
-          <AlertCircle size={14} className="text-error shrink-0" />
-          <span className="text-sm text-error">{error}</span>
+          <AlertCircle size={14} className="text-error-fg shrink-0" />
+          <span className="text-sm text-error-fg">{error}</span>
         </div>
       )}
 
@@ -1472,9 +1472,9 @@ export default function ResultsPage({
           {/* Progressive results banner */}
           {isProgressive && (
             <div className="flex items-center gap-3 p-3 bg-warning-bg border border-warning/20 rounded-lg mb-3">
-              <Loader2 size={14} className="animate-spin text-warning shrink-0" />
+              <Loader2 size={14} className="animate-spin text-warning-fg shrink-0" />
               <div className="flex-1">
-                <span className="text-sm font-semibold text-warning">Live Preview</span>
+                <span className="text-sm font-semibold text-warning-fg">Live Preview</span>
                 <span className="text-xs text-text-secondary ml-2">
                   Showing {allUseCases.length} use cases from {results._step_count || 0} completed steps.
                   Results will be enriched as the pipeline progresses.
@@ -1482,7 +1482,7 @@ export default function ResultsPage({
               </div>
               <button
                 onClick={() => loadResults(selectedSessionId)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-warning border border-warning/30 rounded-md hover:bg-warning/10 transition-smooth"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-warning-fg border border-warning/30 rounded-md hover:bg-warning/10 transition-smooth"
               >
                 <RefreshCw size={11} />
                 Refresh
@@ -1542,7 +1542,7 @@ export default function ResultsPage({
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-3">
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-success/10 ring-1 ring-inset ring-success/20">
-                      <CheckCircle2 size={14} className="text-success" />
+                      <CheckCircle2 size={14} className="text-success-fg" />
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-text-primary tracking-tight">Execution Complete</h3>
@@ -1552,7 +1552,7 @@ export default function ResultsPage({
                         )}
                       </p>
                       {(results.selection_outcome || results.elite_outcome) && (
-                        <p className="text-[10px] text-warning mt-0.5">
+                        <p className="text-[10px] text-warning-fg mt-0.5">
                           {displayCleanText(String(results.selection_outcome || results.elite_outcome))}
                         </p>
                       )}
@@ -1580,8 +1580,8 @@ export default function ResultsPage({
                   {PIPELINE_STAGES.map((stage, i) => (
                     <div key={stage} className="flex items-center shrink-0">
                       <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-success-bg">
-                        <CheckCircle2 size={11} className="text-success shrink-0" />
-                        <span className="text-[10px] font-medium text-success whitespace-nowrap">{stage}</span>
+                        <CheckCircle2 size={11} className="text-success-fg shrink-0" />
+                        <span className="text-[10px] font-medium text-success-fg whitespace-nowrap">{stage}</span>
                       </div>
                       {i < PIPELINE_STAGES.length - 1 && (
                         <span className="text-text-tertiary text-[10px] mx-1 shrink-0">&rarr;</span>
@@ -1611,7 +1611,7 @@ export default function ResultsPage({
                         {isDir ? (
                           <>
                             <ChevronRight size={10} className={`text-text-tertiary transition-transform duration-200 shrink-0 ${isOpen ? 'rotate-90' : ''}`} />
-                            <FolderOpen size={12} className="text-warning shrink-0" />
+                            <FolderOpen size={12} className="text-warning-fg shrink-0" />
                           </>
                         ) : (
                           <>
@@ -1646,7 +1646,7 @@ export default function ResultsPage({
                               {(isPdf || isSpreadsheet) && (
                                 <button
                                   type="button"
-                                  className="text-[10px] text-success hover:underline font-medium flex items-center gap-0.5"
+                                  className="text-[10px] text-success-fg hover:underline font-medium flex items-center gap-0.5"
                                   onClick={(e) => { e.stopPropagation(); openFileInTab(f.path, f.name); }}
                                 >
                                   <ExternalLink size={10} /> Open
@@ -1729,7 +1729,7 @@ export default function ResultsPage({
                             </div>
                           )}
                           {previewData?.type === 'error' && (
-                            <p className="text-[10px] text-error py-2">{previewData.message}</p>
+                            <p className="text-[10px] text-error-fg py-2">{previewData.message}</p>
                           )}
                         </div>
                       )}
@@ -1853,8 +1853,8 @@ export default function ResultsPage({
             if (previewableFiles.length === 0) return null;
 
             const EXT_STYLES = {
-              pdf:  { bg: 'bg-error-bg', text: 'text-error' },
-              csv:  { bg: 'bg-success-bg', text: 'text-success' },
+              pdf:  { bg: 'bg-error-bg', text: 'text-error-fg' },
+              csv:  { bg: 'bg-success-bg', text: 'text-success-fg' },
               xlsx: { bg: 'bg-info-bg', text: 'text-info' },
               xls:  { bg: 'bg-info-bg', text: 'text-info' },
             };
@@ -1880,7 +1880,7 @@ export default function ResultsPage({
                           <button type="button" className="text-[10px] text-info hover:text-info font-medium flex items-center gap-0.5 hover:underline" onClick={() => togglePreview(f.path, f.name)}>
                             {isActive ? <><EyeOff size={9} /> Hide</> : <><Eye size={9} /> Preview</>}
                           </button>
-                          <button type="button" className="text-[10px] text-success font-medium flex items-center gap-0.5 hover:underline" onClick={() => openFileInTab(f.path, f.name)}>
+                          <button type="button" className="text-[10px] text-success-fg font-medium flex items-center gap-0.5 hover:underline" onClick={() => openFileInTab(f.path, f.name)}>
                             <ExternalLink size={9} /> Open
                           </button>
                           <button type="button" className="text-[10px] text-db-red font-medium flex items-center gap-0.5 hover:underline" onClick={() => downloadFile(f.path, f.name)}>
@@ -1941,7 +1941,7 @@ export default function ResultsPage({
                       </div>
                     )}
                     {previewData?.type === 'error' && (
-                      <p className="text-[10px] text-error py-2">{previewData.message}</p>
+                      <p className="text-[10px] text-error-fg py-2">{previewData.message}</p>
                     )}
                   </div>
                 )}
@@ -2669,7 +2669,7 @@ function CopyButton({ text }) {
       onClick={handleCopy}
       className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-smooth border ${
         copied
-          ? 'bg-success-bg text-success border-success/20'
+          ? 'bg-success-bg text-success-fg border-success/20'
           : 'bg-bg text-text-tertiary border-border hover:text-text-secondary hover:border-border-strong'
       }`}
       title={copied ? 'Copied!' : 'Copy to clipboard'}
@@ -2872,9 +2872,9 @@ function UseCaseCard({
     priorityLower.includes('ultra high') || priorityLower.includes('very high')
       ? 'text-db-red bg-db-red-50 border-db-red/20'
       : priorityLower.includes('high')
-        ? 'text-error bg-error-bg border-error/20'
+        ? 'text-error-fg bg-error-bg border-error/20'
         : priorityLower.includes('medium')
-          ? 'text-warning bg-warning-bg border-warning/20'
+          ? 'text-warning-fg bg-warning-bg border-warning/20'
           : 'text-text-secondary bg-bg border-border';
 
   const workspaceNotebookHref = workspaceNotebookUrl(databricksHost, notebookPath);
@@ -2926,7 +2926,7 @@ function UseCaseCard({
                 )}
                 {belowBarLabelFromUseCase(u) && (
                   <span
-                    className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.14em] px-2 py-0.5 rounded-md border shrink-0 leading-none text-warning border-warning/35 bg-warning-bg"
+                    className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.14em] px-2 py-0.5 rounded-md border shrink-0 leading-none text-warning-fg border-warning/35 bg-warning-bg"
                     title={belowBarLabelFromUseCase(u)}
                   >
                     Below bar
@@ -2987,7 +2987,7 @@ function UseCaseCard({
               </p>
             </div>
             <div>
-              <h4 className="text-[10px] font-bold text-success uppercase tracking-[0.18em] mb-1">
+              <h4 className="text-[10px] font-bold text-success-fg uppercase tracking-[0.18em] mb-1">
                 Proposed Solution
               </h4>
               <p className="text-sm text-text-secondary leading-relaxed">
@@ -2999,7 +2999,7 @@ function UseCaseCard({
           {/* Business Value */}
           {businessValue && (
             <div>
-              <h4 className="text-[10px] font-bold text-warning uppercase tracking-[0.18em] mb-1">
+              <h4 className="text-[10px] font-bold text-warning-fg uppercase tracking-[0.18em] mb-1">
                 Business Value
               </h4>
               <p className="text-sm text-text-secondary leading-relaxed">
@@ -3132,7 +3132,7 @@ function UseCaseCard({
               )}
 
               {notebookError && (
-                <p className="text-[11px] text-error">{notebookError}</p>
+                <p className="text-[11px] text-error-fg">{notebookError}</p>
               )}
 
               {notebookLoading && !notebookContent && (
