@@ -117,14 +117,14 @@ test('live status reads every asset in one pass and says plainly what is gone or
     dashboard: ok({ display_name: 'Churn', lifecycle_state: 'ACTIVE' }),
     published: missing(),
     genie_space: ok({ title: 'Churn desk' }),
-    alert: ok({ display_name: 'Churn alert', lifecycle_state: 'ACTIVE', evaluation: { state: 'TRIGGERED' } }),
+    alert: ok({ display_name: 'Churn alert', lifecycle_state: 'ACTIVE', evaluation: { state: 'TRIGGERED', last_evaluated_at: '2026-10-26T06:00:05Z' } }),
   }, CTX);
   assert.equal(live.app.compute_state, 'STOPPED');
   assert.deepEqual(live.job, { ok: true, job_id: '77', schedule: { cron: '0 0 6 * * ?', timezone: 'Europe/London', paused: true },
     active_runs: [{ run_id: 5, state: 'RUNNING', url: 'https://h/run/5' }], runs_error: '' });
   assert.deepEqual(live.dashboard, { ok: true, name: 'Churn', trashed: false, published: false, published_at: '' });
   assert.deepEqual(live.genie_space, { ok: true, title: 'Churn desk' });
-  assert.deepEqual(live.alert, { ok: true, name: 'Churn alert', state: 'TRIGGERED', trashed: false });
+  assert.deepEqual(live.alert, { ok: true, name: 'Churn alert', state: 'TRIGGERED', checked_at: '2026-10-26T06:00:05Z', trashed: false });
   const gone = C.liveStatus(targets, { app: missing(), job: ok({ settings: { tags: {} } }), runs: { ok: false, status: 403, data: { message: 'no' } },
     dashboard: missing(), published: missing(), genie_space: missing(), alert: { ok: false, status: 403, data: { message: 'PERMISSION_DENIED' } } }, CTX);
   assert.deepEqual(gone.app, { ok: false, error: 'the App no longer exists' });
@@ -321,6 +321,8 @@ test('each App state offers only the action that makes sense, and a crashed App 
   const v = await view();
   const appRow = (entry) => row(v.controlRows({ targets: { app: 'churn-desk' }, assets: { app: entry } }, LATEST), 'app');
   assert.deepEqual([appRow(app('ACTIVE')).state, actionsOf(appRow(app('ACTIVE')))], [{ label: 'Running', tone: 'success' }, ['app:stop']]);
+  assert.equal(appRow(app('ACTIVE', 'RUNNING', 'App has status: App is running')).detail, '', 'a running App says nothing more');
+  assert.equal(appRow(app('STOPPED', 'UNAVAILABLE', 'App has not been deployed')).detail, 'App has not been deployed');
   assert.deepEqual([appRow(app('STOPPED', 'UNAVAILABLE')).state, actionsOf(appRow(app('STOPPED', 'UNAVAILABLE')))], [{ label: 'Stopped', tone: 'idle' }, ['app:start']]);
   assert.deepEqual(actionsOf(appRow(app('ERROR'))), ['app:start']);
   for (const moving of ['STARTING', 'STOPPING', 'UPDATING', 'DELETING']) assert.deepEqual(actionsOf(appRow(app(moving))), [], moving);
@@ -340,7 +342,12 @@ test('the dashboard, Genie space, alert and job rows read their live state and o
   assert.deepEqual(actionsOf(one('dashboard', { ok: true, published: false })), ['dashboard:publish']);
   assert.deepEqual([one('dashboard', { ok: true, trashed: true, published: true }).state.label, one('dashboard', { ok: true, trashed: true }).actions], ['In the trash', []]);
   assert.deepEqual([one('genie_space', { ok: true }).state, one('genie_space', { ok: true }).actions], [{ label: 'Live', tone: 'success' }, []]);
-  assert.deepEqual(['TRIGGERED', 'OK', 'UNKNOWN'].map((s) => one('alert', { ok: true, state: s }).state.label), ['Triggered', 'OK', 'Not checked yet']);
+  assert.deepEqual(['TRIGGERED', 'OK', 'ERROR', 'UNKNOWN', '', 'PAUSED_STATE'].map((s) => one('alert', { ok: true, state: s }).state),
+    [{ label: 'Triggered', tone: 'warning' }, { label: 'OK', tone: 'success' }, { label: 'Check failed', tone: 'error' },
+      { label: 'Not checked yet', tone: 'idle' }, { label: 'Not checked yet', tone: 'idle' }, { label: 'PAUSED_STATE', tone: 'warning' }],
+    'a failed check is an error, never read as not checked');
+  assert.equal(one('alert', { ok: true, state: 'OK', checked_at: '2026-10-26T06:00:05Z' }).detail, 'The latest check found nothing to act on (checked 2026-10-26T06:00:05Z)');
+  assert.equal(one('alert', { ok: true, state: 'ERROR' }).detail, 'The alert query failed on its latest check; open the alert to see why');
   assert.deepEqual(one('alert', { ok: true, state: 'OK' }).actions, []);
   const running = one('job', { ok: true, schedule: { cron: '0 0 6 * * ?', timezone: 'UTC', paused: true }, active_runs: [{ run_id: 5, url: 'https://w/run/5' }] });
   assert.deepEqual([running.state, running.detail, running.url, actionsOf(running), running.removable],
@@ -379,4 +386,41 @@ test('Remove needs the exact use case id typed, and nothing else confirms it', a
   assert.equal(v.removeConfirmed('', ''), false, 'an empty id never confirms');
   assert.equal(v.controlActionText({ message: 'Stop the App: done', acted_by: 'amr@x', acted_at: '2026-10-26 10:00:00' }), 'Stop the App: done by amr@x, 2026-10-26 10:00:00');
   assert.equal(v.controlActionText({ asset: 'app', action: 'stop' }), 'app stop');
+});
+
+test('the control log is handed to the owner of the other tracking tables, so people can read the audit, and never to a name that breaks the SQL', () => {
+  const log = '`main`.`inspire`.`__inspire_control_log`';
+  const rows = (impl, ctl) => [{ table_name: '__inspire_implement', table_owner: impl }, { table_name: '__inspire_control_log', table_owner: ctl }];
+  assert.equal(C.controlLogOwnerFix(rows('amr@example.com', 'sp-1'), log), 'ALTER TABLE `main`.`inspire`.`__inspire_control_log` OWNER TO `amr@example.com`');
+  assert.equal(C.controlLogOwnerFix(rows('amr@example.com', 'amr@example.com'), log), '', 'already the same owner');
+  assert.equal(C.controlLogOwnerFix([{ table_name: '__inspire_implement', table_owner: 'amr@example.com' }], log), '', 'no log yet');
+  assert.equal(C.controlLogOwnerFix([], log), '');
+  assert.equal(C.controlLogOwnerFix(rows('a`b', 'sp-1'), log), '', 'an owner name with a backtick is never put in SQL');
+  const q = C.controlLogOwnerSql('main', 'inspire');
+  assert.equal(q.sql, "SELECT table_name, table_owner FROM `main`.information_schema.tables WHERE table_schema = :schema AND table_name IN ('__inspire_implement', '__inspire_control_log')");
+  assert.deepEqual(q.parameters, [{ name: 'schema', value: 'inspire', type: 'STRING' }]);
+});
+
+test('the first action hands the App-created control log to the tracking tables\' owner once, and a failed hand-over is a warning, not a refusal', async () => {
+  const owners = [{ table_name: '__inspire_implement', table_owner: 'amr@example.com' }, { table_name: '__inspire_control_log', table_owner: 'sp-1' }];
+  const responses = { 'GET /api/2.0/apps/churn-desk': [APP_OURS], 'POST /api/2.0/apps/churn-desk/stop': [{}], 'POST /api/2.0/apps/churn-desk/start': [{}] };
+  await withApp({ history: [BUILT], tableOwners: owners, responses }, async (url, made) => {
+    const stop = await call(url, `/api/inspire/implement/control?${Q}`, { method: 'POST', body: { asset: 'app', action: 'stop' } });
+    assert.equal(stop.status, 200, JSON.stringify(stop.data));
+    assert.equal(stop.data.audit_error, '');
+    const alters = () => made.sqlCalls.filter((c) => String(c.sql).startsWith('ALTER TABLE'));
+    assert.deepEqual(alters().map((c) => c.sql), ['ALTER TABLE `main`.`inspire`.`__inspire_control_log` OWNER TO `amr@example.com`']);
+    const order = made.sqlCalls.map((c) => String(c.sql).split(' ')[0]);
+    assert.ok(order.indexOf('ALTER') < order.indexOf('INSERT'), 'the owner changes before the first row is written');
+    assert.equal((await call(url, `/api/inspire/implement/control?${Q}`, { method: 'POST', body: { asset: 'app', action: 'start' } })).status, 200);
+    assert.equal(made.sqlCalls.filter((c) => String(c.sql).startsWith('SELECT table_name, table_owner FROM')).length, 1, 'checked once per App process');
+    assert.equal(alters().length, 1);
+  });
+  await withApp({ history: [BUILT], tableOwners: owners, sqlErrors: { 'ALTER TABLE': 'PERMISSION_DENIED: no MANAGE on the table' }, responses }, async (url, made) => {
+    const stop = await call(url, `/api/inspire/implement/control?${Q}`, { method: 'POST', body: { asset: 'app', action: 'stop' } });
+    assert.equal(stop.status, 200, 'the App still stops');
+    assert.equal(stop.data.audit_error, '__inspire_control_log keeps the App as its owner, so only the App can read it: PERMISSION_DENIED: no MANAGE on the table');
+    assert.ok(made.fetches.some((f) => f.path === '/api/2.0/apps/churn-desk/stop'));
+    assert.ok(made.sqlCalls.some((c) => String(c.sql).startsWith('INSERT INTO `main`.`inspire`.`__inspire_control_log`')), 'the action is still recorded');
+  });
 });

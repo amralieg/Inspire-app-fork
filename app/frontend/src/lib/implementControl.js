@@ -25,7 +25,8 @@ function appRow(entry) {
   if (entry.compute_state === 'ACTIVE' && entry.app_state && entry.app_state !== 'RUNNING') {
     return { state: { label: `App ${entry.app_state.toLowerCase()}`, tone: 'error' }, detail: entry.app_message || 'The compute is on but the App is not running', actions };
   }
-  return { state: { label: known.label, tone: known.tone }, detail: entry.app_message || '', actions };
+  const quiet = entry.compute_state === 'ACTIVE' && entry.app_state === 'RUNNING';
+  return { state: { label: known.label, tone: known.tone }, detail: quiet ? '' : entry.app_message || '', actions };
 }
 
 function dashboardRow(entry) {
@@ -43,8 +44,11 @@ function genieRow(entry) {
 function alertRow(entry) {
   if (!entry?.ok) return unreadable(entry);
   if (entry.trashed) return { state: { label: 'In the trash', tone: 'error' }, detail: '', actions: [] };
-  if (entry.state === 'TRIGGERED') return { state: { label: 'Triggered', tone: 'warning' }, detail: 'The latest check found rows to act on', actions: [] };
-  if (entry.state === 'OK') return { state: { label: 'OK', tone: 'success' }, detail: 'The latest check found nothing to act on', actions: [] };
+  const when = entry.checked_at ? ` (checked ${entry.checked_at})` : '';
+  if (entry.state === 'TRIGGERED') return { state: { label: 'Triggered', tone: 'warning' }, detail: `The latest check found rows to act on${when}`, actions: [] };
+  if (entry.state === 'OK') return { state: { label: 'OK', tone: 'success' }, detail: `The latest check found nothing to act on${when}`, actions: [] };
+  if (entry.state === 'ERROR') return { state: { label: 'Check failed', tone: 'error' }, detail: `The alert query failed on its latest check${when}; open the alert to see why`, actions: [] };
+  if (entry.state && entry.state !== 'UNKNOWN') return { state: { label: entry.state, tone: 'warning' }, detail: when.trim(), actions: [] };
   return { state: { label: 'Not checked yet', tone: 'idle' }, detail: 'It checks after each run of the job', actions: [] };
 }
 

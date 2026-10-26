@@ -43,6 +43,8 @@ function makeApp(overrides = {}) {
     requireToken: (req, _res, next) => { req.dbHost = 'https://workspace.example.com'; req.dbToken = 'tok'; next(); },
     executeSql: async (_h, _t, _w, sql, parameters) => {
       sqlCalls.push({ sql, parameters });
+      for (const [needle, message] of Object.entries(state.sqlErrors || {})) if (sql.includes(needle)) throw new Error(message);
+      if (sql.startsWith('SELECT table_name, table_owner FROM')) return { rows: state.tableOwners || [] };
       if (sql.includes('CREATE TABLE')) return { rows: [] };
       if (sql.startsWith('SELECT') && sql.includes('__inspire_control_log')) {
         if (state.controlLogError) throw new Error(state.controlLogError);

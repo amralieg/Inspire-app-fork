@@ -803,6 +803,22 @@ function registerImplementRoutes(app, deps) {
     }
   });
 
+  const ownedControlLogs = new Set();
+
+  async function alignControlLogOwner(req, ctx) {
+    if (ownedControlLogs.has(ctx.logTable)) return '';
+    try {
+      const rows = await sqlRows(req.dbHost, req.dbToken, ctx.warehouseId, C.controlLogOwnerSql(ctx.catalog, ctx.schema));
+      const fix = C.controlLogOwnerFix(rows, ctx.logTable);
+      if (fix) await executeSql(req.dbHost, req.dbToken, ctx.warehouseId, fix);
+      ownedControlLogs.add(ctx.logTable);
+      return '';
+    } catch (e) {
+      console.warn(`implement control log owner change failed: ${e.message}`);
+      return `${C.CONTROL_LOG_TABLE} keeps the App as its owner, so only the App can read it: ${e.message}`;
+    }
+  }
+
   app.post('/api/inspire/implement/control', requireToken, async (req, res) => {
     try {
       const asset = q(req, 'asset');
@@ -820,6 +836,7 @@ function registerImplementRoutes(app, deps) {
       const spec = latest.spec_json ? I.validateImplementSpec(latest.spec_json).spec : null;
       const request = C.controlRequest(asset, action, id, { warehouseId: spec && spec.config.warehouse_id });
       await executeSql(req.dbHost, req.dbToken, ctx.warehouseId, C.controlLogCreateSql(ctx.logTable));
+      const ownerError = await alignControlLogOwner(req, ctx);
       const got = await jsonOf(dbFetch, req.dbHost, req.dbToken, request.path,
         { method: request.method, ...(request.body ? { body: JSON.stringify(request.body) } : {}) });
       const failure = got.ok ? '' : String((got.data && (got.data.message || got.data.error || got.data.raw)) || `HTTP ${got.status}`);
@@ -835,6 +852,7 @@ function registerImplementRoutes(app, deps) {
         auditError = `the action was not recorded in ${C.CONTROL_LOG_TABLE}: ${e.message}`;
         console.warn(`implement control audit write failed: ${e.message}`);
       }
+      if (ownerError) auditError = [auditError, ownerError].filter(Boolean).join('; ');
       liveCache.forget(ctx.key);
       if (!got.ok) throw I.badRequest(message, got.status >= 400 && got.status < 500 ? got.status : 502);
       res.json({ ok: true, asset, action, asset_id: id, message, audit_error: auditError });

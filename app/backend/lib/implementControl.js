@@ -123,7 +123,8 @@ function liveStatus(targets, got, ctx) {
   if (targets.alert) {
     const a = dataOf(got.alert);
     out.alert = got.alert && got.alert.ok
-      ? { ok: true, name: str(a.display_name), state: str((a.evaluation || {}).state || a.state), trashed: str(a.lifecycle_state) === 'TRASHED' }
+      ? { ok: true, name: str(a.display_name), state: str((a.evaluation || {}).state || a.state), checked_at: str((a.evaluation || {}).last_evaluated_at),
+        trashed: str(a.lifecycle_state) === 'TRASHED' }
       : { ok: false, error: got.alert && got.alert.status === 404 ? 'the alert no longer exists' : `Inspire cannot read the alert: ${errorOf(got.alert)}` };
   }
   return out;
@@ -208,6 +209,23 @@ function controlLogSelect(table, { sessionId, useCaseId, limit = 50 }) {
   };
 }
 
+function controlLogOwnerSql(catalog, schema) {
+  return {
+    sql: `SELECT table_name, table_owner FROM \`${catalog}\`.information_schema.tables WHERE table_schema = :schema `
+      + `AND table_name IN ('${I.IMPLEMENT_TABLE}', '${CONTROL_LOG_TABLE}')`,
+    parameters: [{ name: 'schema', value: str(schema), type: 'STRING' }],
+  };
+}
+
+function controlLogOwnerFix(rows, logTable) {
+  const owners = {};
+  for (const row of rows || []) owners[str(row.table_name).toLowerCase()] = str(row.table_owner);
+  const want = owners[I.IMPLEMENT_TABLE];
+  const have = owners[CONTROL_LOG_TABLE];
+  if (!want || !have || want === have || want.includes('`')) return '';
+  return `ALTER TABLE ${logTable} OWNER TO \`${want}\``;
+}
+
 module.exports = {
   CONTROL_ACTIONS,
   CONTROL_CACHE_MS,
@@ -215,6 +233,8 @@ module.exports = {
   controlAction,
   controlLogCreateSql,
   controlLogInsert,
+  controlLogOwnerFix,
+  controlLogOwnerSql,
   controlLogSelect,
   controlLogTableName,
   controlPhrase,
