@@ -49,6 +49,7 @@ import {
   PROFILE_FIELDS,
   APP_NAME_RE,
   START_POC_LABEL,
+  RESET_ROLES_LABEL,
 } from '../lib/implementWizard';
 
 const ICONS = { dashboard: LayoutDashboard, genie_space: Sparkles, app: AppWindow, alert: Bell };
@@ -697,10 +698,17 @@ export default function ImplementWizard({
                   />
                 </Field>
               ))}
-              <p className="text-[11px] text-text-secondary">
-                Column roles: Inspire&apos;s choice uses the columns the use case&apos;s Genie Code instruction names. Pick a column
-                only to override it.
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[11px] text-text-secondary">
+                  Column roles: Inspire&apos;s choice uses the columns the use case&apos;s Genie Code instruction names. Pick a column
+                  only to override it.
+                </p>
+                {Object.values(spec.data.column_roles).some(Boolean) && (
+                  <button type="button" className="text-[11px] text-db-red-fg shrink-0" onClick={() => patch('data.column_roles', {})}>
+                    {RESET_ROLES_LABEL}
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 {COLUMN_ROLES.filter((role) => trainsModel || role !== 'label').map((role) => (
                   <Field key={role} label={role.replace('_', ' ')}>

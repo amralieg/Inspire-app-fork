@@ -898,8 +898,15 @@ test('the Data step names each column role that does not fit and leaves unset ro
     'event date samples.tpcds_sf1.customer.c_last_review_date: pick a DATE or TIMESTAMP column, or a date key that joins a date table',
     'label samples.tpcds_sf1.customer.c_first_name: an outcome is a flag, a number or a category, never a date, a key, a name or free text',
   ]);
+  const hint = "Reset roles to Inspire's choice, under Advanced settings, sets every role back at once";
+  assert.equal(w.RESET_ROLES_LABEL, "Reset roles to Inspire's choice");
+  assert.equal(errors.filter((e) => e === hint).length, 1, 'the footer names the one-click reset once, after the role problems');
+  assert.ok(errors.indexOf(hint) > errors.findIndex((e) => e.startsWith('label samples.')));
   const unset = specWith(w, { column_roles: {} });
   assert.deepEqual(w.sectionErrors('data', unset, { columnsByTable }).filter((e) => e.includes('samples.')), []);
+  assert.ok(!w.sectionErrors('data', unset, { columnsByTable }).includes(hint), 'no role problem, no reset hint');
+  const fits = specWith(w, { column_roles: { measure: 'samples.tpcds_sf1.web_sales.ws_quantity' } });
+  assert.ok(!w.sectionErrors('data', fits, { columnsByTable, trainsModel: true }).includes(hint), 'a role that fits needs no reset');
   assert.deepEqual(w.defaultSpecFromUseCase(ROW, {}).data.column_roles, {});
   const gone = specWith(w, { column_roles: { measure: 'samples.tpcds_sf1.web_sales.ws_gone' } });
   assert.deepEqual(w.sectionErrors('data', gone, { columnsByTable }).filter((e) => e.includes('ws_gone')),

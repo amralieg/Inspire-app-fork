@@ -397,6 +397,8 @@ export function columnRoleProblem(role, column, type, { trainsModel = true } = {
   return '';
 }
 
+export const RESET_ROLES_LABEL = "Reset roles to Inspire's choice";
+
 export function columnRoleProblems(roles, columnsByTable, options = {}) {
   const problems = [];
   for (const [role, ref] of Object.entries(roles || {})) {
@@ -804,7 +806,9 @@ export function sectionErrors(section, spec, extras = {}) {
     if (!spec.config.result_table || spec.config.result_table.split('.').length !== 3) {
       errors.push('output location must be catalog.schema.table');
     }
-    errors.push(...columnRoleProblems(spec.data.column_roles, extras.columnsByTable, { trainsModel: extras.trainsModel !== false }));
+    const roleProblems = columnRoleProblems(spec.data.column_roles, extras.columnsByTable, { trainsModel: extras.trainsModel !== false });
+    errors.push(...roleProblems);
+    if (roleProblems.length) errors.push(`${RESET_ROLES_LABEL}, under Advanced settings, sets every role back at once`);
     const { start, end } = spec.data.window || {};
     if (start && end && start > end) errors.push('the window starts after it ends');
     for (const kept of (spec.data.filters || []).filter((f) => f.op === 'in')) {

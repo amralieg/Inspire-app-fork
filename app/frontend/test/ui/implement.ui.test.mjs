@@ -354,6 +354,44 @@ test('every column role starts as Inspire\'s choice, a picked column is type-che
   }
 });
 
+test('roles an older wizard guessed come back with the version, and one click sets every role back to Inspire\'s choice', async () => {
+  const columns = [{ column_name: 'order_id', data_type: 'STRING', ordinal_position: 1 }, { column_name: 'order_date', data_type: 'DATE', ordinal_position: 2 }];
+  const guessed = { ...builtSpec(), data: { ...builtSpec().data, column_roles: { entity_id: 'main.s.orders.order_date', event_date: 'main.s.orders.order_id' } } };
+  const failed = built({
+    status: 'failed', spec_json: JSON.stringify(guessed), result_rows: null, asset_status: null,
+    dashboard_id: null, dashboard_url: null, genie_space_id: null, genie_space_url: null, app_name: null, app_url: null, alert_id: null, alert_url: null,
+  });
+  const ui = await openUi('wizard', { columns, me: { userName: OWNER, displayName: 'Owner' }, history: [failed] });
+  const { page, made } = ui;
+  const role = (name) => page.locator('label').filter({ has: page.locator('span', { hasText: new RegExp(`^${name}$`) }) }).locator('select');
+  const reset = page.getByRole('button', { name: "Reset roles to Inspire's choice", exact: true });
+  try {
+    await toData(page);
+    await advanced(page).click();
+    await role('event date').locator('option[value="main.s.orders.order_date"]').waitFor({ state: 'attached' });
+    assert.equal(await role('entity id').inputValue(), 'main.s.orders.order_date', 'the earlier version\'s roles come back');
+    assert.equal(await reset.count(), 1, 'a set role shows the reset');
+    await next(page);
+    await page.locator('[role="alert"]').waitFor();
+    const shown = await footerErrors(page);
+    assert.ok(shown.some((e) => e.startsWith('entity id main.s.orders.order_date:')), shown.join(' | '));
+    assert.ok(shown.includes("Reset roles to Inspire's choice, under Advanced settings, sets every role back at once"), shown.join(' | '));
+    await reset.click();
+    for (const name of ['entity id', 'event date', 'measure', 'label', 'segment']) {
+      assert.equal(await role(name).inputValue(), '', `${name} is back to Inspire's choice`);
+    }
+    assert.equal(await reset.count(), 0, 'with every role on Inspire\'s choice there is nothing to reset');
+    await next(page);
+    await onStep(page, 'Delivery');
+    await implementWhenReady(page);
+    await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
+    assert.deepEqual(submittedSpec(made).data.column_roles, {}, 'the reset sends no role');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('Next stops when the data to work with has no rows and says what to widen, and the count says what it leaves out', async () => {
   const columns = [{ column_name: 'order_id', data_type: 'STRING', ordinal_position: 1 }, { column_name: 'order_date', data_type: 'DATE', ordinal_position: 2 }];
   const ui = await openUi('wizard&discovery=Deep', { columns, readinessRows: [{ row_count: '0' }], me: { userName: OWNER, displayName: 'Owner' } });
