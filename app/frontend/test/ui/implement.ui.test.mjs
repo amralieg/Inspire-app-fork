@@ -893,7 +893,7 @@ test('Notebook only skips the PoC settings, flags only this use case, starts Gen
     await onStep(page, 'Notebook');
     const step = page.getByRole('region', { name: 'Notebook' });
     await step.getByRole('heading', { name: 'Write the Genie Code notebook' }).waitFor();
-    await step.getByText('under /tmp/out', { exact: false }).waitFor();
+    await step.getByText('under /tmp/out/acme.', { exact: false }).waitFor();
     assert.equal(made.jobs.length, 0);
     await page.getByRole('button', { name: 'Generate notebook' }).click();
     await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();

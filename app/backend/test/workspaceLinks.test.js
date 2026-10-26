@@ -16,6 +16,20 @@ test('a notebook link opens the workspace path on the host, adding /Workspace an
   assert.equal(workspaceNotebookUrl('https://w.example.com', null), '');
 });
 
+test('a session folder resolves a relative generation path from the agent notebook folder and adds the business folder', async () => {
+  const { generationFolder } = await load();
+  const nb = '/Shared/inspire-ai/dbx_inspire_ai_agent';
+  assert.equal(generationFolder({ generationPath: './../demos/', notebookPath: nb, businessName: 'TPCDS Retail V130 Ship' }),
+    '/Workspace/Shared/demos/tpcds_retail_v130_ship');
+  assert.equal(generationFolder({ generationPath: 'out', notebookPath: `/Workspace${nb}`, businessName: 'Acme' }), '/Workspace/Shared/inspire-ai/out/acme');
+  assert.equal(generationFolder({ generationPath: '/Workspace/Users/a@x/out/', notebookPath: nb, businessName: 'Acme Co.' }), '/Workspace/Users/a@x/out/acme_co');
+  assert.equal(generationFolder({ generationPath: '/Volumes/c/s/v/out', notebookPath: nb, businessName: 'Acme' }), '/Volumes/c/s/v/out/acme');
+  assert.equal(generationFolder({ generationPath: '/tmp/out', notebookPath: '', businessName: '' }), '/tmp/out');
+  assert.equal(generationFolder({ generationPath: './../demos/', notebookPath: '', businessName: 'Acme' }), './../demos/acme', 'without the agent notebook path the folder stays relative');
+  assert.equal(generationFolder({ generationPath: '', notebookPath: nb, businessName: 'Acme' }), '');
+  assert.equal(generationFolder({ generationPath: '/tmp/out', notebookPath: nb, businessName: '!!!' }), '/tmp/out/_');
+});
+
 test('volume paths are kept as they are and blank paths stay blank', async () => {
   const { normalizeDatabricksFsPath, workspaceWebUiHashPath } = await load();
   assert.equal(workspaceWebUiHashPath('/Volumes/c/s/v/x/'), '/Volumes/c/s/v/x');

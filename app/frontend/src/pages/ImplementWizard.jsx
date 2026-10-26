@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check } from 'lucide-react';
 import BodyPortal from '../components/BodyPortal';
+import { generationFolder } from '../lib/workspaceLinks';
 import {
   IMPLEMENT_MODES,
   wizardSteps,
@@ -168,6 +169,9 @@ export default function ImplementWizard({
   const [busy, setBusy] = useState(false);
   const [plan, setPlan] = useState(null);
   const [planError, setPlanError] = useState('');
+  const notebookFolder = generationFolder({
+    generationPath: context?.generation_path, notebookPath: settings.notebookPath, businessName: context?.business_name,
+  });
   const [notice, setNotice] = useState(() => lostTablesText(focus?.missingTables));
   const lostReason = (table) => (focus?.missingTables || []).find((m) => String(m.table).toLowerCase() === table.toLowerCase())?.reason;
   const [changing, setChanging] = useState({});
@@ -614,7 +618,7 @@ export default function ImplementWizard({
             <h3 className="text-sm font-semibold text-text-primary">Write the Genie Code notebook</h3>
             <p>
               Inspire runs Generate Use Cases for this session with only {spec.use_case_id} selected. It writes the Genie Code instruction for this use case
-              and saves it as the use case notebook{context?.generation_path ? ` under ${context.generation_path}` : ''}. Nothing else is built, and no other use case changes.
+              and saves it as the use case notebook{notebookFolder ? ` under ${notebookFolder}` : ''}. Nothing else is built, and no other use case changes.
             </p>
             {ucRow.notebook_path && (
               <p>

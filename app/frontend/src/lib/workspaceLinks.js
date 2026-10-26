@@ -16,6 +16,22 @@ export function normalizeDatabricksFsPath(p) {
   return stack.length ? `/${stack.join('/')}` : '/';
 }
 
+/** The folder a session writes to: `generation_path` (a relative one resolved from the agent notebook's folder) plus the sanitized business name. */
+export function generationFolder({ generationPath, notebookPath, businessName }) {
+  const gp = String(generationPath || '').trim();
+  if (!gp) return '';
+  const nb = normalizeDatabricksFsPath(notebookPath || '');
+  const nbJoin = nb && !nb.startsWith('/Volumes/') && nb.startsWith('/') && !nb.startsWith('/Workspace') ? `/Workspace${nb}` : nb;
+  const notebookDir = nbJoin.includes('/') ? nbJoin.replace(/\/[^/]+$/, '') : '';
+  const root = gp.startsWith('/') || !notebookDir
+    ? normalizeDatabricksFsPath(gp)
+    : normalizeDatabricksFsPath(`${notebookDir}/${gp.replace(/^\.\/+/, '')}`);
+  const name = businessName
+    ? String(businessName).toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || '_'
+    : '';
+  return name && root ? normalizeDatabricksFsPath(`${root.replace(/\/+$/, '')}/${name}`) : root;
+}
+
 /** `#workspace` deep-link segment — UI expects `/Workspace/...` on current control planes. */
 export function workspaceWebUiHashPath(fsPath) {
   const n = normalizeDatabricksFsPath(fsPath);

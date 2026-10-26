@@ -52,7 +52,7 @@ import {
   strategyFilterOptions,
 } from '../lib/v130UseCase';
 import { visibleArtifactFiles } from '../lib/artifactFiles';
-import { normalizeDatabricksFsPath, workspaceNotebookUrl, workspaceWebUiHashPath } from '../lib/workspaceLinks';
+import { generationFolder, normalizeDatabricksFsPath, workspaceNotebookUrl, workspaceWebUiHashPath } from '../lib/workspaceLinks';
 import ImplementCardActions from '../components/ImplementCardActions';
 import ImplementWizard from './ImplementWizard';
 import { implementState, notebookRunEnded, notebookStatus, versionActive } from '../lib/implementWizard';
@@ -1187,37 +1187,11 @@ export default function ResultsPage({
 
   // Find generation path from selected session
   const selectedSession = sessions.find(s => String(s.session_id) === String(selectedSessionId));
-  const generationRootPath = selectedSession?.generation_path || selectedSession?.widget_values?.generation_path || '';
-  // Build experiment-specific path: {generation_path}/{sanitized(business_name)}
-  const businessName = selectedSession?.widget_values?.business || selectedSession?.widget_values?.['00_business_name'] || selectedSession?.business_name || '';
-  const sanitizedName = businessName ? businessName.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || '_' : '';
-  // Resolve relative generation_path using the notebook's workspace folder (prefer /Workspace prefix for repo-relative paths)
-  const notebookPathRaw = settings?.notebookPath || '';
-  const notebookPathForJoin = (() => {
-    const n = normalizeDatabricksFsPath(notebookPathRaw);
-    if (!n || n.startsWith('/Volumes/')) return n;
-    if (n.startsWith('/') && !n.startsWith('/Workspace')) return `/Workspace${n}`;
-    return n;
-  })();
-  const notebookDir = notebookPathForJoin && notebookPathForJoin.includes('/')
-    ? notebookPathForJoin.replace(/\/[^/]+$/, '')
-    : '';
-  const resolvedRoot = (() => {
-    const gp = (generationRootPath || '').trim();
-    if (!gp) return '';
-    if (gp.startsWith('/')) return normalizeDatabricksFsPath(gp);
-    if (notebookDir && (gp.startsWith('./') || gp.startsWith('../'))) {
-      const rel = gp.replace(/^\.\/+/, '');
-      return normalizeDatabricksFsPath(`${notebookDir}/${rel}`);
-    }
-    if (notebookDir && !gp.startsWith('/')) {
-      return normalizeDatabricksFsPath(`${notebookDir}/${gp}`);
-    }
-    return normalizeDatabricksFsPath(gp);
-  })();
-  const generationPath = sanitizedName && resolvedRoot
-    ? normalizeDatabricksFsPath(`${resolvedRoot.replace(/\/+$/, '')}/${sanitizedName}`)
-    : resolvedRoot;
+  const generationPath = generationFolder({
+    generationPath: selectedSession?.generation_path || selectedSession?.widget_values?.generation_path || '',
+    notebookPath: settings?.notebookPath || '',
+    businessName: selectedSession?.widget_values?.business || selectedSession?.widget_values?.['00_business_name'] || selectedSession?.business_name || '',
+  });
 
   /** Top bar title when viewing results — same as catalog card (`results.title`) or “{business} Usecases Catalog”. */
   const resultsPageTitle = (() => {
