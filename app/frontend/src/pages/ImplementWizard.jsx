@@ -52,6 +52,8 @@ const TILE_CHECKS = { app: ['app_name', 'app_access', 'apps'], genie_space: ['ge
 const TILE_CHECK_KEYS = Object.values(TILE_CHECKS).flat();
 const REMOVE = '__remove__';
 
+const rowWithCard = (card, row) => ({ ...(card || {}), ...(row || {}) });
+
 function Field({ label, children }) {
   return (
     <label className="block space-y-1">
@@ -217,7 +219,8 @@ export default function ImplementWizard({
         const data = await apiFetch(`/api/inspire/implement/context?${q}`);
         if (cancelled) return;
         setContext(data);
-        const fallback = defaultSpecFromUseCase(data.use_case || uc, {
+        const row = rowWithCard(uc, data.use_case);
+        const fallback = defaultSpecFromUseCase(row, {
           warehouseId,
           inspireDatabase,
           owner: data.me?.username,
@@ -226,7 +229,7 @@ export default function ImplementWizard({
         if (!next.config.warehouse_id) next.config.warehouse_id = warehouseId;
         setSpec(next);
         if (data.latest) setConfirmedRoles(Object.fromEntries(Object.keys(next.data.column_roles || {}).map((role) => [role, true])));
-        const lost = (focus?.missingTables || []).map((m) => tablesOf(data.use_case || uc)
+        const lost = (focus?.missingTables || []).map((m) => tablesOf(row)
           .find((t) => [t, next.data.tables[t]].some((n) => String(n || '').toLowerCase() === String(m.table).toLowerCase())))
           .filter(Boolean);
         if (lost.length) {
@@ -242,7 +245,7 @@ export default function ImplementWizard({
     return () => { cancelled = true; };
   }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ucRow = context?.use_case || uc;
+  const ucRow = useMemo(() => rowWithCard(uc, context?.use_case), [uc, context?.use_case]);
   const notebookEdit = editedNotebook(context?.latest);
   const editing = Boolean(context?.latest);
   const trainsModel = context?.trains_model !== false;

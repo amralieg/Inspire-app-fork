@@ -190,6 +190,27 @@ test('the wizard is two steps: Data shows the summary and Inspire\'s tables, Del
   }
 });
 
+test('the wizard names the use case as the card the person clicked, while the data comes from the tracking table', async () => {
+  const { Name: _cardName, ...row } = HARNESS_USE_CASE;
+  const ui = await openUi('wizard', { useCase: { ...row, use_case: 'Keep customers who would leave', statement: 'Keep the top segment buying' } });
+  const { page, made } = ui;
+  try {
+    await onStep(page, 'Data');
+    const summary = page.getByRole('region', { name: 'Executive summary' });
+    await summary.getByText('Keep the top segment buying').waitFor();
+    assert.equal(await summary.locator('h3').innerText(), HARNESS_USE_CASE.Name);
+    assert.equal(await page.getByRole('dialog').getByText('Keep customers who would leave').count(), 0, 'one name for the use case, the one on its card');
+    await next(page);
+    await onStep(page, 'Delivery');
+    await implementWhenReady(page);
+    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    assert.equal(submittedSpec(made).use_case_name, HARNESS_USE_CASE.Name);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('the wizard and the Studio cover the screen from any scroll position, above the App header, inside an animated page', async () => {
   for (const open of ['wizard', 'studio']) {
     const ui = await openUi(`${open}&nest=1`, open === 'studio' ? STUDIO_STATE : { me: { userName: OWNER, displayName: 'Owner' } });
