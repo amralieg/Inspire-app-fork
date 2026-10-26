@@ -1,7 +1,8 @@
+import { fieldOf, isBlankField } from './useCaseFields.js';
+
 export const STRATEGY_NOT_ALIGNED = 'Not aligned';
 export const STRATEGY_BUILTIN_NO_MATCH = 'General Improvement';
 export const STRATEGY_PATH_SEPARATOR = ' > ';
-export const NOT_ALIGNED_FILTER = '__not_aligned__';
 export const FEEDBACK_STATUSES = ['accepted', 'planned', 'implemented', 'rejected'];
 export const FEEDBACK_LABELS = { accepted: 'Accepted', planned: 'Planned', implemented: 'Implemented', rejected: 'Rejected' };
 
@@ -14,11 +15,7 @@ export const V130_TRACKING_FIELDS = [
 const KPI_UP = /\b(increase|increasing|up|higher|maximi[sz]e|raise|grow|growth)\b/i;
 const KPI_DOWN = /\b(decrease|decreasing|down|lower|minimi[sz]e|reduce|reduction|cut|decline)\b/i;
 
-function isBlank(value) {
-  return value == null || (typeof value === 'string' && value.trim() === '') || (Array.isArray(value) && value.length === 0);
-}
-
-function parseJson(value) {
+export function parseJson(value) {
   if (typeof value !== 'string') return value;
   const text = value.trim();
   if (!text || (text[0] !== '[' && text[0] !== '{')) return value;
@@ -39,10 +36,6 @@ function textList(value) {
 function objectList(value) {
   const parsed = parseJson(value);
   return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) : [];
-}
-
-function pick(uc, displayKey, trackingKey) {
-  return isBlank(uc[displayKey]) ? uc[trackingKey] : uc[displayKey];
 }
 
 function bestOfBestOf(u) {
@@ -76,17 +69,17 @@ export function bestOfBestLabel(star) {
 export function copyV130TrackingFields(uc, row) {
   if (!uc || !row) return uc;
   for (const field of V130_TRACKING_FIELDS) {
-    if (!isBlank(row[field]) && isBlank(uc[field])) uc[field] = row[field];
+    if (!isBlankField(row[field]) && isBlankField(uc[field])) uc[field] = row[field];
   }
   return uc;
 }
 
 export function v130View(uc) {
   const u = uc && typeof uc === 'object' ? uc : {};
-  const alignments = objectList(pick(u, 'Strategy Alignment', 'strategy_alignment'))
+  const alignments = objectList(fieldOf(u, 'Strategy Alignment', 'strategy_alignment'))
     .map((a) => ({ id: String(a.id ?? '').trim(), path: String(a.path ?? '').trim(), evidence: String(a.evidence ?? '').trim() }))
     .filter((a) => a.path);
-  const pathText = String(pick(u, 'Strategy Path', 'strategy_path') ?? '').trim();
+  const pathText = String(fieldOf(u, 'Strategy Path', 'strategy_path') ?? '').trim();
   let paths = alignments.map((a) => a.path);
   if (!paths.length && pathText && pathText !== STRATEGY_NOT_ALIGNED) {
     paths = pathText.split('; ').map((p) => p.trim()).filter(Boolean);
@@ -94,14 +87,14 @@ export function v130View(uc) {
   const hasStrategyData =
     alignments.length > 0 || !!pathText ||
     Array.isArray(parseJson(u['Strategy Alignment'])) || Array.isArray(parseJson(u.strategy_alignment));
-  const kpis = objectList(pick(u, 'KPIs', 'kpis')).filter((k) => String(k.name ?? '').trim());
-  const keyResults = objectList(pick(u, 'Expected Key Results', 'expected_key_results'))
+  const kpis = objectList(fieldOf(u, 'KPIs', 'kpis')).filter((k) => String(k.name ?? '').trim());
+  const keyResults = objectList(fieldOf(u, 'Expected Key Results', 'expected_key_results'))
     .map((kr) => ({ ...kr, statement: String(kr.statement ?? '').trim(), source: kr.source === 'strategy' ? 'strategy' : 'proposed' }))
     .filter((kr) => kr.statement);
-  const measures = textList(pick(u, 'Measures of Success', 'measures_of_success'));
-  const financial = textList(pick(u, 'Financial Benefits', 'financial_benefits'));
-  const nonFinancial = textList(pick(u, 'Non-Financial Benefits', 'non_financial_benefits'));
-  const evidence = parseJson(pick(u, 'Data Evidence', 'data_evidence'));
+  const measures = textList(fieldOf(u, 'Measures of Success', 'measures_of_success'));
+  const financial = textList(fieldOf(u, 'Financial Benefits', 'financial_benefits'));
+  const nonFinancial = textList(fieldOf(u, 'Non-Financial Benefits', 'non_financial_benefits'));
+  const evidence = parseJson(fieldOf(u, 'Data Evidence', 'data_evidence'));
   const evidenceTables = evidence && typeof evidence === 'object' && !Array.isArray(evidence) && evidence.tables && typeof evidence.tables === 'object'
     ? evidence.tables : {};
   const evidenceJoins = evidence && Array.isArray(evidence.joins) ? evidence.joins : [];
@@ -117,7 +110,7 @@ export function v130View(uc) {
     financial,
     nonFinancial,
     dataEvidence: Object.keys(evidenceTables).length || evidenceJoins.length ? { tables: evidenceTables, joins: evidenceJoins } : null,
-    foundations: textList(pick(u, 'Foundations', 'foundation_ids')),
+    foundations: textList(fieldOf(u, 'Foundations', 'foundation_ids')),
     useCaseKey: String(u.use_case_key ?? '').trim(),
     feedbackStatus: String(u['Feedback Status'] ?? '').trim().toLowerCase(),
     bestOfBest: bestOfBestOf(u),
@@ -129,12 +122,6 @@ export function v130View(uc) {
 export function strategyPathPrefixes(path) {
   const parts = String(path || '').split(STRATEGY_PATH_SEPARATOR).map((p) => p.trim()).filter(Boolean);
   return parts.map((_, i) => parts.slice(0, i + 1).join(STRATEGY_PATH_SEPARATOR));
-}
-
-export function matchesStrategyFilter(info, filter) {
-  if (!filter || filter === 'all') return true;
-  if (filter === NOT_ALIGNED_FILTER) return !!info?.notAligned;
-  return (info?.paths || []).some((p) => p === filter || p.startsWith(filter + STRATEGY_PATH_SEPARATOR));
 }
 
 export function strategyFilterOptions(infos, coverageEntries) {

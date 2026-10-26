@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import ImplementWizard from '../../src/pages/ImplementWizard';
 import ImplementPage from '../../src/pages/ImplementPage';
+import ResultsPage from '../../src/pages/ResultsPage';
 import ImplementCardActions from '../../src/components/ImplementCardActions';
 import { makeApiFetch, makeApiPostJson } from '../../src/lib/apiClient';
 import { caseIdOf, implementState, notebookStatus } from '../../src/lib/implementWizard';
@@ -27,6 +28,7 @@ export default function HarnessApp({ open, nest, discoveryType }) {
 
 function HarnessContent({ open, discoveryType }) {
   if (open === 'card') return <CardHarness />;
+  if (open === 'catalog') return <CatalogHarness />;
   return <PageHarness open={open} discoveryType={discoveryType} />;
 }
 
@@ -47,6 +49,21 @@ function CardHarness() {
         </div>
       ))}
       <output aria-label="Clicks">{clicks.join(',')}</output>
+    </div>
+  );
+}
+
+function CatalogHarness() {
+  const [opened, setOpened] = useState('');
+  return (
+    <div className="p-6">
+      <ResultsPage
+        settings={SETTINGS}
+        update={() => {}}
+        sessionId={HARNESS_SESSION_ID}
+        onOpenImplement={(sid, id) => setOpened(`${sid}:${id}`)}
+      />
+      <output aria-label="Opened in Implement">{opened}</output>
     </div>
   );
 }

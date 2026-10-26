@@ -91,22 +91,20 @@ test('Not aligned holds only v1.3.0 use cases without a path; older sessions sta
   const legacy = lib.v130View({ Name: 'v1.2.0', 'Strategic Goals Alignment': 'Increase Revenue', 'Business Priority Alignment': 'Grow' });
   assert.equal(legacy.hasStrategyData, false);
   assert.equal(legacy.notAligned, false);
-  assert.equal(lib.matchesStrategyFilter(legacy, lib.NOT_ALIGNED_FILTER), false);
   assert.equal(lib.v130View(TRACKING_ROW()).notAligned, false);
   assert.equal(lib.v130View(null).hasStrategyData, false);
 });
 
-test('a strategy filter matches the entry and everything under it, and nothing that only shares a name prefix', async () => {
+test('a strategy path yields the entry and every level above it, and nothing that only shares a name prefix', async () => {
   const lib = await load();
   const info = lib.v130View(RESULTS_UC);
-  assert.equal(lib.matchesStrategyFilter(info, 'all'), true);
-  assert.equal(lib.matchesStrategyFilter(info, 'Customer'), true);
-  assert.equal(lib.matchesStrategyFilter(info, 'Customer > Grow repeat purchases'), true);
-  assert.equal(lib.matchesStrategyFilter(info, 'Operations'), true);
-  const care = lib.v130View({ 'Strategy Alignment': [{ id: 'S9', path: 'Customer Care > Faster replies', evidence: 'x' }] });
-  assert.equal(lib.matchesStrategyFilter(care, 'Customer'), false);
-  assert.equal(lib.matchesStrategyFilter(care, 'Customer Care'), true);
-  assert.equal(lib.matchesStrategyFilter(info, lib.NOT_ALIGNED_FILTER), false);
+  const prefixes = new Set(info.paths.flatMap(lib.strategyPathPrefixes));
+  assert.ok(prefixes.has('Customer'));
+  assert.ok(prefixes.has('Customer > Grow repeat purchases'));
+  assert.ok(prefixes.has('Operations'));
+  assert.deepEqual(lib.strategyPathPrefixes('Customer Care > Faster replies'), ['Customer Care', 'Customer Care > Faster replies']);
+  assert.deepEqual(lib.strategyPathPrefixes(' A >  B > C '), ['A', 'A > B', 'A > B > C']);
+  assert.deepEqual(lib.strategyPathPrefixes(''), []);
 });
 
 test('filter options count each use case once per entry, at every depth, in strategy order', async () => {

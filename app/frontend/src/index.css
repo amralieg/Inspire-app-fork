@@ -6,6 +6,8 @@
   /* Databricks brand */
   --color-db-red: #FF3621;
   --color-db-red-hover: #FF4A36;
+  --color-db-red-solid: #D92E1B;
+  --color-db-red-solid-hover: #CC2A19;
   --color-db-red-50: rgba(255, 54, 33, 0.08);
   --color-db-red-100: rgba(255, 54, 33, 0.15);
   --color-db-red-fg: var(--t-db-red-fg);
@@ -35,10 +37,12 @@
   --color-warning-bg: var(--t-warning-bg);
   --color-warning-fg: var(--t-warning-fg);
   --color-error: #EF4444;
+  --color-error-solid: #DC2626;
   --color-error-bg: var(--t-error-bg);
   --color-error-fg: var(--t-error-fg);
   --color-info: #3B82F6;
   --color-info-bg: var(--t-info-bg);
+  --color-info-fg: var(--t-info-fg);
 }
 
 /* ═══ Light theme (default) ═══ */
@@ -65,6 +69,7 @@
   --t-success-fg: #166534;
   --t-warning-fg: #854D0E;
   --t-error-fg: #B91C1C;
+  --t-info-fg: #1D4ED8;
   --t-db-red-fg: #B42318;
 
   --t-scrollbar-thumb: rgba(0, 0, 0, 0.12);
@@ -98,6 +103,7 @@
   --t-success-fg: #22C55E;
   --t-warning-fg: #EAB308;
   --t-error-fg: #F87171;
+  --t-info-fg: #60A5FA;
   --t-db-red-fg: #FF6B57;
 
   --t-scrollbar-thumb: rgba(255, 255, 255, 0.1);

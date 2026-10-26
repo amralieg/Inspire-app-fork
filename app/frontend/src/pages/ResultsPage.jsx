@@ -39,254 +39,31 @@ import DomainSunburst from '../components/DomainSunburst';
 import PriorityHeatmap from '../components/PriorityHeatmap';
 import Celebration from '../components/Celebration';
 import { SkeletonCard, SkeletonStats } from '../components/SkeletonLoader';
-import { DataAccessBadge, FeedbackPanel, FoundationsPanel, SidebarFilterPanel, StrategyCoveragePanel } from '../components/ResultsInsights';
-import { BestOfBestDetail, FeedbackChip, FeedbackControls, StrategyChip, UseCaseStrategyDetail } from '../components/UseCaseStrategyDetail';
+import { DataAccessBadge, FeedbackPanel, FoundationsPanel, StrategyCoveragePanel } from '../components/ResultsInsights';
+import UseCaseCard from '../components/UseCaseCard';
+import UseCaseDetailBody from '../components/UseCaseDetailBody';
+import UseCaseCatalog from '../components/catalog/UseCaseCatalog';
+import { STRATEGY_NOT_ALIGNED, knownPriorities, latestFeedbackMap, strategyFilterOptions } from '../lib/v130UseCase';
+import { catalogRows, emptyFacetState, setFacetValues } from '../lib/useCaseFacets';
 import {
-  NOT_ALIGNED_FILTER,
-  bestOfBestLabel,
-  compareBestOfBestFirst,
-  knownPriorities,
-  latestFeedbackMap,
-  matchesStrategyFilter,
-  priorityMatches,
-  strategyFilterOptions,
-} from '../lib/v130UseCase';
+  FAVORITES_STORAGE_KEY,
+  computeHighPriorityCount,
+  displayCleanText,
+  expandWorkspaceListCandidates,
+  findUcForNotebookFilename,
+  inspireScoreFromUc,
+  loadFavoritesMap,
+  favoriteKeyOf,
+  fieldOf,
+  hasShippedGenieCode,
+} from '../lib/useCaseFields';
 import { visibleArtifactFiles } from '../lib/artifactFiles';
-import { generationFolder, normalizeDatabricksFsPath, workspaceNotebookUrl, workspaceWebUiHashPath } from '../lib/workspaceLinks';
+import { generationFolder, workspaceWebUiHashPath } from '../lib/workspaceLinks';
 import ImplementCardActions from '../components/ImplementCardActions';
 import ImplementWizard from './ImplementWizard';
 import { implementState, notebookRunEnded, notebookStatus, versionActive } from '../lib/implementWizard';
 import { buildUseCaseList } from '../lib/useCaseList';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
-
-/* ── Priority sort order ── */
-const PRIORITY_ORDER = [
-  'Ultra High',
-  'Very High',
-  'High',
-  'Medium',
-  'Low',
-  'Very Low',
-  'Ultra Low',
-];
-
-/** True when Priority field is a raw number (not a tier label). */
-function isNumericPriorityString(str) {
-  if (str == null) return false;
-  const x = String(str).trim();
-  return x !== '' && /^\d+(\.\d+)?$/.test(x);
-}
-
-/** Parse "4.5/5" or "4.2" style strings from scored_use_cases merge. */
-function parseLooseScore(v) {
-  if (v == null || v === '') return null;
-  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  const s = String(v).trim();
-  const m = s.match(/(\d+\.?\d*)/);
-  if (!m) return null;
-  const x = Number(m[1]);
-  return Number.isFinite(x) ? x : null;
-}
-
-/** Inspire composite / priority_score for sorting and stats (same rules as use case cards). */
-function inspireScoreFromUc(uc) {
-  if (!uc || typeof uc !== 'object') return null;
-  const num = (v) => {
-    const x = Number(v);
-    return Number.isFinite(x) ? x : null;
-  };
-  let s = num(uc.priority_score ?? uc.Priority_Score ?? uc.priorityScore);
-  const vs = num(uc.value_score ?? uc.Value_Score);
-  const fs = num(uc.feasibility_score ?? uc.Feasibility_Score);
-  if (s == null && vs != null && fs != null) s = (vs + fs) / 2;
-  else if (s == null && vs != null) s = vs;
-  else if (s == null && fs != null) s = fs;
-  const pr = String(uc.Priority ?? uc.priority ?? '').trim();
-  if (s == null && isNumericPriorityString(pr)) s = num(pr);
-  if (s == null) {
-    const pv = parseLooseScore(uc._value);
-    const pf = parseLooseScore(uc._feasibility);
-    if (pv != null && pf != null) s = (pv + pf) / 2;
-    else if (pv != null) s = pv;
-    else if (pf != null) s = pf;
-  }
-  if (s == null) {
-    const sa = num(uc.strategic_alignment);
-    if (sa != null) s = sa;
-  }
-  return s;
-}
-
-const HIGH_TIER_IDX = PRIORITY_ORDER.indexOf('High');
-
-/**
- * REST + browser hash paths: try normalized path, then `/Workspace` + path for `/Shared`, `/Users`, `/demos`, …
- */
-function expandWorkspaceListCandidates(p) {
-  const n = normalizeDatabricksFsPath(p);
-  const out = [];
-  const push = (x) => {
-    const y = normalizeDatabricksFsPath(x);
-    if (y && !out.includes(y)) out.push(y);
-  };
-  push(n);
-  if (!n.startsWith('/')) return out;
-  if (n.startsWith('/Volumes/')) return out;
-  if (!n.startsWith('/Workspace')) push(`/Workspace${n}`);
-  if (n.startsWith('/Workspace/')) {
-    const stripped = n.slice('/Workspace'.length) || '/';
-    push(stripped);
-  }
-  return out;
-}
-
-/** True when Auto-Genie shipped instructions for this UC (not skeleton-only). */
-function useCaseHasShippedGenieCode(uc) {
-  if (!uc || typeof uc !== 'object') return false;
-  if (uc.has_genie_code_flag === true) return true;
-  const h = String(uc.has_genie_code ?? uc['Has Genie Code'] ?? '').trim().toUpperCase();
-  if (h === 'Y' || h === 'YES') return true;
-  const gi = String(uc.genie_instruction ?? '').trim();
-  return gi.length > 120;
-}
-
-/** True if the use case has any Genie instruction content (shipped, partial text, or short draft). */
-function useCaseHasGenieInstruction(uc) {
-  if (!uc || typeof uc !== 'object') return false;
-  if (useCaseHasShippedGenieCode(uc)) return true;
-  return String(uc.genie_instruction ?? uc.Genie_Instruction ?? '').trim().length > 0;
-}
-
-/**
- * Prefixes that appear at the start of generated `.ipynb` filenames under the generation path.
- * After merging `__inspire_usecases`, `No`/`id` become the DB row id; notebooks often still use
- * the catalog use_case_id (e.g. N01-AI01), so we keep that in `catalog_no` when they differ.
- */
-function collectUseCaseNotebookFilenamePrefixes(uc) {
-  if (!uc || typeof uc !== 'object') return [];
-  const raw = [uc.id, uc.No, uc['No'], uc.catalog_no, uc.use_case_id, uc.use_caseId];
-  const seen = new Set();
-  const out = [];
-  for (const v of raw) {
-    const s = String(v ?? '').trim();
-    if (s && !seen.has(s)) {
-      seen.add(s);
-      out.push(s);
-    }
-  }
-  return out;
-}
-
-/** Match artifact `.ipynb` to a use case: `notebook_path` basename, then filename prefixes. */
-function findUcForNotebookFilename(fname, useCases) {
-  if (!fname || !String(fname).toLowerCase().endsWith('.ipynb') || !useCases?.length) return null;
-  const nameNorm = String(fname).trim().toLowerCase();
-  const base = nameNorm.replace(/\.ipynb$/i, '');
-  for (const uc of useCases) {
-    const nb = String(uc.notebook_path || '').trim();
-    if (nb) {
-      const tail = (nb.split('/').pop() || '').trim().toLowerCase();
-      if (tail && tail === nameNorm) return uc;
-    }
-    for (const id of collectUseCaseNotebookFilenamePrefixes(uc)) {
-      const idLower = id.toLowerCase();
-      if (
-        base === idLower ||
-        base.startsWith(`${idLower}-`) ||
-        base.startsWith(`${idLower}_`) ||
-        base.startsWith(`${idLower}.`)
-      ) {
-        return uc;
-      }
-    }
-  }
-  return null;
-}
-
-/** When overlaying Inspire tracking row id onto domain JSON, keep the prior catalog id for notebook filename matching. */
-/** Inspire `__inspire_usecases.id` / catalog `No` — tracking id for merges. */
-function useCaseTrackingId(uc) {
-  if (!uc || typeof uc !== 'object') return '';
-  return String(uc.id ?? uc.No ?? uc['No'] ?? '').trim();
-}
-
-/** True if Priority or Quality matches Ultra / Very High / High tier labels. */
-function isHighTierLabel(uc) {
-  if (!uc || typeof uc !== 'object') return false;
-  for (const fld of [uc.Priority, uc.priority, uc.Quality, uc.quality]) {
-    const i = PRIORITY_ORDER.indexOf(String(fld || '').trim());
-    if (i !== -1 && HIGH_TIER_IDX !== -1 && i <= HIGH_TIER_IDX) return true;
-  }
-  const lab = `${uc.Priority || ''} ${uc.Quality || ''}`.toLowerCase();
-  if (/\b(ultra high|very high)\b/.test(lab)) return true;
-  if (/\bhigh\b/.test(lab) && !/\b(low|medium)\b/.test(lab)) return true;
-  return false;
-}
-
-/** Row-level high signal (filters, badges). */
-function isHighPriorityUseCase(uc) {
-  if (!uc || typeof uc !== 'object') return false;
-  if (isHighTierLabel(uc)) return true;
-  const s = inspireScoreFromUc(uc);
-  if (s != null && s >= 3) return true;
-  return false;
-}
-
-/** v1.2.0: closest candidates below the quality bar are a valid result, not empty. */
-function belowBarLabelFromUseCase(uc) {
-  if (!uc || typeof uc !== 'object') return '';
-  let flags = uc.selection_flags ?? uc.selectionFlags;
-  if (typeof flags === 'string') {
-    try { flags = JSON.parse(flags); } catch { flags = null; }
-  }
-  if (flags && typeof flags === 'object') {
-    for (const key of ['elite_fallback_pick', 'elite_fallback_near_miss', 'elite_coverage_pick', 'label', 'reason']) {
-      const v = flags[key];
-      if (v != null && String(v).trim()) return String(v).trim();
-    }
-    for (const v of Object.values(flags)) {
-      if (typeof v === 'string' && /below the /i.test(v)) return v.trim();
-    }
-  }
-  const reason = uc.selection_drop_reason || uc.selectionDropReason;
-  if (reason && /below the /i.test(String(reason))) return String(reason).trim();
-  return '';
-}
-
-/**
- * Dashboard count: never stuck at 0 when scores exist — uses tier/quality, absolute score ≥3,
- * and top ~33% by Inspire score among rows with a numeric score.
- */
-function computeHighPriorityCount(list) {
-  if (!Array.isArray(list) || list.length === 0) return 0;
-  const tier = list.filter(isHighTierLabel).length;
-  const abs = list.filter((u) => {
-    const s = inspireScoreFromUc(u);
-    return s != null && s >= 3;
-  }).length;
-  const scores = list.map(inspireScoreFromUc).filter((s) => s != null && Number.isFinite(s));
-  if (scores.length === 0) return Math.max(tier, abs);
-  const sorted = [...scores].sort((a, b) => a - b);
-  const cutIdx = Math.max(0, Math.floor((sorted.length - 1) * (2 / 3)));
-  const cutoff = sorted[cutIdx];
-  const topThird = list.filter((u) => {
-    const s = inspireScoreFromUc(u);
-    return s != null && s >= cutoff;
-  }).length;
-  return Math.max(tier, abs, topThird);
-}
-
-/** Strip HTML, emoji / pictographs, and collapse whitespace for titles and summary blocks. */
-function displayCleanText(s) {
-  if (s == null) return '';
-  let t = String(s).replace(/<[^>]*>/g, ' ');
-  try {
-    t = t.replace(/\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Emoji}/gu, '');
-  } catch {
-    t = t.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '');
-  }
-  return t.replace(/\uFE0F/g, '').replace(/\u200D/g, '').replace(/\s{2,}/g, ' ').trim();
-}
 
 /** Coerce `results_json` summary fields (VARIANT / object / array) to a display string. */
 function inspireResultsTextField(v) {
@@ -332,75 +109,6 @@ function formatSessionDate(dateStr) {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
       ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   } catch { return dateStr.slice(0, 16); }
-}
-
-/** localStorage key — content fingerprints, not session-local `No` / row `id`. */
-const FAVORITES_STORAGE_KEY = 'inspire_favorites_fp';
-
-function normalizeFavoritePart(s) {
-  return String(s || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-}
-
-function hashFavoriteFingerprint(segments) {
-  const str = segments.join('\u0000');
-  let h = 5381;
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) + h) ^ str.charCodeAt(i);
-  }
-  return (h >>> 0).toString(16).padStart(8, '0');
-}
-
-/** Stable favorite id across Inspire sessions (same logical use case → same key). */
-function useCaseFavoriteKey(uc) {
-  if (!uc || typeof uc !== 'object') return '';
-  const domain = normalizeFavoritePart(uc._domain || uc['Business Domain'] || '');
-  const sub = normalizeFavoritePart(uc.Subdomain || '');
-  const name = normalizeFavoritePart(uc.Name || uc.use_case || uc.short_name || uc.name || '');
-  const stmt = normalizeFavoritePart((uc.Statement || uc.description || '').slice(0, 220));
-  const sql = normalizeFavoritePart((uc.SQL || uc.sql || uc.sql_query || '').slice(0, 120));
-  const sig = name || stmt || sql;
-  if (!sig) return '';
-  const h = hashFavoriteFingerprint([domain, sub, name, stmt, sql]);
-  return `fp:${h}`;
-}
-
-/** Primary beneficiary label on a use case (pipeline + translated headers). */
-function beneficiaryFromUc(uc) {
-  if (!uc || typeof uc !== 'object') return '';
-  return String(uc.Beneficiary ?? uc.beneficiary ?? '').trim();
-}
-
-/** Executive / sponsor label on a use case. */
-function sponsorFromUc(uc) {
-  if (!uc || typeof uc !== 'object') return '';
-  return String(uc.Sponsor ?? uc.sponsor ?? '').trim();
-}
-
-function loadFavoritesMap() {
-  try {
-    const rawFp = localStorage.getItem(FAVORITES_STORAGE_KEY);
-    if (rawFp) {
-      const o = JSON.parse(rawFp);
-      return o && typeof o === 'object' ? o : {};
-    }
-    const rawLegacy = JSON.parse(localStorage.getItem('inspire_favorites') || '{}');
-    const migrated = {};
-    if (rawLegacy && typeof rawLegacy === 'object') {
-      for (const [k, v] of Object.entries(rawLegacy)) {
-        if (v && String(k).startsWith('fp:')) migrated[k] = true;
-      }
-    }
-    return migrated;
-  } catch {
-    return {};
-  }
-}
-
-function favoriteCount(map) {
-  return Object.keys(map || {}).filter((k) => map[k]).length;
 }
 
 /* ── Pipeline stages for execution summary ── */
@@ -451,28 +159,12 @@ export default function ResultsPage({
   /** Re-run artifact list when session or resolved generation folder changes (not blocked by empty prior list). */
   const lastArtifactsLoadKeyRef = useRef('');
 
-  // Filters & sort
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterDomain, setFilterDomain] = useState('all');
-  const [filterSubdomain, setFilterSubdomain] = useState('all');
-  const [filterPriority, setFilterPriority] = useState('all');
-  const [filterType, setFilterType] = useState('all');
-  const [filterTechnique, setFilterTechnique] = useState('all');
-  const [filterQuality, setFilterQuality] = useState('all');
-  const [filterBeneficiary, setFilterBeneficiary] = useState('all');
-  const [filterSponsor, setFilterSponsor] = useState('all');
-  /** `all` | `yes` | `no` — filter by presence of Genie instruction on the use case. */
-  const [filterHasGenie, setFilterHasGenie] = useState('all');
-  const [filterStrategy, setFilterStrategy] = useState('all');
-  const [filterBizPriority, setFilterBizPriority] = useState('all');
-  const [sortBy, setSortBy] = useState('inspire');
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  const [showBestOfBestOnly, setShowBestOfBestOnly] = useState(false);
+  const [catalogState, setCatalogState] = useState(emptyFacetState);
 
   // Favorites — browser localStorage, keyed by content fingerprint (works across sessions)
   const [favorites, setFavorites] = useState(loadFavoritesMap);
-  const toggleFavorite = (uc) => {
-    const id = useCaseFavoriteKey(uc);
+  const toggleFavorite = useCallback((uc) => {
+    const id = favoriteKeyOf(uc);
     if (!id) return;
     setFavorites((prev) => {
       const next = { ...prev, [id]: !prev[id] };
@@ -482,15 +174,9 @@ export default function ResultsPage({
       } catch { /* quota / private mode */ }
       return next;
     });
-  };
+  }, []);
+  const toggleFavoriteRow = useCallback((row) => toggleFavorite(row.uc), [toggleFavorite]);
 
-  // Subdomain expansion state
-  const [expandedDomains, setExpandedDomains] = useState({});
-  const [domainPanelOpen, setDomainPanelOpen] = useState(false);
-  const [beneficiaryPanelOpen, setBeneficiaryPanelOpen] = useState(false);
-  const [sponsorPanelOpen, setSponsorPanelOpen] = useState(false);
-  const [strategyPanelOpen, setStrategyPanelOpen] = useState(false);
-  const [bizPriorityPanelOpen, setBizPriorityPanelOpen] = useState(false);
   const [feedbackState, setFeedbackState] = useState({ available: null, latest: [], message: '' });
   const [feedbackRefresh, setFeedbackRefresh] = useState(0);
   const [feedbackBusyKey, setFeedbackBusyKey] = useState('');
@@ -512,8 +198,6 @@ export default function ResultsPage({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [expandedCells, setExpandedCells] = useState({}); // { "row-col": true }
 
-  // Only one card expanded at a time
-  const [expandedUseCase, setExpandedUseCase] = useState(null);
   const [implementUc, setImplementUc] = useState(null);
   const [implementFocus, setImplementFocus] = useState(null);
   const [implementView, setImplementView] = useState({ latest: [], notebook_run: null });
@@ -657,12 +341,6 @@ export default function ResultsPage({
     handleLoadSessions(true);
   }, [inspireDb, warehouseId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    setDomainPanelOpen(false);
-    setBeneficiaryPanelOpen(false);
-    setSponsorPanelOpen(false);
-  }, [selectedSessionId]);
-
   const handleLoadSessions = async (autoLoad = false) => {
     if (!inspireDb || !warehouseId) return;
     setSessionsLoading(true);
@@ -713,8 +391,7 @@ export default function ResultsPage({
     setPreviewFile(null);
     setPreviewData(null);
     setArtifactsExpanded(false);
-    setFilterStrategy('all');
-    setFilterBizPriority('all');
+    setCatalogState(emptyFacetState());
     lastArtifactsLoadKeyRef.current = '';
     try {
       const q = new URLSearchParams({
@@ -760,155 +437,28 @@ export default function ResultsPage({
   };
 
   // ── Extract use cases (defensive — guard against non-array shapes) ──
-  const allUseCases = buildUseCaseList(results, usecases);
-  const bizPriorities = knownPriorities(results);
+  const allUseCases = useMemo(() => buildUseCaseList(results, usecases), [results, usecases]);
+  const bizPriorities = useMemo(() => knownPriorities(results), [results]);
 
   // ── Resolve table from registry ──
-  const resolveTable = (id) => {
-    if (!results?.table_registry || !id) return id;
-    return results.table_registry[id] || id;
-  };
+  const tableRegistry = results?.table_registry;
+  const resolveTable = useCallback((id) => {
+    if (!tableRegistry || !id) return id;
+    return tableRegistry[id] || id;
+  }, [tableRegistry]);
 
-  // ── Filter & sort ──
-  let filteredUseCases = [];
-  try {
-    filteredUseCases = allUseCases
-      .filter((uc) => {
-        if (!uc || typeof uc !== 'object') return false;
-        if (filterDomain !== 'all' && uc._domain !== filterDomain) return false;
-        if (filterSubdomain !== 'all' && String(uc.Subdomain || '') !== filterSubdomain) return false;
-        if (filterPriority !== 'all' && uc.Priority !== filterPriority)
-          return false;
-        if (filterType !== 'all' && uc.type !== filterType) return false;
-        if (filterTechnique !== 'all' && String(uc['Analytics Technique'] || '') !== filterTechnique) return false;
-        if (filterQuality !== 'all' && String(uc.Quality || '') !== filterQuality) return false;
-        if (filterBeneficiary !== 'all' && beneficiaryFromUc(uc) !== filterBeneficiary) return false;
-        if (filterSponsor !== 'all' && sponsorFromUc(uc) !== filterSponsor) return false;
-        if (filterStrategy !== 'all' && !matchesStrategyFilter(uc._v130, filterStrategy)) return false;
-        if (filterBizPriority !== 'all' && !priorityMatches(uc._v130?.priorityText, bizPriorities).includes(filterBizPriority)) return false;
-        if (filterHasGenie === 'yes' && !useCaseHasGenieInstruction(uc)) return false;
-        if (filterHasGenie === 'no' && useCaseHasGenieInstruction(uc)) return false;
-        if (searchQuery) {
-          const q = searchQuery.toLowerCase();
-          return (
-            String(uc.Name || '').toLowerCase().includes(q) ||
-            String(uc.Statement || '').toLowerCase().includes(q) ||
-            String(uc.Solution || '').toLowerCase().includes(q) ||
-            beneficiaryFromUc(uc).toLowerCase().includes(q) ||
-            sponsorFromUc(uc).toLowerCase().includes(q)
-          );
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        const starred = compareBestOfBestFirst(a._v130, b._v130);
-        if (starred !== 0) return starred;
-        const sa = inspireScoreFromUc(a);
-        const sb = inspireScoreFromUc(b);
-        const scoreFirst = () => {
-          const va = sa ?? -Infinity;
-          const vb = sb ?? -Infinity;
-          if (vb !== va) return vb - va;
-          return 0;
-        };
-        if (sortBy === 'inspire') {
-          const c = scoreFirst();
-          if (c !== 0) return c;
-          return String(a.Name || '').localeCompare(String(b.Name || ''));
-        }
-        if (sortBy === 'domain') {
-          const d = String(a._domain || '').localeCompare(String(b._domain || ''));
-          if (d !== 0) return d;
-          const cDom = scoreFirst();
-          if (cDom !== 0) return cDom;
-          return String(a.Name || '').localeCompare(String(b.Name || ''));
-        }
-        if (sortBy === 'name') {
-          const n = String(a.Name || '').localeCompare(String(b.Name || ''));
-          if (n !== 0) return n;
-          const cNm = scoreFirst();
-          if (cNm !== 0) return cNm;
-          return 0;
-        }
-        // priority — tier after score so list stays score-ranked when scores exist
-        if (sortBy === 'priority') {
-          const c = scoreFirst();
-          if (c !== 0) return c;
-          const ia = PRIORITY_ORDER.indexOf(a.Priority);
-          const ib = PRIORITY_ORDER.indexOf(b.Priority);
-          return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-        }
-        return scoreFirst();
-      });
-  } catch (err) {
-    console.error('Error filtering/sorting use cases:', err);
-    filteredUseCases = allUseCases;
-  }
-
-  if (showBestOfBestOnly) {
-    filteredUseCases = filteredUseCases.filter((uc) => uc?._v130?.bestOfBest);
-  }
-  const starredCount = allUseCases.filter((uc) => uc?._v130?.bestOfBest).length;
-
-  // Apply favorites filter
-  if (showFavoritesOnly) {
-    filteredUseCases = filteredUseCases.filter((uc) => {
-      const k = useCaseFavoriteKey(uc);
-      return k && favorites[k];
-    });
-  }
-
-  const domains = [
-    ...new Set(allUseCases.map((uc) => uc?._domain).filter(Boolean)),
-  ];
-  const priorities = [
-    ...new Set(allUseCases.map((uc) => uc?.Priority).filter(Boolean)),
-  ];
-  const types = [
-    ...new Set(allUseCases.map((uc) => uc?.type).filter(Boolean)),
-  ];
-  const techniques = [
-    ...new Set(allUseCases.map((uc) => uc?.['Analytics Technique']).filter(Boolean)),
-  ];
-  const qualities = [
-    ...new Set(allUseCases.map((uc) => uc?.Quality).filter(Boolean)),
-  ];
-
-  const beneficiaries = [
-    ...new Set(allUseCases.map(beneficiaryFromUc).filter(Boolean)),
-  ].sort((a, b) => a.localeCompare(b));
-  const sponsors = [
-    ...new Set(allUseCases.map(sponsorFromUc).filter(Boolean)),
-  ].sort((a, b) => a.localeCompare(b));
-
-  const beneficiaryCounts = {};
-  for (const uc of allUseCases) {
-    const b = beneficiaryFromUc(uc);
-    if (b) beneficiaryCounts[b] = (beneficiaryCounts[b] || 0) + 1;
-  }
-  const sponsorCounts = {};
-  for (const uc of allUseCases) {
-    const s = sponsorFromUc(uc);
-    if (s) sponsorCounts[s] = (sponsorCounts[s] || 0) + 1;
-  }
-
+  const domains = [...new Set(allUseCases.map((uc) => uc?._domain).filter(Boolean))];
+  const techniqueCount = new Set(allUseCases.map((uc) => fieldOf(uc, 'Analytics Technique', 'analytics_technique')).filter(Boolean)).size;
   const v130Session = !!(results && (results.discovery_type || results.strategy_coverage));
-  const strategyFilter = strategyFilterOptions(allUseCases.map((uc) => uc?._v130), results?.strategy_coverage?.entries);
-  const strategyOptions = strategyFilter.notAligned > 0
-    ? [...strategyFilter.options, { value: NOT_ALIGNED_FILTER, label: 'Not aligned', count: strategyFilter.notAligned, depth: 0 }]
-    : strategyFilter.options;
-  const bizPriorityCounts = {};
-  let bizPriorityUseCases = 0;
-  for (const uc of allUseCases) {
-    const matched = priorityMatches(uc?._v130?.priorityText, bizPriorities);
-    if (matched.length) bizPriorityUseCases += 1;
-    for (const bp of matched) bizPriorityCounts[bp] = (bizPriorityCounts[bp] || 0) + 1;
-  }
-  const bizPriorityOptions = bizPriorities
-    .filter((bp) => bizPriorityCounts[bp])
-    .map((bp) => ({ value: bp, label: bp, count: bizPriorityCounts[bp] }));
-  const foundationsById = new Map(
-    (Array.isArray(results?.foundations) ? results.foundations : []).map((f) => [String(f.id), f])
+  const strategyEntries = results?.strategy_coverage?.entries;
+  const strategyOrder = useMemo(
+    () => strategyFilterOptions(allUseCases.map((uc) => uc?._v130), strategyEntries).options.map((o) => o.value),
+    [allUseCases, strategyEntries],
+  );
+  const foundationsList = results?.foundations;
+  const foundationsById = useMemo(
+    () => new Map((Array.isArray(foundationsList) ? foundationsList : []).map((f) => [String(f.id), f])),
+    [foundationsList],
   );
   const useCaseNameById = new Map();
   for (const uc of allUseCases) {
@@ -916,28 +466,9 @@ export default function ResultsPage({
       if (id != null && String(id).trim() && !useCaseNameById.has(String(id).trim())) useCaseNameById.set(String(id).trim(), String(uc.Name || id));
     }
   }
-  const feedbackLatest = latestFeedbackMap(feedbackState.latest);
+  const feedbackLatest = useMemo(() => latestFeedbackMap(feedbackState.latest), [feedbackState.latest]);
 
-  // Compute subdomain counts by domain
-  const subdomainsByDomain = {};
-  for (const uc of allUseCases) {
-    const d = uc?._domain || 'Unknown';
-    const sd = String(uc?.Subdomain || '');
-    if (!sd) continue;
-    if (!subdomainsByDomain[d]) subdomainsByDomain[d] = {};
-    subdomainsByDomain[d][sd] = (subdomainsByDomain[d][sd] || 0) + 1;
-  }
-
-  const uniqueSubdomainCount = (() => {
-    const seen = new Set();
-    for (const uc of allUseCases) {
-      const sd = String(uc?.Subdomain || '').trim();
-      if (sd) seen.add(sd);
-    }
-    return seen.size;
-  })();
-
-  const techniqueCount = techniques.length;
+  const uniqueSubdomainCount = new Set(allUseCases.map((uc) => String(uc?.Subdomain || '').trim()).filter(Boolean)).size;
 
   let _scoreSum = 0;
   let _scoreN = 0;
@@ -950,37 +481,15 @@ export default function ResultsPage({
   }
   const avgInspireScore = _scoreN > 0 ? _scoreSum / _scoreN : null;
 
-  // Compute domain counts for sidebar
-  const domainCounts = {};
-  for (const uc of allUseCases) {
-    const d = uc?._domain || 'Unknown';
-    domainCounts[d] = (domainCounts[d] || 0) + 1;
-  }
-
-  const hasActiveFilters =
-    searchQuery ||
-    filterDomain !== 'all' ||
-    filterSubdomain !== 'all' ||
-    filterPriority !== 'all' ||
-    filterType !== 'all' ||
-    filterTechnique !== 'all' ||
-    filterQuality !== 'all' ||
-    filterBeneficiary !== 'all' ||
-    filterSponsor !== 'all' ||
-    filterStrategy !== 'all' ||
-    filterBizPriority !== 'all' ||
-    filterHasGenie !== 'all' ||
-    showBestOfBestOnly;
-
-  const clearAllFilters = () => {
-    setSearchQuery(''); setFilterDomain('all'); setFilterSubdomain('all');
-    setFilterPriority('all'); setFilterType('all'); setFilterTechnique('all');
-    setFilterQuality('all');
-    setFilterBeneficiary('all'); setFilterSponsor('all');
-    setFilterStrategy('all'); setFilterBizPriority('all');
-    setFilterHasGenie('all');
-    setShowBestOfBestOnly(false);
-  };
+  const notebookRun = implementView.notebook_run;
+  const rows = useMemo(() => catalogRows(allUseCases, {
+    statusOf: (uc, id) => (id ? implementState(implementLatestById[id] || null, notebookStatus(uc, notebookRun)) : null),
+    feedbackLatest,
+    favorites,
+    bizPriorities,
+    foundationsById,
+    resolveTable,
+  }), [allUseCases, implementLatestById, notebookRun, feedbackLatest, favorites, bizPriorities, foundationsById, resolveTable]);
 
   // Load generation artifacts — tries multiple path variations
   const artifactHeaders = useCallback(() => {
@@ -1224,6 +733,24 @@ export default function ResultsPage({
   }, [generationPath, selectedSessionId, token, serverEnvHasPat, loadArtifacts]);
 
   const highPriorityCount = computeHighPriorityCount(allUseCases);
+  const canImplement = !!(selectedSessionId && inspireDb && warehouseId);
+  const startImplement = (uc) => { setImplementFocus(null); setImplementUc(uc); };
+  const feedbackCurrentFor = (uc) => (uc?._v130?.useCaseKey ? feedbackLatest[uc._v130.useCaseKey] : undefined);
+  const detailPropsFor = (uc) => {
+    const key = uc?._v130?.useCaseKey;
+    return {
+      resolveTable,
+      token,
+      databricksHost,
+      allNotebookFiles,
+      knownPriorities: bizPriorities,
+      foundationsById,
+      feedbackAvailable: feedbackState.available,
+      feedbackBusy: !!key && feedbackBusyKey === key,
+      feedbackError: key && feedbackError.key === key ? feedbackError.message : '',
+      onFeedback: (status, reason) => submitFeedback(uc, uc._v130, status, reason),
+    };
+  };
 
   return (
     <div
@@ -1246,7 +773,7 @@ export default function ResultsPage({
             >
               <BarChart3
                 size={results ? 20 : 24}
-                className="text-db-red"
+                className="text-db-red-fg"
                 strokeWidth={1.75}
                 aria-hidden
               />
@@ -1274,7 +801,6 @@ export default function ResultsPage({
                   setResults(null);
                   setUsecases(null);
                   setError('');
-                  setExpandedUseCase(null);
                   setSelectedSessionId(null);
                   setSessionsLoaded(false);
                   setIsProgressive(false);
@@ -1288,9 +814,9 @@ export default function ResultsPage({
           </div>
         </div>
       )}
-      {embedded && filteredUseCases.length > 0 && (
+      {embedded && allUseCases.length > 0 && (
         <div className="flex items-center gap-2 mb-4">
-          <BarChart3 size={18} className="text-db-red shrink-0" strokeWidth={1.75} aria-hidden />
+          <BarChart3 size={18} className="text-db-red-fg shrink-0" strokeWidth={1.75} aria-hidden />
           <span className="text-sm font-bold text-text-primary">
             {allUseCases.length} Use Cases Generated
           </span>
@@ -1314,9 +840,9 @@ export default function ResultsPage({
                         className="w-10 h-10 rounded-xl flex items-center justify-center animate-pulse"
                         style={{ backgroundColor: 'rgba(255,54,33,0.1)', animationDelay: `${i * 400}ms` }}
                       >
-                        {i === 0 && <Database size={18} className="text-db-red" />}
-                        {i === 1 && <Search size={18} className="text-db-red" />}
-                        {i === 2 && <FileText size={18} className="text-db-red" />}
+                        {i === 0 && <Database size={18} className="text-db-red-fg" />}
+                        {i === 1 && <Search size={18} className="text-db-red-fg" />}
+                        {i === 2 && <FileText size={18} className="text-db-red-fg" />}
                       </div>
                       <span className="text-[10px] font-medium text-text-tertiary">{step}</span>
                     </div>
@@ -1343,7 +869,7 @@ export default function ResultsPage({
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-text-primary mb-1">Could not load sessions</p>
                   <p className="text-xs text-text-secondary mb-3">{sessionsError}</p>
-                  <button onClick={() => handleLoadSessions(false)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-db-red bg-db-red-50 border border-db-red/20 rounded-lg hover:bg-db-red/10 transition-smooth">
+                  <button onClick={() => handleLoadSessions(false)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-db-red-fg bg-db-red-50 border border-db-red/20 rounded-lg hover:bg-db-red/10 transition-smooth">
                     <RefreshCw size={12} /> Retry
                   </button>
                 </div>
@@ -1428,7 +954,7 @@ export default function ResultsPage({
           {/* Loading header */}
           <div className="flex items-center gap-3 px-1">
             <div className="w-8 h-8 rounded-lg bg-db-red/10 flex items-center justify-center">
-              <Loader2 size={16} className="animate-spin text-db-red" />
+              <Loader2 size={16} className="animate-spin text-db-red-fg" />
             </div>
             <div>
               <p className="text-sm font-semibold text-text-primary">Analyzing results...</p>
@@ -1497,9 +1023,9 @@ export default function ResultsPage({
           >
             <div className="flex items-center gap-2 border-b border-border bg-gradient-to-r from-db-red-50/90 to-surface px-4 py-3 sm:px-6">
               <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-db-red/10 ring-1 ring-inset ring-db-red/20">
-                <FileText size={12} className="text-db-red" strokeWidth={2} />
+                <FileText size={12} className="text-db-red-fg" strokeWidth={2} />
               </div>
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-db-red/80">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-db-red-fg">
                 Executive summary
               </h2>
             </div>
@@ -1518,7 +1044,7 @@ export default function ResultsPage({
                 if (!domRaw.trim()) return null;
                 return (
                   <details className="mt-3 border-t border-border pt-3 group">
-                    <summary className="cursor-pointer list-none text-[11px] font-semibold uppercase tracking-[0.18em] text-text-tertiary transition-colors hover:text-db-red [&::-webkit-details-marker]:hidden flex items-center gap-1.5">
+                    <summary className="cursor-pointer list-none text-[11px] font-semibold uppercase tracking-[0.18em] text-text-tertiary transition-colors hover:text-db-red-fg [&::-webkit-details-marker]:hidden flex items-center gap-1.5">
                       <ChevronRight
                         size={14}
                         className="shrink-0 text-text-tertiary transition-transform duration-200 group-open:rotate-90"
@@ -1570,7 +1096,7 @@ export default function ResultsPage({
                     </div>
                     <div className="w-px h-8 bg-border" />
                     <div className="text-center">
-                      <div className="text-lg font-bold text-db-red tabular-nums tracking-tight">{highPriorityCount}</div>
+                      <div className="text-lg font-bold text-db-red-fg tabular-nums tracking-tight">{highPriorityCount}</div>
                       <div className="text-[9px] text-text-tertiary uppercase tracking-[0.18em] font-semibold">High Priority</div>
                     </div>
                   </div>
@@ -1637,7 +1163,7 @@ export default function ResultsPage({
                               {isPreviewable && (
                                 <button
                                   type="button"
-                                  className="text-[10px] text-info hover:underline font-medium flex items-center gap-0.5"
+                                  className="text-[10px] text-info-fg hover:underline font-medium flex items-center gap-0.5"
                                   onClick={(e) => { e.stopPropagation(); togglePreview(f.path, f.name); }}
                                 >
                                   {previewFile === f.path ? <><Eye size={10} /> Hide</> : <><Eye size={10} /> Preview</>}
@@ -1654,7 +1180,7 @@ export default function ResultsPage({
                               )}
                               <button
                                 type="button"
-                                className="text-[10px] text-db-red hover:underline font-medium flex items-center gap-0.5"
+                                className="text-[10px] text-db-red-fg hover:underline font-medium flex items-center gap-0.5"
                                 onClick={(e) => { e.stopPropagation(); downloadFile(f.path, f.name); }}
                               >
                                 <Download size={10} /> Download
@@ -1665,7 +1191,7 @@ export default function ResultsPage({
                         {isDir && (
                           <button
                             type="button"
-                            className="text-[10px] text-info hover:underline font-medium flex items-center gap-0.5 shrink-0"
+                            className="text-[10px] text-info-fg hover:underline font-medium flex items-center gap-0.5 shrink-0"
                             onClick={(e) => { e.stopPropagation(); downloadFile(f.path, `${f.name}.zip`); }}
                             title="Download folder"
                           >
@@ -1744,7 +1270,7 @@ export default function ResultsPage({
                           {folderData?.error && (
                             <div className="ml-6 py-1">
                               <span className="text-[10px] text-text-tertiary">{folderData.error}</span>
-                              <button type="button" onClick={(e) => { e.stopPropagation(); loadFolder(f.path); }} className="ml-2 text-[10px] text-db-red hover:underline">Retry</button>
+                              <button type="button" onClick={(e) => { e.stopPropagation(); loadFolder(f.path); }} className="ml-2 text-[10px] text-db-red-fg hover:underline">Retry</button>
                             </div>
                           )}
                           {folderData && !folderData.loading && !folderData.error && folderData.files.length === 0 && (
@@ -1773,14 +1299,14 @@ export default function ResultsPage({
                   className="w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-bg-subtle/50 transition-smooth"
                 >
                   <div className="w-7 h-7 rounded-lg bg-info/10 flex items-center justify-center">
-                    <FolderOpen size={14} className="text-info" />
+                    <FolderOpen size={14} className="text-info-fg" />
                   </div>
                   <div className="flex-1">
                     <h3 className="text-xs font-bold text-text-primary">Generated Artifacts</h3>
                     <p className="text-[10px] text-text-tertiary font-mono">{generationPath}</p>
                   </div>
                   {artifactsRootFiles && artifactsRootFiles.length > 0 && (
-                    <span className="text-[10px] text-info font-semibold bg-info-bg px-2 py-0.5 rounded-full">
+                    <span className="text-[10px] text-info-fg font-semibold bg-info-bg px-2 py-0.5 rounded-full">
                       {artifactsRootFiles.length} item{artifactsRootFiles.length > 1 ? 's' : ''}
                     </span>
                   )}
@@ -1817,7 +1343,7 @@ export default function ResultsPage({
                             lastArtifactsLoadKeyRef.current = '';
                             loadArtifacts(generationPath);
                           }}
-                          className="mt-2 text-[10px] text-db-red hover:underline font-medium"
+                          className="mt-2 text-[10px] text-db-red-fg hover:underline font-medium"
                         >
                           Retry
                         </button>
@@ -1855,15 +1381,15 @@ export default function ResultsPage({
             const EXT_STYLES = {
               pdf:  { bg: 'bg-error-bg', text: 'text-error-fg' },
               csv:  { bg: 'bg-success-bg', text: 'text-success-fg' },
-              xlsx: { bg: 'bg-info-bg', text: 'text-info' },
-              xls:  { bg: 'bg-info-bg', text: 'text-info' },
+              xlsx: { bg: 'bg-info-bg', text: 'text-info-fg' },
+              xls:  { bg: 'bg-info-bg', text: 'text-info-fg' },
             };
 
             return (
               <div className="bg-surface border border-border/70 rounded-xl p-4 mb-6 shadow-elevated">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="flex h-6 w-6 items-center justify-center rounded-md bg-db-red/10 ring-1 ring-inset ring-db-red/20">
-                    <FileText size={12} className="text-db-red" strokeWidth={2} />
+                    <FileText size={12} className="text-db-red-fg" strokeWidth={2} />
                   </div>
                   <h3 className="text-[10px] font-bold text-text-secondary uppercase tracking-[0.18em]">Quick Access — Documents & Data</h3>
                 </div>
@@ -1877,13 +1403,13 @@ export default function ResultsPage({
                         <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${style.bg} ${style.text}`}>{ext}</span>
                         <span className="text-text-primary font-medium truncate max-w-[200px]">{f.name}</span>
                         <div className="flex items-center gap-1.5 ml-1 border-l border-border pl-2">
-                          <button type="button" className="text-[10px] text-info hover:text-info font-medium flex items-center gap-0.5 hover:underline" onClick={() => togglePreview(f.path, f.name)}>
+                          <button type="button" className="text-[10px] text-info-fg hover:text-info-fg font-medium flex items-center gap-0.5 hover:underline" onClick={() => togglePreview(f.path, f.name)}>
                             {isActive ? <><EyeOff size={9} /> Hide</> : <><Eye size={9} /> Preview</>}
                           </button>
                           <button type="button" className="text-[10px] text-success-fg font-medium flex items-center gap-0.5 hover:underline" onClick={() => openFileInTab(f.path, f.name)}>
                             <ExternalLink size={9} /> Open
                           </button>
-                          <button type="button" className="text-[10px] text-db-red font-medium flex items-center gap-0.5 hover:underline" onClick={() => downloadFile(f.path, f.name)}>
+                          <button type="button" className="text-[10px] text-db-red-fg font-medium flex items-center gap-0.5 hover:underline" onClick={() => downloadFile(f.path, f.name)}>
                             <Download size={9} />
                           </button>
                         </div>
@@ -1960,7 +1486,7 @@ export default function ResultsPage({
                   if (sub?.files) collectNb(sub.files);
                 } else if ((f.name || '').toLowerCase().endsWith('.ipynb')) {
                   const uc = findUcForNotebookFilename(f.name, allUseCases);
-                  if (uc && useCaseHasShippedGenieCode(uc)) notebookFiles.push(f);
+                  if (uc && hasShippedGenieCode(uc)) notebookFiles.push(f);
                 }
               }
             };
@@ -1981,7 +1507,7 @@ export default function ResultsPage({
                   className="flex w-full items-center justify-between gap-3 rounded-lg text-left outline-none transition-smooth hover:bg-bg-subtle/80 focus-visible:ring-2 focus-visible:ring-db-red/25 -mx-1 px-1 py-0.5"
                 >
                   <h3 className="text-[10px] font-bold text-text-secondary uppercase tracking-[0.18em] flex items-center gap-2 min-w-0">
-                    <Sparkles size={12} className="text-db-red shrink-0" aria-hidden />
+                    <Sparkles size={12} className="text-db-red-fg shrink-0" aria-hidden />
                     <span className="truncate">Quick Access — Genie instructions ready</span>
                   </h3>
                   <div className="flex items-center gap-2 shrink-0">
@@ -2027,7 +1553,7 @@ export default function ResultsPage({
                                 >
                                   <ExternalLink
                                     size={12}
-                                    className="shrink-0 text-db-red opacity-80 group-hover:opacity-100"
+                                    className="shrink-0 text-db-red-fg opacity-80 group-hover:opacity-100"
                                     aria-hidden
                                   />
                                   <span className="truncate min-w-0 leading-snug">{f.name}</span>
@@ -2079,8 +1605,8 @@ export default function ResultsPage({
               <div className="grid grid-cols-1 lg:grid-cols-3 items-start gap-3 mb-4">
                 <StrategyCoveragePanel
                   coverage={results.strategy_coverage}
-                  onSelectPath={(path) => setFilterStrategy(path)}
-                  onSelectNotAligned={() => setFilterStrategy(NOT_ALIGNED_FILTER)}
+                  onSelectPath={(path) => setCatalogState((s) => setFacetValues(s, 'strategy', [path]))}
+                  onSelectNotAligned={() => setCatalogState((s) => setFacetValues(s, 'strategy', [STRATEGY_NOT_ALIGNED]))}
                 />
                 <FoundationsPanel foundations={results.foundations} deliveryOrder={results.delivery_order} nameById={useCaseNameById} />
                 <FeedbackPanel results={results} feedback={feedbackState} />
@@ -2088,488 +1614,47 @@ export default function ResultsPage({
             </>
           )}
 
-          {/* ═══ Two-Column: sticky sidebar rail; use-case list scrolls independently in the right column ═══ */}
-          <div className="flex items-stretch gap-5 min-h-0">
-            {/* ── Left Sidebar: stays fixed in viewport while the card list scrolls (sticky + max height) ── */}
-            <div
-              className={`sticky z-10 flex w-56 shrink-0 flex-col gap-3 self-start overflow-y-auto overscroll-y-contain pr-1 [-webkit-overflow-scrolling:touch] min-h-0 ${
-                embedded
-                  ? 'top-4 max-h-[min(32rem,72vh)]'
-                  : 'top-20 max-h-[calc(100dvh-5rem)]'
-              }`}
-            >
-              <div className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => setDomainPanelOpen((o) => !o)}
-                  className="flex w-full shrink-0 items-start gap-2 border-b border-border bg-gradient-to-b from-db-red-50 to-surface px-3 py-3 text-left transition-smooth hover:from-db-red-50/80"
-                >
-                  <ChevronRight
-                    size={14}
-                    className={`mt-0.5 shrink-0 text-text-tertiary transition-transform duration-200 ${domainPanelOpen ? 'rotate-90' : ''}`}
-                  />
-                  <Layers size={14} className="mt-0.5 shrink-0 text-db-red" />
-                  <div className="min-w-0 flex-1">
-                    <span className="text-xs font-bold text-text-primary">Domains</span>
-                    <p className="text-[10px] text-text-tertiary mt-0.5">
-                      {domains.length} domain{domains.length !== 1 ? 's' : ''} &middot; {allUseCases.length} use cases
-                    </p>
-                    {!domainPanelOpen && (filterDomain !== 'all' || filterSubdomain !== 'all') && (
-                      <p
-                        className="mt-1 truncate text-[10px] font-medium text-db-red"
-                        title={filterSubdomain !== 'all' ? `${filterDomain} › ${filterSubdomain}` : filterDomain}
-                      >
-                        Filter:{' '}
-                        {filterSubdomain !== 'all'
-                          ? `${filterDomain} › ${filterSubdomain}`
-                          : filterDomain}
-                      </p>
-                    )}
-                  </div>
-                </button>
-
-                {/* Domain list — shown when panel expanded */}
-                {domainPanelOpen && (
-                <div className="p-1.5 space-y-0.5">
-                  {/* All domains */}
-                  <button
-                    onClick={() => setFilterDomain('all')}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-smooth ${
-                      filterDomain === 'all'
-                        ? 'bg-db-red-50 border border-db-red/20'
-                        : 'hover:bg-bg-subtle border border-transparent'
-                    }`}
-                  >
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
-                      filterDomain === 'all' ? 'bg-db-red/10' : 'bg-bg-subtle'
-                    }`}>
-                      <Layers size={10} className={filterDomain === 'all' ? 'text-db-red' : 'text-text-tertiary'} />
-                    </div>
-                    <span className={`text-[11px] font-semibold flex-1 ${
-                      filterDomain === 'all' ? 'text-db-red' : 'text-text-primary'
-                    }`}>
-                      All Domains
-                    </span>
-                    <span className={`text-[10px] font-mono tabular-nums ${filterDomain === 'all' ? 'text-db-red' : 'text-text-tertiary'}`}>
-                      {allUseCases.length}
-                    </span>
-                  </button>
-
-                  {/* Individual domains with expandable subdomains */}
-                  {domains.map((d) => {
-                    const count = domainCounts[d] || 0;
-                    const active = filterDomain === d;
-                    const highPriCount = allUseCases.filter(
-                      (uc) => uc._domain === d && ['Ultra High', 'Very High', 'High'].includes(String(uc?.Priority || ''))
-                    ).length;
-                    const subs = subdomainsByDomain[d] || {};
-                    const hasSubs = Object.keys(subs).length > 0;
-                    const isExpanded = !!expandedDomains[d];
-
-                    return (
-                      <div key={d}>
-                        <div className="flex items-center">
-                          {hasSubs && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setExpandedDomains(prev => ({ ...prev, [d]: !prev[d] })); }}
-                              className="p-0.5 mr-0.5 rounded hover:bg-bg-subtle transition-smooth"
-                            >
-                              <ChevronRight size={10} className={`text-text-tertiary transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
-                            </button>
-                          )}
-                          <button
-                            onClick={() => { setFilterDomain(active ? 'all' : d); setFilterSubdomain('all'); }}
-                            className={`flex-1 flex items-start gap-2 px-2 py-2 rounded-lg text-left transition-smooth ${
-                              active
-                                ? 'bg-db-red-50 border border-db-red/20'
-                                : 'hover:bg-bg-subtle border border-transparent'
-                            }`}
-                          >
-                            <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                              active ? 'bg-db-red/10' : 'bg-bg-subtle'
-                            }`}>
-                              <Building2 size={10} className={active ? 'text-db-red' : 'text-text-tertiary'} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <span className={`text-[11px] font-semibold block truncate ${
-                                active ? 'text-db-red' : 'text-text-primary'
-                              }`}>
-                                {d}
-                              </span>
-                              <div className="flex items-center gap-2 mt-1">
-                                <span className="text-[9px] text-text-tertiary font-mono tabular-nums">{count} use case{count !== 1 ? 's' : ''}</span>
-                                {highPriCount > 0 && (
-                                  <span className="text-[9px] text-db-red font-medium">{highPriCount} high pri</span>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        </div>
-                        {/* Subdomain list */}
-                        {isExpanded && hasSubs && (
-                          <div className="ml-7 mt-0.5 space-y-0.5">
-                            {Object.entries(subs).map(([sd, sdCount]) => {
-                              const sdActive = filterSubdomain === sd && filterDomain === d;
-                              return (
-                                <button
-                                  key={sd}
-                                  onClick={() => {
-                                    setFilterDomain(d);
-                                    setFilterSubdomain(sdActive ? 'all' : sd);
-                                  }}
-                                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-smooth ${
-                                    sdActive
-                                      ? 'bg-db-red-50/70 text-db-red'
-                                      : 'text-text-secondary hover:bg-bg-subtle'
-                                  }`}
-                                >
-                                  <span className={`text-[10px] font-medium truncate flex-1 ${sdActive ? 'text-db-red' : ''}`}>{sd}</span>
-                                  <span className={`text-[9px] font-mono ${sdActive ? 'text-db-red' : 'text-text-tertiary'}`}>{sdCount}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                )}
-              </div>
-
-              {strategyFilter.withData > 0 && (
-                <SidebarFilterPanel
-                  title="Strategy"
-                  subtitle={`${strategyFilter.withData - strategyFilter.notAligned} aligned \u00b7 ${strategyFilter.notAligned} not aligned`}
-                  icon={Compass}
-                  open={strategyPanelOpen}
-                  onToggle={() => setStrategyPanelOpen((o) => !o)}
-                  allLabel="All use cases"
-                  allCount={allUseCases.length}
-                  options={strategyOptions}
-                  value={filterStrategy}
-                  onChange={setFilterStrategy}
+          {allUseCases.length > 0 && (
+            <UseCaseCatalog
+              rows={rows}
+              business={feedbackBusiness}
+              state={catalogState}
+              onStateChange={setCatalogState}
+              strategyOrder={strategyOrder}
+              bizPriorityOrder={bizPriorities}
+              embedded={embedded}
+              onToggleFavorite={toggleFavoriteRow}
+              onOpenImplement={onOpenImplement && selectedSessionId ? (row) => onOpenImplement(String(selectedSessionId), row.id) : undefined}
+              renderCard={(row, { expanded, onToggle }) => (
+                <UseCaseCard
+                  key={row.key}
+                  uc={row.uc}
+                  index={row.index}
+                  expanded={expanded}
+                  onToggle={onToggle}
+                  isFavorite={row.favorite}
+                  onToggleFavorite={() => toggleFavorite(row.uc)}
+                  v130={row.uc._v130}
+                  feedbackCurrent={feedbackCurrentFor(row.uc)}
+                  implementStatus={row.status}
+                  onImplement={canImplement ? () => startImplement(row.uc) : undefined}
+                  {...detailPropsFor(row.uc)}
                 />
               )}
-
-              {bizPriorityOptions.length > 0 && (
-                <SidebarFilterPanel
-                  title="Business priorities"
-                  subtitle={`${bizPriorityOptions.length} of ${bizPriorities.length} priorities in use`}
-                  icon={Flag}
-                  open={bizPriorityPanelOpen}
-                  onToggle={() => setBizPriorityPanelOpen((o) => !o)}
-                  allLabel="All priorities"
-                  allCount={bizPriorityUseCases}
-                  options={bizPriorityOptions}
-                  value={filterBizPriority}
-                  onChange={setFilterBizPriority}
+              renderDetail={(row) => (
+                <UseCaseDetailBody
+                  key={row.key}
+                  uc={row.uc}
+                  v130={row.uc._v130}
+                  feedbackCurrent={feedbackCurrentFor(row.uc)}
+                  {...detailPropsFor(row.uc)}
                 />
               )}
-
-              {beneficiaries.length > 0 && (
-                <SidebarFilterPanel
-                  title="Beneficiaries"
-                  subtitle={`${beneficiaries.length} role${beneficiaries.length !== 1 ? 's' : ''} \u00b7 who benefits`}
-                  icon={Users}
-                  open={beneficiaryPanelOpen}
-                  onToggle={() => setBeneficiaryPanelOpen((o) => !o)}
-                  allLabel="All beneficiaries"
-                  allCount={allUseCases.filter((uc) => beneficiaryFromUc(uc)).length}
-                  options={beneficiaries.map((b) => ({ value: b, label: b, count: beneficiaryCounts[b] || 0 }))}
-                  value={filterBeneficiary}
-                  onChange={setFilterBeneficiary}
-                />
-              )}
-
-              {sponsors.length > 0 && (
-                <SidebarFilterPanel
-                  title="Sponsors"
-                  subtitle={`${sponsors.length} sponsor${sponsors.length !== 1 ? 's' : ''} \u00b7 executive / owner`}
-                  icon={Crown}
-                  open={sponsorPanelOpen}
-                  onToggle={() => setSponsorPanelOpen((o) => !o)}
-                  allLabel="All sponsors"
-                  allCount={allUseCases.filter((uc) => sponsorFromUc(uc)).length}
-                  options={sponsors.map((sp) => ({ value: sp, label: sp, count: sponsorCounts[sp] || 0 }))}
-                  value={filterSponsor}
-                  onChange={setFilterSponsor}
-                />
-              )}
-            </div>
-
-            {/* ── Right Panel: filters stay put; use case cards scroll in a bounded pane ── */}
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
-              {/* Filter toolbar */}
-              <div className="mb-4 shrink-0 bg-surface border border-border/70 rounded-xl shadow-elevated overflow-hidden">
-                <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
-                  {/* Search */}
-                  <div className="relative flex-1">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search use cases..."
-                      className="w-full pl-9 pr-3 py-1.5 text-xs border border-border rounded-lg bg-bg text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-db-red/30 focus:ring-1 focus:ring-db-red/20 transition-smooth"
-                    />
-                  </div>
-
-                  {/* Favorites toggle */}
-                  <button
-                    type="button"
-                    onClick={() => setShowFavoritesOnly(p => !p)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-smooth ${
-                      showFavoritesOnly
-                        ? 'bg-rose-50 text-rose-600 border-rose-200'
-                        : 'bg-bg text-text-secondary border-border hover:border-border-strong'
-                    }`}
-                    title={showFavoritesOnly ? 'Show all use cases' : 'Show favorites only'}
-                  >
-                    <Heart size={13} className={showFavoritesOnly ? 'fill-rose-500 text-rose-600' : ''} />
-                    {favoriteCount(favorites) > 0 && (
-                      <span className="text-[10px]">{favoriteCount(favorites)}</span>
-                    )}
-                  </button>
-
-                  {starredCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowBestOfBestOnly(!showBestOfBestOnly)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-smooth ${
-                        showBestOfBestOnly
-                          ? 'bg-amber-50 text-amber-700 border-amber-300'
-                          : 'bg-bg text-text-secondary border-border hover:border-border-strong'
-                      }`}
-                      title={showBestOfBestOnly ? 'Show all use cases' : 'Show Best of Best use cases only'}
-                      aria-pressed={showBestOfBestOnly}
-                    >
-                      <Star size={13} className={showBestOfBestOnly ? 'fill-amber-400 text-amber-500' : ''} />
-                      Best of Best
-                      <span className="text-[10px]">{starredCount}</span>
-                    </button>
-                  )}
-
-                  {/* Priority pills */}
-                  {priorities.length > 0 && (
-                    <div className="flex items-center gap-1">
-                      {PRIORITY_ORDER.filter((p) => priorities.includes(p)).map((p) => {
-                        const active = filterPriority === p;
-                        const cnt = allUseCases.filter((uc) => uc.Priority === p).length;
-                        return (
-                          <button
-                            key={p}
-                            onClick={() => setFilterPriority(active ? 'all' : p)}
-                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-smooth border ${
-                              active
-                                ? 'border-db-red/30 bg-db-red-50 text-db-red'
-                                : 'border-transparent text-text-secondary hover:bg-bg-subtle'
-                            }`}
-                          >
-                            {p.replace('Ultra ', 'U-').replace('Very ', 'V-')}
-                            <span className={`font-mono ${active ? 'text-db-red' : 'text-text-tertiary'}`}>{cnt}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Type filter */}
-                  {types.length > 0 && (
-                    <select
-                      value={filterType}
-                      onChange={(e) => setFilterType(e.target.value)}
-                      className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth"
-                    >
-                      <option value="all">All Types</option>
-                      {types.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  )}
-
-                  {/* Technique filter */}
-                  {techniques.length > 0 && (
-                    <select
-                      value={filterTechnique}
-                      onChange={(e) => setFilterTechnique(e.target.value)}
-                      className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth"
-                    >
-                      <option value="all">All Techniques</option>
-                      {techniques.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  )}
-
-                  {/* Quality filter */}
-                  {qualities.length > 0 && (
-                    <select
-                      value={filterQuality}
-                      onChange={(e) => setFilterQuality(e.target.value)}
-                      className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth"
-                    >
-                      <option value="all">All Quality</option>
-                      {qualities.map((q) => (
-                        <option key={q} value={q}>{q}</option>
-                      ))}
-                    </select>
-                  )}
-
-                  {/* Genie instruction (has / no) */}
-                  <select
-                    value={filterHasGenie}
-                    onChange={(e) => setFilterHasGenie(e.target.value)}
-                    title="Filter by whether a Genie instruction exists on the use case"
-                    className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth min-w-[10.5rem]"
-                  >
-                    <option value="all">Genie instruction: Any</option>
-                    <option value="yes">Has Genie: Yes</option>
-                    <option value="no">Has Genie: No</option>
-                  </select>
-
-                  {/* Sort */}
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth"
-                  >
-                    <option value="inspire">Sort: Inspire score (high → low)</option>
-                    <option value="priority">Sort: Priority tier</option>
-                    <option value="domain">Sort: Domain</option>
-                    <option value="name">Sort: Name</option>
-                  </select>
-
-                  {hasActiveFilters && (
-                    <button
-                      onClick={clearAllFilters}
-                      className="text-[11px] text-db-red hover:underline font-medium shrink-0"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-
-                {/* Active filter chips */}
-                {hasActiveFilters && (
-                  <div className="px-4 py-2 bg-db-red-50/50 border-t border-border flex items-center gap-2 flex-wrap">
-                    <Filter size={12} className="text-db-red shrink-0" />
-                    <span className="text-[11px] text-text-secondary">
-                      <span className="font-semibold text-text-primary tabular-nums">{filteredUseCases.length}</span> of{' '}
-                      <span className="font-semibold text-text-primary tabular-nums">{allUseCases.length}</span> use cases
-                    </span>
-                    {filterDomain !== 'all' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red text-[10px] font-medium border border-db-red/20">
-                        {filterDomain}
-                        <button onClick={() => { setFilterDomain('all'); setFilterSubdomain('all'); }} className="hover:text-db-red-hover">&times;</button>
-                      </span>
-                    )}
-                    {filterSubdomain !== 'all' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red text-[10px] font-medium border border-db-red/20">
-                        Sub: {filterSubdomain}
-                        <button onClick={() => setFilterSubdomain('all')} className="hover:text-db-red-hover">&times;</button>
-                      </span>
-                    )}
-                    {filterPriority !== 'all' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red text-[10px] font-medium border border-db-red/20">
-                        {filterPriority}
-                        <button onClick={() => setFilterPriority('all')} className="hover:text-db-red-hover">&times;</button>
-                      </span>
-                    )}
-                    {filterType !== 'all' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red text-[10px] font-medium border border-db-red/20">
-                        {filterType}
-                        <button onClick={() => setFilterType('all')} className="hover:text-db-red-hover">&times;</button>
-                      </span>
-                    )}
-                    {filterTechnique !== 'all' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red text-[10px] font-medium border border-db-red/20">
-                        {filterTechnique}
-                        <button onClick={() => setFilterTechnique('all')} className="hover:text-db-red-hover">&times;</button>
-                      </span>
-                    )}
-                    {filterQuality !== 'all' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red text-[10px] font-medium border border-db-red/20">
-                        Q: {filterQuality}
-                        <button onClick={() => setFilterQuality('all')} className="hover:text-db-red-hover">&times;</button>
-                      </span>
-                    )}
-                    {filterHasGenie !== 'all' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red text-[10px] font-medium border border-db-red/20">
-                        Genie: {filterHasGenie === 'yes' ? 'Yes' : 'No'}
-                        <button type="button" onClick={() => setFilterHasGenie('all')} className="hover:text-db-red-hover">&times;</button>
-                      </span>
-                    )}
-                    {searchQuery && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red text-[10px] font-medium border border-db-red/20">
-                        "{searchQuery}"
-                        <button onClick={() => setSearchQuery('')} className="hover:text-db-red-hover">&times;</button>
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Use case cards — only this region scrolls; sidebar + filter bar stay visible */}
-              <div
-                className={`overflow-y-auto overscroll-y-contain scroll-smooth pr-0.5 [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong/70 [&::-webkit-scrollbar-track]:bg-transparent ${
-                  embedded
-                    ? 'h-[min(28rem,60vh)]'
-                    : 'h-[min(calc(100dvh-12rem),56rem)]'
-                }`}
-                role="region"
-                aria-label="Use case list"
-              >
-                {filteredUseCases.length > 0 ? (
-                  <div className="space-y-3 pb-2">
-                    {filteredUseCases.map((uc, idx) => {
-                      const favKey = useCaseFavoriteKey(uc);
-                      const tid = useCaseTrackingId(uc);
-                      return (
-                      <UseCaseCard
-                        key={tid ? `genie-uc-${tid}` : favKey || String(uc.No ?? idx)}
-                        uc={uc}
-                        index={idx}
-                        expanded={expandedUseCase === (uc.No || idx)}
-                        onToggle={() =>
-                          setExpandedUseCase(expandedUseCase === (uc.No || idx) ? null : uc.No || idx)
-                        }
-                        isFavorite={!!(favKey && favorites[favKey])}
-                        onToggleFavorite={() => toggleFavorite(uc)}
-                        resolveTable={resolveTable}
-                        token={token}
-                        databricksHost={databricksHost}
-                        generationPath={generationPath}
-                        allNotebookFiles={allNotebookFiles}
-                        v130={uc._v130}
-                        knownPriorities={bizPriorities}
-                        foundationsById={foundationsById}
-                        feedbackAvailable={feedbackState.available}
-                        feedbackCurrent={uc._v130?.useCaseKey ? feedbackLatest[uc._v130.useCaseKey] : undefined}
-                        feedbackBusy={!!uc._v130?.useCaseKey && feedbackBusyKey === uc._v130.useCaseKey}
-                        feedbackError={uc._v130?.useCaseKey && feedbackError.key === uc._v130.useCaseKey ? feedbackError.message : ''}
-                        onFeedback={(status, reason) => submitFeedback(uc, uc._v130, status, reason)}
-                        implementStatus={tid ? implementState(implementLatestById[tid] || null, notebookStatus(uc, implementView.notebook_run)) : null}
-                        onImplement={selectedSessionId && inspireDb && warehouseId ? () => { setImplementFocus(null); setImplementUc(uc); } : undefined}
-                      />
-                      );
-                    })}
-                  </div>
-                ) : allUseCases.length > 0 ? (
-                  <div className="bg-surface border border-border/70 rounded-xl p-10 text-center shadow-elevated">
-                    <Search size={20} className="text-text-tertiary mx-auto mb-3" />
-                    <p className="text-sm text-text-secondary">No use cases match your filters.</p>
-                    <button
-                      onClick={clearAllFilters}
-                      className="text-xs text-db-red hover:underline mt-2 font-medium"
-                    >
-                      Clear all filters
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
+              renderActions={canImplement ? (row) => (
+                <ImplementCardActions className="" showStatus={false} onImplement={() => startImplement(row.uc)} />
+              ) : undefined}
+            />
+          )}
         </>
       )}
 
@@ -2602,7 +1687,7 @@ function StatCard({ label, value, icon: Icon, renderValue }) {
     <GlassCard tilt className="p-4">
       <div className="flex items-center gap-2 mb-1.5">
         <div className="flex h-5 w-5 items-center justify-center rounded-md bg-db-red/10 ring-1 ring-inset ring-db-red/15">
-          <Icon size={11} className="text-db-red" />
+          <Icon size={11} className="text-db-red-fg" />
         </div>
         <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-tertiary">{label}</span>
       </div>
@@ -2610,561 +1695,5 @@ function StatCard({ label, value, icon: Icon, renderValue }) {
         {renderValue != null ? renderValue : <AnimatedCounter value={Number(value) || 0} />}
       </div>
     </GlassCard>
-  );
-}
-
-/* ── Filter Select (glow style) ── */
-function GlowFilterSelect({ value, onChange, options, label, isSort }) {
-  return (
-    <select
-      className="px-2.5 py-2 text-sm border border-border rounded-md bg-surface text-text-primary glow-focus transition-smooth"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {isSort ? (
-        options.map((o) => (
-          <option key={o} value={o}>
-            Sort: {o}
-          </option>
-        ))
-      ) : (
-        <>
-          <option value="all">{label}</option>
-          {options.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </>
-      )}
-    </select>
-  );
-}
-
-/* ── Copy Button ── */
-function CopyButton({ text }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async (e) => {
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback for older browsers
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  return (
-    <button
-      onClick={handleCopy}
-      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-smooth border ${
-        copied
-          ? 'bg-success-bg text-success-fg border-success/20'
-          : 'bg-bg text-text-tertiary border-border hover:text-text-secondary hover:border-border-strong'
-      }`}
-      title={copied ? 'Copied!' : 'Copy to clipboard'}
-    >
-      {copied ? <Check size={10} /> : <Copy size={10} />}
-      {copied ? 'Copied' : 'Copy'}
-    </button>
-  );
-}
-
-/* ── Use Case Card ── */
-function UseCaseCard({
-  uc,
-  index,
-  expanded,
-  onToggle,
-  isFavorite,
-  onToggleFavorite,
-  implementStatus = null,
-  resolveTable,
-  token,
-  databricksHost,
-  generationPath,
-  allNotebookFiles,
-  v130 = null,
-  knownPriorities: priorityList = [],
-  foundationsById,
-  feedbackAvailable = null,
-  feedbackCurrent,
-  feedbackBusy = false,
-  feedbackError = '',
-  onFeedback,
-  onImplement,
-}) {
-  const [notebookContent, setNotebookContent] = useState(null);
-  const [notebookLoading, setNotebookLoading] = useState(false);
-  const [notebookError, setNotebookError] = useState('');
-  const [showNotebook, setShowNotebook] = useState(false);
-  /** Avoid duplicate auto-fetch when expanding a card (Strict Mode / deps). */
-  const pathPreviewStartedRef = useRef(false);
-  /** Safe object for hooks + render when parent omits uc (keeps hook order valid). */
-  const card = uc && typeof uc === 'object' ? uc : null;
-  const u = card || {};
-
-  const s = (v) => (v == null ? '' : String(v));      // safe-string helper
-  const stripHtml = (v) => (v == null ? '' : String(v).replace(/<[^>]*>/g, ' ').replace(/\s{2,}/g, ' ').trim());
-
-  const title =
-    s(u.Name) || s(u.use_case_name) || s(u.name) || s(u.title) || `Use Case ${index + 1}`;
-  const titlePlain = displayCleanText(stripHtml(title));
-  const descCandidate = displayCleanText(
-    stripHtml(s(u.description || u.Description || u.usecase || u.use_case || ''))
-  );
-  const shortCandidate = displayCleanText(stripHtml(s(u.short_name || u.shortName || '')));
-  let subtitleText = '';
-  if (descCandidate && descCandidate !== titlePlain) subtitleText = descCandidate;
-  else if (shortCandidate && shortCandidate !== titlePlain) subtitleText = shortCandidate;
-
-  const statement = stripHtml(u.Statement || u.description || u.problem_statement);
-  const domain = s(u._domain || u['Business Domain'] || u.domain);
-  const subdomain = s(u.Subdomain);
-  const ucType = s(u.type);
-  const technique = s(u['Analytics Technique']);
-  const priority = s(u.Priority || u.priority);
-  const solution = stripHtml(u.Solution || u.solution);
-  const businessValue = stripHtml(u['Business Value'] || u.business_impact);
-  const beneficiary = s(u.Beneficiary);
-  const sponsor = s(u.Sponsor);
-  const alignment = s(u['Business Priority Alignment']);
-  const rawSql = u.SQL || u.sql || u.sql_query || '';
-  const sql = typeof rawSql === 'string' ? rawSql : String(rawSql);
-  const resultTable = s(u.result_table);
-  const technicalDesign = stripHtml(u['Technical Design']);
-  const tablesInvolved = s(u['Tables Involved']);
-  const storedNotebookPath = s(u.notebook_path);
-  const genieInstruction = s(u.genie_instruction);
-  const shippedGenie = useCaseHasShippedGenieCode(u);
-
-  // Stored path, or match artifact tree — same for skeleton and shipped Genie (preview is useful for both).
-  // Notebook filenames follow: {use_case_id}-{sanitized_name}.ipynb (e.g. "N01-AI05-predict_churn.ipynb"); ids may be DB row ids after merge — see catalog_no.
-  const notebookPath =
-    storedNotebookPath ||
-    (() => {
-      if (!allNotebookFiles?.length) return '';
-      const prefixes = collectUseCaseNotebookFilenamePrefixes(u);
-      if (prefixes.length === 0) return '';
-      return (
-        allNotebookFiles.find((p) => {
-          const name = (p.split('/').pop() || '').trim().toLowerCase();
-          if (!name.endsWith('.ipynb')) return false;
-          const base = name.replace(/\.ipynb$/i, '');
-          return prefixes.some((prefix) => {
-            const pl = String(prefix).toLowerCase();
-            return (
-              base === pl ||
-              base.startsWith(`${pl}-`) ||
-              base.startsWith(`${pl}_`) ||
-              base.startsWith(`${pl}.`)
-            );
-          });
-        }) || ''
-      );
-    })();
-
-  const hasNotebook = !!(notebookPath || genieInstruction.trim());
-
-  const loadNotebookPreview = useCallback(async () => {
-    if (notebookContent) {
-      setShowNotebook(true);
-      return;
-    }
-    const gi = genieInstruction.trim();
-    if (gi) {
-      setNotebookContent(genieInstruction);
-      setShowNotebook(true);
-      return;
-    }
-    if (!notebookPath) return;
-    setNotebookLoading(true);
-    setNotebookError('');
-    try {
-      const headers = {};
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-        headers['X-DB-PAT-Token'] = token;
-      }
-      if (databricksHost) headers['X-Databricks-Host'] = databricksHost;
-      const paths = expandWorkspaceListCandidates(notebookPath);
-      let resp = null;
-      for (const pth of paths) {
-        const r = await fetch(`/api/workspace/export?path=${encodeURIComponent(pth)}`, { headers });
-        if (r.ok) {
-          resp = r;
-          break;
-        }
-      }
-      if (resp && resp.ok) {
-        const ct = resp.headers.get('content-type') || '';
-        let content = '';
-        if (ct.includes('application/json')) {
-          const data = await resp.json();
-          content = data.content || '';
-          if (data.content && data.file_type !== 'text') {
-            try {
-              content = atob(data.content);
-            } catch {
-              /* already decoded */
-            }
-          }
-        } else {
-          content = await resp.text();
-        }
-        setNotebookContent(content);
-        setShowNotebook(true);
-      } else {
-        pathPreviewStartedRef.current = false;
-        setNotebookError(
-          'Could not load notebook (export failed — check workspace path, PAT scope, and that the file exists under /Workspace).',
-        );
-      }
-    } catch (err) {
-      pathPreviewStartedRef.current = false;
-      setNotebookError(err.message || 'Failed to fetch');
-    }
-    setNotebookLoading(false);
-  }, [notebookContent, genieInstruction, notebookPath, token, databricksHost]);
-
-  useEffect(() => {
-    if (!expanded) {
-      pathPreviewStartedRef.current = false;
-      return;
-    }
-    if (!hasNotebook) return;
-    const gi = genieInstruction.trim();
-    if (gi) {
-      setNotebookContent(genieInstruction);
-      setShowNotebook(true);
-      return;
-    }
-    if (notebookPath && !pathPreviewStartedRef.current && !notebookContent && !notebookLoading) {
-      pathPreviewStartedRef.current = true;
-      void loadNotebookPreview();
-    }
-  }, [
-    expanded,
-    hasNotebook,
-    genieInstruction,
-    notebookPath,
-    notebookContent,
-    notebookLoading,
-    loadNotebookPreview,
-  ]);
-
-  const inspireScoreNum = inspireScoreFromUc(u);
-  /** Text priority (e.g. Very High) only — never numeric; never when Inspire score is shown. */
-  const showPriorityPill = !!(priority && inspireScoreNum == null && !isNumericPriorityString(priority));
-
-  const priorityLower = priority.toLowerCase();
-  const priorityStyle =
-    priorityLower.includes('ultra high') || priorityLower.includes('very high')
-      ? 'text-db-red bg-db-red-50 border-db-red/20'
-      : priorityLower.includes('high')
-        ? 'text-error-fg bg-error-bg border-error/20'
-        : priorityLower.includes('medium')
-          ? 'text-warning-fg bg-warning-bg border-warning/20'
-          : 'text-text-secondary bg-bg border-border';
-
-  const workspaceNotebookHref = workspaceNotebookUrl(databricksHost, notebookPath);
-
-  if (!card) return null;
-
-  return (
-    <div className="bg-surface border border-border/70 rounded-xl overflow-hidden shadow-elevated lift-on-hover hover:border-db-red/25">
-      {/* Header */}
-      <div className="flex items-center gap-0">
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
-          className={`pl-3 pr-1 py-4 shrink-0 transition-smooth ${isFavorite ? 'text-rose-500' : 'text-border hover:text-rose-400'}`}
-          aria-pressed={isFavorite}
-          title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-        >
-          <Heart size={16} className={isFavorite ? 'fill-rose-500' : ''} />
-        </button>
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        aria-label={expanded ? 'Collapse use case details' : 'Expand use case details'}
-        onClick={onToggle}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onToggle();
-          }
-        }}
-        className="flex-1 flex items-center gap-3 px-3 py-4 text-left hover:bg-bg-subtle transition-smooth cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-db-red/25"
-      >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <h3 className="text-lg sm:text-xl font-bold text-text-primary leading-snug">
-                  {titlePlain}
-                </h3>
-                {v130?.bestOfBest && (
-                  <span
-                    className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.14em] px-2 py-0.5 rounded-md border shrink-0 leading-none text-amber-700 border-amber-300 bg-amber-50"
-                    title={bestOfBestLabel(v130.bestOfBest)}
-                  >
-                    <Star size={11} className="fill-amber-400 text-amber-500" />
-                    Best of Best{v130.bestOfBest.rank ? ` #${v130.bestOfBest.rank}` : ''}
-                  </span>
-                )}
-                {belowBarLabelFromUseCase(u) && (
-                  <span
-                    className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.14em] px-2 py-0.5 rounded-md border shrink-0 leading-none text-warning-fg border-warning/35 bg-warning-bg"
-                    title={belowBarLabelFromUseCase(u)}
-                  >
-                    Below bar
-                  </span>
-                )}
-              </div>
-              {subtitleText && (
-                <p className="text-xs sm:text-sm text-text-secondary mt-1.5 leading-snug line-clamp-2">
-                  {subtitleText}
-                </p>
-              )}
-            </div>
-            {inspireScoreNum != null && (
-              <div
-                className="shrink-0 flex flex-col items-center justify-center rounded-2xl px-3.5 py-2 min-w-[4.25rem] bg-linear-to-b from-white to-rose-50/90 dark:from-bg-subtle dark:to-rose-950/20 border border-rose-200/70 dark:border-rose-800/40 shadow-sm shadow-rose-900/5"
-                title="Inspire composite score"
-              >
-                <span className="text-[8px] font-semibold text-rose-600 dark:text-rose-400 uppercase tracking-[0.18em] leading-none">
-                  Inspire
-                </span>
-                <span className="text-2xl font-extrabold text-db-red tabular-nums tracking-tight leading-none mt-1.5">
-                  {inspireScoreNum.toFixed(1)}
-                </span>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2 flex-wrap mt-2">
-            <StrategyChip info={v130} />
-            <FeedbackChip status={feedbackCurrent?.status || v130?.feedbackStatus} />
-            {showPriorityPill && (
-              <span
-                className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${priorityStyle}`}
-              >
-                {priority}
-              </span>
-            )}
-          </div>
-          <div className="text-[10px] text-text-tertiary mt-1.5 leading-snug">
-            {[domain || 'Unknown', subdomain, technique || ucType || '—'].filter(Boolean).join(' · ')}
-          </div>
-        </div>
-      </div>
-      </div>
-
-      <ImplementCardActions status={implementStatus} onImplement={onImplement} />
-
-      {/* Expanded */}
-      {expanded && (
-        <div className="border-t border-border px-5 py-5 bg-panel space-y-4">
-          {/* Statement & Solution */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <h4 className="text-[10px] font-bold text-db-red uppercase tracking-[0.18em] mb-1">
-                Problem Statement
-              </h4>
-              <p className="text-sm text-text-secondary leading-relaxed">
-                {statement || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <h4 className="text-[10px] font-bold text-success-fg uppercase tracking-[0.18em] mb-1">
-                Proposed Solution
-              </h4>
-              <p className="text-sm text-text-secondary leading-relaxed">
-                {solution || 'N/A'}
-              </p>
-            </div>
-          </div>
-
-          {/* Business Value */}
-          {businessValue && (
-            <div>
-              <h4 className="text-[10px] font-bold text-warning-fg uppercase tracking-[0.18em] mb-1">
-                Business Value
-              </h4>
-              <p className="text-sm text-text-secondary leading-relaxed">
-                {businessValue}
-              </p>
-            </div>
-          )}
-
-          <BestOfBestDetail info={v130} />
-          <UseCaseStrategyDetail info={v130} knownPriorities={priorityList} foundationsById={foundationsById} />
-
-          {/* Detail chips */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px]">
-            {[
-              { label: 'Beneficiary', val: beneficiary },
-              { label: 'Sponsor', val: sponsor },
-              { label: 'Quality', val: s(u.Quality) },
-              {
-                label: 'Priority Alignment',
-                val: alignment,
-              },
-              {
-                label: 'Tables',
-                val: String(tablesInvolved || '')
-                  .split(',')
-                  .map((t) => resolveTable(t.trim()))
-                  .join(', '),
-                mono: true,
-              },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className="bg-bg rounded-lg p-2.5 border border-border"
-              >
-                <span className="text-[9px] text-text-tertiary uppercase tracking-[0.18em] font-bold block mb-0.5">
-                  {item.label}
-                </span>
-                <span
-                  className={`text-text-secondary ${
-                    item.mono ? 'font-mono text-[10px]' : ''
-                  }`}
-                >
-                  {item.val || 'N/A'}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* SQL */}
-          {sql && !sql.startsWith('--') && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <h4 className="text-[10px] font-bold text-info uppercase tracking-[0.18em]">
-                  SQL Implementation
-                  {resultTable && (
-                    <span className="text-text-tertiary font-normal normal-case ml-1">
-                      &rarr; {resultTable}
-                    </span>
-                  )}
-                </h4>
-                <CopyButton text={sql} />
-              </div>
-              <div className="relative rounded-lg border border-border overflow-hidden">
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-info/30 rounded-l-lg" />
-                <pre className="text-[11px] text-text-primary bg-bg p-4 pl-5 overflow-x-auto max-h-60 overflow-y-auto font-mono leading-relaxed whitespace-pre-wrap">
-                  {sql}
-                </pre>
-              </div>
-            </div>
-          )}
-
-          {/* Notebook / Genie preview (skeleton or shipped) */}
-          {hasNotebook && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-[10px] font-bold text-db-red uppercase tracking-[0.18em]">
-                  {shippedGenie ? 'Genie Code Instruction' : 'Use case notebook'}
-                  {notebookPath && (
-                    <span className="text-text-tertiary font-normal normal-case ml-1 font-mono text-[9px] truncate max-w-[300px] inline-block align-bottom">
-                      {notebookPath.split('/').pop()}
-                    </span>
-                  )}
-                </h4>
-                <div className="flex items-center gap-2">
-                  {notebookPath && workspaceNotebookHref && (
-                    <a
-                      href={workspaceNotebookHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[10px] font-medium text-db-red hover:underline transition-colors"
-                      title="Open notebook in Databricks workspace"
-                    >
-                      Open in workspace
-                    </a>
-                  )}
-                  <button
-                    onClick={showNotebook ? () => setShowNotebook(false) : loadNotebookPreview}
-                    disabled={notebookLoading}
-                    className="text-[10px] font-medium text-text-tertiary hover:text-db-red flex items-center gap-1 transition-colors disabled:opacity-50"
-                  >
-                    {notebookLoading ? (
-                      <span className="inline-flex items-center gap-1"><Loader2 size={10} className="animate-spin shrink-0" aria-hidden /> Loading…</span>
-                    ) : showNotebook ? (
-                      'Hide'
-                    ) : (
-                      'Preview'
-                    )}
-                  </button>
-                  {notebookContent && <CopyButton text={notebookContent} />}
-                  {notebookContent && (
-                    <div className="relative group">
-                      <span className="text-[10px] text-text-tertiary hover:text-db-red cursor-help border border-border rounded px-1.5 py-0.5 transition-colors" tabIndex={0}>Help</span>
-                      <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-all duration-200 absolute bottom-full right-0 mb-2 z-50 min-w-[280px] bg-surface border border-border rounded-lg shadow-xl p-3 text-[10px] text-text-secondary leading-relaxed whitespace-pre-line">
-                        <div className="font-bold text-text-primary mb-1.5">HOW TO USE:</div>
-                        <div>1. Open Genie Code in your Databricks workspace (side panel in any notebook)</div>
-                        <div>2. Copy the ENTIRE content of the instruction below</div>
-                        <div>3. Paste it into Genie Code and let Genie generate the implementation</div>
-                        <div>4. Genie will create the complete code — review, iterate, and execute</div>
-                        <div className="absolute bottom-[-5px] right-3 w-2.5 h-2.5 bg-surface border-b border-r border-border rotate-45" />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {!shippedGenie && notebookPath && (
-                <p className="text-[10px] text-text-tertiary mb-2 leading-relaxed">
-                  Skeleton or partial Genie text. To write the full Genie instruction, use <span className="font-semibold">Start Use Case PoC with Genie</span> and choose Notebook only. Preview shows notebook cells / instruction text when available.
-                </p>
-              )}
-
-              {notebookError && (
-                <p className="text-[11px] text-error-fg">{notebookError}</p>
-              )}
-
-              {notebookLoading && !notebookContent && (
-                <div className="flex items-center gap-2 py-4 text-[11px] text-text-tertiary">
-                  <Loader2 size={14} className="animate-spin shrink-0" aria-hidden />
-                  Loading notebook preview…
-                </div>
-              )}
-
-              {showNotebook && notebookContent && (
-                <div className="relative rounded-lg border border-db-red/20 overflow-hidden">
-                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-db-red/30 rounded-l-lg" />
-                  <div className="bg-bg p-4 pl-5 overflow-x-auto max-h-[500px] overflow-y-auto">
-                    <GenieMarkdownPreview content={notebookContent} />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {typeof onFeedback === 'function' && (
-            <FeedbackControls
-              useCaseKey={v130?.useCaseKey}
-              available={feedbackAvailable}
-              current={feedbackCurrent}
-              busy={feedbackBusy}
-              error={feedbackError}
-              onSubmit={onFeedback}
-            />
-          )}
-        </div>
-      )}
-    </div>
   );
 }

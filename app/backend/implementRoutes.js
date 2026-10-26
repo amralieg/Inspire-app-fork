@@ -865,40 +865,6 @@ function registerImplementRoutes(app, deps) {
     }
   });
 
-  app.get('/api/inspire/implement/results', requireToken, async (req, res) => {
-    try {
-      const sid = sessionIdOf(req);
-      const warehouseId = warehouseOf(req);
-      const { catalog, schema } = dbOf(req, splitInspireDatabase);
-      const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
-      const history = await loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId);
-      const latest = history.find((r) => r.spec_json && r.spec_json.config && r.spec_json.config.result_table) || history[0];
-      const spec = latest ? I.validateImplementSpec(latest.spec_json).spec : null;
-      const table = spec && spec.config.result_table;
-      if (!table) return res.json({ result_table: '', exists: false, rows: [], summary: [], segments: [] });
-      const statement = I.resultsStatement(table, {
-        tier: q(req, 'tier'),
-        segment: q(req, 'segment'),
-        limit: q(req, 'limit') || 500,
-      });
-      let found;
-      try {
-        found = await Promise.all([
-          sqlRows(req.dbHost, req.dbToken, warehouseId, statement),
-          sqlRows(req.dbHost, req.dbToken, warehouseId, { sql: statement.summarySql, parameters: null }),
-          sqlRows(req.dbHost, req.dbToken, warehouseId, { sql: statement.segmentsSql, parameters: null }),
-        ]);
-      } catch (err) {
-        if (!isMissingTableError(err)) throw err;
-        return res.json({ result_table: table, exists: false, rows: [], summary: [], segments: [] });
-      }
-      const [rows, summary, segments] = found;
-      res.json({ result_table: table, exists: true, rows, summary, segments });
-    } catch (err) {
-      sendError(res, err);
-    }
-  });
-
   app.post('/api/inspire/implement/rerun', requireToken, async (req, res) => {
     try {
       const sid = sessionIdOf(req);

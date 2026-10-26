@@ -36,7 +36,7 @@ export function StrategyChip({ info }) {
   const extra = info.paths.length - 1;
   return (
     <span
-      className="max-w-[22rem] truncate text-[10px] px-2 py-0.5 rounded-full border border-db-red/20 bg-db-red-50 text-db-red font-medium"
+      className="max-w-[22rem] truncate text-[10px] px-2 py-0.5 rounded-full border border-db-red/20 bg-db-red-50 text-db-red-fg font-medium"
       title={info.paths.join('\n')}
     >
       {info.paths[0]}{extra > 0 ? ` +${extra}` : ''}
@@ -56,8 +56,8 @@ export function BestOfBestDetail({ info }) {
   const star = info?.bestOfBest;
   if (!star && !info?.notStarredReason) return null;
   return (
-    <div className={`rounded-lg border p-4 ${star ? 'border-amber-300 bg-amber-50' : 'border-border bg-bg'}`}>
-      <Section title={star ? bestOfBestLabel(star) : 'Not starred as Best of Best'} tone={star ? 'text-amber-700' : 'text-text-tertiary'}>
+    <div className={`rounded-lg border p-4 ${star ? 'border-warning/30 bg-warning-bg' : 'border-border bg-bg'}`}>
+      <Section title={star ? bestOfBestLabel(star) : 'Not starred as Best of Best'} tone={star ? 'text-warning-fg' : 'text-text-tertiary'}>
         <p className="text-sm text-text-secondary leading-relaxed">{star ? star.reason || 'Passed every elite test.' : info.notStarredReason}</p>
       </Section>
     </div>
@@ -72,7 +72,7 @@ export function UseCaseStrategyDetail({ info, knownPriorities, foundationsById }
   return (
     <div className="space-y-4 rounded-lg border border-border bg-bg p-4">
       {info.hasStrategyData && (
-        <Section title="Strategy alignment" tone="text-db-red">
+        <Section title="Strategy alignment" tone="text-db-red-fg">
           {info.alignments.length > 0 ? (
             <div className="space-y-1.5">
               {info.alignments.map((a) => (
@@ -97,7 +97,7 @@ export function UseCaseStrategyDetail({ info, knownPriorities, foundationsById }
         </Section>
       )}
       {info.kpis.length > 0 && (
-        <Section title="KPIs" tone="text-info">
+        <Section title="KPIs" tone="text-info-fg">
           <ul className="space-y-1.5">
             {info.kpis.map((k, i) => (
               <li key={`${k.name}-${i}`}>
@@ -108,7 +108,7 @@ export function UseCaseStrategyDetail({ info, knownPriorities, foundationsById }
                 )}
                 {k.query && (
                   <details className="mt-0.5">
-                    <summary className="cursor-pointer text-[10px] text-text-tertiary hover:text-db-red">KPI query</summary>
+                    <summary className="cursor-pointer text-[10px] text-text-tertiary hover:text-db-red-fg">KPI query</summary>
                     <pre className="mt-1 overflow-x-auto rounded border border-border bg-panel p-2 font-mono text-[10px] text-text-primary whitespace-pre-wrap">{k.query}</pre>
                   </details>
                 )}
@@ -142,7 +142,7 @@ export function UseCaseStrategyDetail({ info, knownPriorities, foundationsById }
             <Section title="Financial benefits" tone="text-success-fg"><Bullets items={info.financial} /></Section>
           )}
           {info.nonFinancial.length > 0 && (
-            <Section title="Non-financial benefits" tone="text-info"><Bullets items={info.nonFinancial} /></Section>
+            <Section title="Non-financial benefits" tone="text-info-fg"><Bullets items={info.nonFinancial} /></Section>
           )}
         </div>
       )}
@@ -196,7 +196,7 @@ export function FeedbackControls({ useCaseKey, available, current, busy, error, 
   const status = String(current?.status || '').toLowerCase();
   const pill = (active) =>
     `px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-smooth disabled:opacity-50 ${
-      active ? 'border-db-red/30 bg-db-red-50 text-db-red' : 'border-border bg-surface text-text-secondary hover:border-border-strong'
+      active ? 'border-db-red/30 bg-db-red-50 text-db-red-fg' : 'border-border bg-surface text-text-secondary hover:border-border-strong'
     }`;
   return (
     <div className="rounded-lg border border-border bg-bg p-3">

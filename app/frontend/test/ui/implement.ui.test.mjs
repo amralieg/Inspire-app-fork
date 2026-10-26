@@ -1,15 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
-import { createServer } from 'vite';
-import { chromium } from 'playwright';
 import { defaultSpecFromUseCase, lostTablesText } from '../../src/lib/implementWizard.js';
 import { HARNESS_USE_CASE, HARNESS_SETTINGS } from './implementFixtures.js';
-
-const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const { makeApp, listen } = createRequire(import.meta.url)('../../../backend/test/support/implementApp.js');
+import { closeBrowser, lowContrast, openUi, until } from './uiSupport.mjs';
 
 const OWNER = 'owner@example.com';
 const RESULT_TABLE = 'main.inspire.n01_u01_out';
@@ -63,53 +56,9 @@ const STUDIO_STATE = {
     { run_id: 9002, start_time: Date.UTC(2026, 9, 25, 6, 0, 0), run_duration: 30000, trigger: 'PERIODIC',
       state: { life_cycle_state: 'TERMINATED', result_state: 'FAILED', state_message: 'Workload failed' } },
   ] },
-  resultRows: [
-    { rank: '1', entity_id: 'C-17', priority_tier: 'Act now', segment_or_item: 'Books', score: '0.91', as_of_date: '2026-10-25' },
-    { rank: '2', entity_id: 'C-08', priority_tier: 'Act now', segment_or_item: 'Books', score: '0.88', as_of_date: '2026-10-25' },
-    { rank: '3', entity_id: 'C-44', priority_tier: 'Review', segment_or_item: 'Music', score: '0.61', as_of_date: '2026-10-25' },
-  ],
-  summary: [
-    { as_of_date: '2026-10-25', priority_tier: 'Act now', rows: '2' },
-    { as_of_date: '2026-10-25', priority_tier: 'Review', rows: '1' },
-    { as_of_date: '2026-10-18', priority_tier: 'Monitor', rows: '9' },
-  ],
-  segments: [{ segment_or_item: 'Books', rows: '2' }, { segment_or_item: 'Music', rows: '1' }],
 };
 
-let browser;
-test.before(async () => { browser = await chromium.launch(); });
-test.after(async () => { if (browser) await browser.close(); });
-
-async function openUi(open, overrides = {}) {
-  const made = makeApp({ useCase: HARNESS_USE_CASE, ...overrides });
-  const backend = await listen(made.app);
-  const vite = await createServer({
-    root: frontend,
-    configFile: path.join(frontend, 'vite.config.js'),
-    logLevel: 'error',
-    clearScreen: false,
-    server: { host: '127.0.0.1', port: 0, proxy: { '/api': backend.url }, hmr: false },
-  });
-  await vite.listen();
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-  const pageErrors = [];
-  page.on('pageerror', (e) => pageErrors.push(e.message));
-  page.on('console', (m) => { if (m.type() === 'error') pageErrors.push(m.text()); });
-  await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/test/ui/implement.html?open=${open}`);
-  return {
-    made, page, pageErrors,
-    close: async () => { await page.close(); await vite.close(); await backend.close(); },
-  };
-}
-
-async function until(check, what, timeout = 10000) {
-  const end = Date.now() + timeout;
-  while (Date.now() < end) {
-    if (check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`timed out waiting for ${what}`);
-}
+test.after(closeBrowser);
 
 async function onStep(page, label) {
   try {
@@ -500,7 +449,7 @@ test('Change swaps a table for a similar one or drops it, and never offers to dr
   }
 });
 
-test('the Implement page shows every output, the job runs and the filtered results of a built version', async () => {
+test('the Implement page is about the delivery methods: every output and the job runs of a built version, and no result rows', async () => {
   const ui = await openUi('implement', STUDIO_STATE);
   const { page, made } = ui;
   try {
@@ -510,17 +459,8 @@ test('the Implement page shows every output, the job runs and the filtered resul
     await listed.getByRole('region', { name: 'Ready' }).getByText('PoC ready', { exact: true }).waitFor();
     assert.equal(await listed.locator('[aria-current="true"]').innerText().then((t) => t.includes(HARNESS_USE_CASE.Name)), true);
     assert.deepEqual(await page.getByRole('tablist', { name: 'PoC views' }).getByRole('tab').allTextContents(),
-      ['Progress', 'Results', 'Dashboard', 'Genie', 'App', 'Alert', 'History', 'Edit']);
-
-    await studioTab(page, 'Results');
-    await page.getByText(`3 row(s) of the latest run in ${RESULT_TABLE}`).waitFor();
-    const tier = page.locator('label', { hasText: 'Tier' }).locator('select');
-    assert.deepEqual(await tier.locator('option').allTextContents(), ['All', 'Act now (2)', 'Review (1)']);
-    await tier.selectOption('Act now');
-    await page.locator('label', { hasText: 'Segment' }).locator('select').selectOption('Books');
-    await until(() => made.sqlCalls.some((c) => String(c.sql).startsWith('SELECT * FROM `main`.`inspire`.`n01_u01_out` WHERE')
-      && JSON.stringify(c.parameters) === JSON.stringify([{ name: 'tier', value: 'Act now', type: 'STRING' }, { name: 'segment', value: 'Books', type: 'STRING' }])),
-    'the results query filtered by tier and segment');
+      ['Progress', 'Dashboard', 'Genie', 'App', 'Alert', 'History', 'Edit']);
+    assert.equal(await page.getByRole('tab', { name: 'Results', exact: true }).count(), 0);
 
     await studioTab(page, 'Dashboard');
     assert.equal(await page.getByRole('link', { name: 'Open dashboard' }).getAttribute('href'), 'https://workspace.example.com/dashboardsv3/d1/published');
@@ -758,44 +698,59 @@ test('a dropped source table stops the re-run with its name, and Edit opens the 
     await primaryRow.getByText('Primary', { exact: true }).waitFor();
     assert.doesNotMatch(await primaryRow.getAttribute('class'), /border-error/);
     assert.equal(await page.getByLabel('Table to use for main.s.orders').count(), 0, 'only the lost table opens its Change');
+    assert.equal(made.sqlCalls.some((c) => /FROM `main`\.`inspire`\.`n01_u01_out` WHERE as_of_date/.test(String(c.sql))), false, 'no result rows are read');
     assert.equal(made.jobs.length, 0);
+    assert.deepEqual(ui.pageErrors, ['Failed to load resource: the server responded with a status of 409 (Conflict)'], 'the refused re-run is the only error');
   } finally {
     await ui.close();
   }
 });
 
-test('the Results of a version whose first run has not written its table yet say so, a real read error still shows, and a use case with no PoC offers to start one', async () => {
-  const missing = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`inspire`.`n01_u01_out` cannot be found. SQLSTATE: 42P01; line 1 pos 46';
-  const ui = await openUi('implement', { ...STUDIO_STATE, resultTableError: missing });
+test('Use case details on the Implement page open the full use case in a drawer that closes with Escape and leaves the tabs alone', async () => {
+  const ui = await openUi('implement', STUDIO_STATE);
+  const { page } = ui;
   try {
-    await ui.page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
-    await studioTab(ui.page, 'Results');
-    await ui.page.getByText(`No results yet. The first run creates ${RESULT_TABLE} and writes its rows there.`).waitFor();
-    assert.equal(await ui.page.getByText('TABLE_OR_VIEW_NOT_FOUND', { exact: false }).count(), 0);
-    assert.equal(await ui.page.locator('label', { hasText: 'Tier' }).count(), 0, 'no filters over a table that is not there');
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
+    await studioTab(page, 'Genie');
+    await page.getByRole('button', { name: 'Use case details' }).click();
+    const drawer = page.getByRole('dialog', { name: `Use case details: ${HARNESS_USE_CASE.Name}` });
+    await drawer.getByRole('heading', { name: HARNESS_USE_CASE.Name, level: 2 }).waitFor();
+    await drawer.getByText(HARNESS_USE_CASE.statement).first().waitFor();
+    await drawer.getByText('PoC ready', { exact: true }).first().waitFor();
+    assert.equal(await drawer.getByRole('button', { name: 'Open in Implement' }).count(), 0, 'already on the Implement page');
+    assert.equal(await drawer.getByRole('button', { name: /^(Previous|Next) use case$/ }).count(), 0, 'one use case, no paging');
+    await page.keyboard.press('Escape');
+    await drawer.waitFor({ state: 'detached' });
+    assert.equal(await page.getByRole('tab', { name: 'Genie', exact: true }).getAttribute('aria-selected'), 'true');
+    await page.getByRole('button', { name: 'Use case details' }).click();
+    await drawer.getByRole('button', { name: 'Close', exact: true }).click();
+    await drawer.waitFor({ state: 'detached' });
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
   }
-  const denied = await openUi('implement', { ...STUDIO_STATE, resultTableError: '[INSUFFICIENT_PERMISSIONS] User does not have SELECT on Table main.inspire.n01_u01_out' });
-  try {
-    await denied.page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
-    await studioTab(denied.page, 'Results');
-    await denied.page.getByText('INSUFFICIENT_PERMISSIONS', { exact: false }).first().waitFor();
-    assert.equal(await denied.page.getByText('No results yet.', { exact: false }).count(), 0);
-  } finally {
-    await denied.close();
-  }
+});
+
+test('a use case with no PoC offers to start one, reads no result table, and the wizard shows its title and id on every step', async () => {
   const never = await openUi('implement', { ...STUDIO_STATE, history: [] });
   try {
     await never.page.getByText('No PoC yet.', { exact: false }).waitFor();
     await never.page.getByRole('navigation', { name: 'Use cases' }).getByRole('region', { name: 'Not started' }).getByText(HARNESS_USE_CASE.Name).waitFor();
     assert.equal(await never.page.getByRole('tablist', { name: 'PoC views' }).count(), 0, 'no tabs before a PoC exists');
-    assert.equal(await never.page.locator('label', { hasText: 'Tier' }).count(), 0, 'no filters before anything is implemented');
     assert.equal(never.made.sqlCalls.some((c) => /^SELECT \* FROM `main`\.`inspire`\.`n01_u01_out`/.test(String(c.sql))), false, 'no result table read');
     await never.page.getByRole('button', { name: 'Start Use Case PoC with Genie' }).click();
     await onStep(never.page, 'Choose');
     assert.equal(await never.page.getByRole('region', { name: 'Executive summary' }).locator('h3').innerText(), HARNESS_USE_CASE.Name);
+    const header = never.page.locator('[data-wizard-header]');
+    for (const label of ['Choose', 'Data', 'Delivery']) {
+      if (label !== 'Choose') {
+        await next(never.page);
+        await onStep(never.page, label);
+      }
+      assert.equal(await header.getByRole('heading', { level: 2 }).innerText(), HARNESS_USE_CASE.Name, label);
+      assert.equal(await header.getByRole('list', { name: 'About this use case' }).innerText().then((t) => t.replace(/\s+/g, ' ').trim()), 'ID N01-U01', label);
+    }
+    await never.page.getByRole('dialog', { name: `Start Use Case PoC with Genie: ${HARNESS_USE_CASE.Name}` }).waitFor();
     assert.deepEqual(never.pageErrors, []);
   } finally {
     await never.close();
@@ -1068,50 +1023,39 @@ test('the control tower shows each asset live, stops the App through Inspire, an
   }
 });
 
-async function lowContrast(page) {
-  return page.evaluate(() => {
-    const parse = (c) => {
-      const m = String(c).match(/rgba?\(([^)]+)\)/);
-      if (!m) return null;
-      const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
-      return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
-    };
-    const lum = ({ r, g, b }) => {
-      const f = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
-      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-    };
-    const behind = (el) => {
-      const layers = [];
-      for (let e = el; e; e = e.parentElement) {
-        const c = parse(getComputedStyle(e).backgroundColor);
-        if (c && c.a > 0) { layers.push(c); if (c.a >= 1) break; }
-      }
-      let base = layers.length && layers[layers.length - 1].a >= 1 ? { r: 0, g: 0, b: 0 } : parse(getComputedStyle(document.body).backgroundColor);
-      for (let i = layers.length - 1; i >= 0; i -= 1) {
-        const c = layers[i];
-        base = { r: c.r * c.a + base.r * (1 - c.a), g: c.g * c.a + base.g * (1 - c.a), b: c.b * c.a + base.b * (1 - c.a) };
-      }
-      return base;
-    };
-    const roots = [document.querySelector('[aria-label="Control tower"]'), document.querySelector('[role="dialog"]')].filter(Boolean);
-    const low = [];
-    let checked = 0;
-    for (const root of roots) {
-      for (const el of [root, ...root.querySelectorAll('*')]) {
-        const own = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent.trim()).join(' ');
-        if ((!own && el.tagName !== 'INPUT') || el.closest('button:disabled')) continue;
-        const fg = parse(getComputedStyle(el).color);
-        const bg = behind(el);
-        const mixed = { r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a) };
-        const [x, y] = [lum(mixed), lum(bg)].sort((m, n) => n - m);
-        const ratio = (x + 0.05) / (y + 0.05);
-        checked += 1;
-        if (ratio < 4.5) low.push(`${(own || el.value || el.getAttribute('aria-label')).slice(0, 40)}: ${ratio.toFixed(2)}`);
-      }
+test('the whole Implement page, the use case details and the wizard read at 4.5:1 or better in light and in dark', async () => {
+  const ui = await openUi('implement', STUDIO_STATE);
+  const { page } = ui;
+  try {
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
+    await page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
+    for (const dark of [false, true]) {
+      await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
+      await page.waitForTimeout(400);
+      const mode = dark ? 'dark' : 'light';
+      const plain = await lowContrast(page, ['body']);
+      assert.ok(plain.checked >= 40, `${mode}: measured ${plain.checked} text elements`);
+      assert.deepEqual(plain.low, [], `${mode} Implement page`);
+      await page.getByRole('button', { name: 'Use case details' }).click();
+      const details = await lowContrast(page, ['[role="dialog"]']);
+      assert.ok(details.checked >= 15, `${mode}: measured ${details.checked} detail elements`);
+      assert.deepEqual(details.low, [], `${mode} use case details`);
+      await page.keyboard.press('Escape');
+      await page.getByRole('dialog').waitFor({ state: 'detached' });
+      await studioTab(page, 'Edit');
+      await editPane(page).getByRole('button', { name: 'Edit the PoC' }).click();
+      await onStep(page, 'Choose');
+      const wizard = await lowContrast(page, ['[role="dialog"]']);
+      assert.ok(wizard.checked >= 15, `${mode}: measured ${wizard.checked} wizard elements`);
+      assert.deepEqual(wizard.low, [], `${mode} wizard`);
+      await page.getByRole('dialog').getByRole('button', { name: 'Close' }).first().click();
+      await page.getByRole('dialog').waitFor({ state: 'detached' });
     }
-    return { checked, low };
-  });
-}
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
 
 test('the control tower and its Remove dialog read at 4.5:1 or better in light and in dark', async () => {
   const pocJob = { job_id: 77, settings: { tags: { dbx_inspire_ai_run_type: 'implement', dbx_inspire_ai_session_id: '42', dbx_inspire_ai_usecase_id: 'N01-U01' },
@@ -1140,6 +1084,12 @@ test('the control tower and its Remove dialog read at 4.5:1 or better in light a
       const withDialog = await lowContrast(page);
       assert.ok(withDialog.checked > plain.checked, `${mode}: the dialog was measured`);
       assert.deepEqual(withDialog.low, [], `${mode} Remove dialog`);
+      await dialog.getByLabel('Type the use case id to confirm').fill('N01-U01');
+      const confirm = dialog.getByRole('button', { name: /^Remove/ }).last();
+      assert.equal(await confirm.isEnabled(), true, 'the right id enables the confirm');
+      const armed = await lowContrast(page);
+      assert.ok(armed.checked > withDialog.checked, `${mode}: the enabled confirm was measured`);
+      assert.deepEqual(armed.low, [], `${mode} armed Remove dialog`);
       await dialog.getByRole('button', { name: 'Cancel' }).click();
       await dialog.waitFor({ state: 'detached' });
     }

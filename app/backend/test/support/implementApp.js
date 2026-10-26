@@ -79,12 +79,6 @@ function makeApp(overrides = {}) {
       for (const [table, message] of Object.entries(state.probeErrors || {})) {
         if (sql === `SELECT * FROM ${table} LIMIT 0`) throw new Error(message);
       }
-      const readsResults = sql.includes('segment_or_item, COUNT(*)') || sql.includes('priority_tier, COUNT(*)')
-        || /^SELECT \* FROM `[^`]+`\.`[^`]+`\.`[^`]+` WHERE as_of_date = /.test(sql);
-      if (readsResults && state.resultTableError) throw new Error(state.resultTableError);
-      if (sql.includes('segment_or_item, COUNT(*)')) return { rows: state.segments || [] };
-      if (sql.includes('priority_tier, COUNT(*)')) return { rows: state.summary || [] };
-      if (/^SELECT \* FROM `[^`]+`\.`[^`]+`\.`[^`]+` WHERE as_of_date = /.test(sql)) return { rows: state.resultRows || [] };
       return { rows: [] };
     },
     executeSqlWithDeltaRetry: async (_h, _t, _w, sql, options) => {
@@ -161,6 +155,12 @@ function makeApp(overrides = {}) {
     },
   });
   app.get('/api/inspire/results', (_req, res) => res.json({ results: state.results || null }));
+  app.get('/api/inspire/sessions', (_req, res) => res.json({
+    sessions: state.sessions || [{ session_id: '42', completed_percent: 100, business_name: state.session.business_name, widget_values: { business: state.session.business_name } }],
+  }));
+  app.get('/api/inspire/step-results', (_req, res) => res.json({ results: null }));
+  app.get('/api/inspire/feedback', (_req, res) => res.json({ available: false, latest: [], message: '' }));
+  app.get('/api/workspace/list', (_req, res) => res.json({ files: [] }));
   app.get('/api/inspire/usecases', (_req, res) => {
     const usecases = state.useCases || (state.useCase ? [state.useCase] : []);
     res.json({ usecases, count: usecases.length });

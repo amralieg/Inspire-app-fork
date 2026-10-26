@@ -53,7 +53,7 @@ function surfaces(t) {
 }
 
 const TEXT = ['t-text-primary', 't-text-secondary', 't-text-tertiary'];
-const STATUS = { 't-success-fg': 't-success-bg', 't-warning-fg': 't-warning-bg', 't-error-fg': 't-error-bg' };
+const STATUS = { 't-success-fg': 't-success-bg', 't-warning-fg': 't-warning-bg', 't-error-fg': 't-error-bg', 't-info-fg': 't-info-bg' };
 
 test('every text color reads at 4.5:1 or better on every surface and on its own status tint, in light and dark', () => {
   const { light, dark, theme } = themeVars();
@@ -88,23 +88,102 @@ test('primary, secondary and tertiary text stay in that order of strength in bot
 
 test('the status text colors switch with the theme through their own tokens', () => {
   const { theme } = themeVars();
-  for (const name of ['success-fg', 'warning-fg', 'error-fg', 'db-red-fg']) assert.equal(theme[`color-${name}`], `var(--t-${name})`);
+  for (const name of ['success-fg', 'warning-fg', 'error-fg', 'info-fg', 'db-red-fg']) assert.equal(theme[`color-${name}`], `var(--t-${name})`);
 });
 
-test('status text uses the theme-aware shades everywhere, never the bright fill colors', () => {
-  const bare = [];
+function sourceLines(match) {
+  const hits = [];
   const walk = (dir) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, e.name);
       if (e.isDirectory()) walk(p);
       else if (/\.(js|jsx)$/.test(e.name)) {
         fs.readFileSync(p, 'utf8').split('\n').forEach((line, i) => {
-          if (/\btext-(success|warning|error)\b(?!-)/.test(line)) bare.push(`${path.relative(SRC, p)}:${i + 1}`);
+          if (match(line)) hits.push(`${path.relative(SRC, p)}:${i + 1}`);
         });
       }
     }
   };
   walk(SRC);
+  return hits;
+}
+
+function liveModules(entry = path.join(SRC, 'main.jsx')) {
+  const seen = new Set();
+  const visit = (file) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const text = fs.readFileSync(file, 'utf8');
+    for (const m of text.matchAll(/(?:import|export)\s[^'"`;]*?from\s*['"](\.[^'"]+)['"]|import\(\s*['"](\.[^'"]+)['"]\s*\)/g)) {
+      const base = path.resolve(path.dirname(file), m[1] || m[2]);
+      const found = [base, `${base}.jsx`, `${base}.js`, path.join(base, 'index.jsx'), path.join(base, 'index.js')]
+        .find((p) => /\.(js|jsx)$/.test(p) && fs.existsSync(p) && fs.statSync(p).isFile());
+      if (found) visit(found);
+    }
+  };
+  visit(entry);
+  return seen;
+}
+
+const PALETTE = 'amber|rose|emerald|green|red|yellow|orange|blue|sky|indigo|violet|purple|pink|fuchsia|slate|gray|zinc|neutral|stone|teal|cyan|lime';
+const FIXED_COLOR = new RegExp(`\\b(text|bg|border|ring|from|via|to|fill|stroke|outline|divide|placeholder|decoration|accent|caret)-(${PALETTE})-\\d{2,3}\\b|\\b(text|bg|border|ring|from|via|to)-\\[(#|rgb)`);
+
+const WHITE = [255, 255, 255, 1];
+const BRIGHT_FILL = /\b(bg|from|via|to)-(db-red|db-red-hover|error|success|warning|info)(?![-\w/])|#FF3621|#E02E1B|\b(bg|from|via|to)-db-red-(dark|light)\b/i;
+
+test('white button text reads at 4.5:1 or better on the solid fills and on their hover', () => {
+  const { theme } = themeVars();
+  const solid = contrast(WHITE, rgba(theme['color-db-red-solid']));
+  const hover = contrast(WHITE, rgba(theme['color-db-red-solid-hover']));
+  const danger = contrast(WHITE, rgba(theme['color-error-solid']));
+  assert.ok(solid >= 4.5, `white on --color-db-red-solid: ${solid.toFixed(2)}`);
+  assert.ok(hover >= solid, `hover ${hover.toFixed(2)} is at least as strong as rest ${solid.toFixed(2)}`);
+  assert.ok(danger >= 4.5, `white on --color-error-solid: ${danger.toFixed(2)}`);
+  for (const bright of ['color-db-red', 'color-error']) assert.ok(contrast(WHITE, rgba(theme[bright])) < 4.5, `--${bright} stays for fills, borders and tints only`);
+});
+
+test('white text never sits on a bright fill; filled buttons use a solid token', () => {
+  assert.ok(BRIGHT_FILL.test('px-3 text-white bg-db-red disabled:opacity-50'));
+  assert.ok(BRIGHT_FILL.test('from-[#FF3621] to-[#E02E1B] text-white'));
+  assert.ok(BRIGHT_FILL.test('bg-gradient-to-r from-db-red to-db-red-hover text-white'));
+  assert.ok(BRIGHT_FILL.test('font-semibold text-white bg-error disabled:opacity-50'));
+  assert.ok(!BRIGHT_FILL.test('text-white bg-db-red-solid hover:bg-db-red-solid-hover shadow-db-red/20'));
+  assert.ok(!BRIGHT_FILL.test('text-white bg-error-solid'));
+  assert.ok(!BRIGHT_FILL.test('bg-db-red/15 text-white border-db-red/40 bg-error-bg'));
+  assert.deepEqual(sourceLines((line) => /\btext-white\b/.test(line) && BRIGHT_FILL.test(line)), []);
+  const solidWithoutWhite = sourceLines((line) => /\bbg-(db-red|error)-solid\b/.test(line) && !/\btext-white\b/.test(line));
+  assert.deepEqual(solidWithoutWhite, []);
+});
+
+test('brand-red text and icons use the theme-aware shade, never the bright fill, its hover or an undefined shade', () => {
+  const RED_TEXT = /\btext-db-red(\/\d+)?(?![-\w/])|\btext-db-red-(hover|light|dark)\b/;
+  assert.ok(RED_TEXT.test('hover:text-db-red transition'));
+  assert.ok(RED_TEXT.test('text-db-red/80 uppercase'));
+  assert.ok(RED_TEXT.test('className="hover:text-db-red-hover"'));
+  assert.ok(RED_TEXT.test("'bg-db-red/15 text-db-red-light'"));
+  assert.ok(!RED_TEXT.test('text-db-red-fg bg-db-red-50 border-db-red/20'));
+  assert.deepEqual(sourceLines((line) => RED_TEXT.test(line)), []);
+});
+
+test('the rendered app follows the theme: no fixed palette or hex colors on any reachable module', () => {
+  assert.ok(FIXED_COLOR.test('border-amber-300 bg-amber-50'));
+  assert.ok(FIXED_COLOR.test("text: 'text-[#27AE60]'"));
+  assert.ok(FIXED_COLOR.test('text-amber-600 dark:text-amber-400'));
+  assert.ok(!FIXED_COLOR.test('border-warning/30 bg-warning-bg text-warning-fg text-[10px] bg-db-red-50'));
+  const live = liveModules();
+  assert.ok(live.has(path.join(SRC, 'pages/ResultsPage.jsx')) && live.has(path.join(SRC, 'components/UseCaseStrategyDetail.jsx')));
+  assert.ok(!live.has(path.join(SRC, 'components/ConfigForm.jsx')), 'ConfigForm is imported by nothing');
+  const hits = [];
+  for (const file of live) {
+    fs.readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+      if (FIXED_COLOR.test(line)) hits.push(`${path.relative(SRC, file)}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(hits, []);
+});
+
+test('status text uses the theme-aware shades everywhere, never the bright fill colors', () => {
+  const bare = sourceLines((line) => /\btext-(success|warning|error|info)\b(?!-)/.test(line));
   assert.deepEqual(bare, []);
   assert.doesNotMatch(fs.readFileSync(path.join(SRC, 'components/ImplementStatusBadge.jsx'), 'utf8'), /\btext-db-red\b(?!-)/);
 });

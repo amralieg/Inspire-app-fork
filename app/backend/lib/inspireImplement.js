@@ -900,30 +900,6 @@ function readinessFromRow(row, columns) {
   };
 }
 
-function resultsStatement(name, { tier, segment, limit = 500 } = {}) {
-  const table = quoteTable(name);
-  const latestRun = 'as_of_date = (SELECT MAX(as_of_date) FROM ' + table + ')';
-  const where = [latestRun];
-  const parameters = [];
-  if (tier) {
-    where.push('priority_tier = :tier');
-    parameters.push({ name: 'tier', value: str(tier), type: 'STRING' });
-  }
-  if (segment) {
-    where.push('segment_or_item = :segment');
-    parameters.push({ name: 'segment', value: str(segment), type: 'STRING' });
-  }
-  const cap = Math.max(1, Math.min(2000, Number.parseInt(limit, 10) || 500));
-  return {
-    sql: `SELECT * FROM ${table} WHERE ${where.join(' AND ')} ORDER BY rank LIMIT ${cap}`,
-    parameters: parameters.length ? parameters : null,
-    summarySql: `SELECT as_of_date, priority_tier, COUNT(*) AS rows FROM ${table} GROUP BY as_of_date, priority_tier `
-      + 'ORDER BY as_of_date DESC, priority_tier LIMIT 300',
-    segmentsSql: `SELECT segment_or_item, COUNT(*) AS rows FROM ${table} WHERE ${latestRun} AND segment_or_item IS NOT NULL `
-      + 'GROUP BY segment_or_item ORDER BY rows DESC, segment_or_item LIMIT 100',
-  };
-}
-
 function destinationsFromList(data) {
   return (Array.isArray(data && data.results) ? data.results : [])
     .filter((d) => d && IMPLEMENT_DESTINATION_ID_RE.test(str(d.id)))
@@ -1489,7 +1465,6 @@ module.exports = {
   columnValuesStatement,
   readinessStatement,
   readinessFromRow,
-  resultsStatement,
   rerunParams,
   rerunWidgets,
   rerunOverrides,

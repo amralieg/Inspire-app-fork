@@ -151,7 +151,7 @@ export default function StrategyEditor({ value, onChange, onProblems }) {
                   style={{ marginLeft: `${(depth - 1) * 0.875}rem` }}
                 >
                   <div className="flex items-center gap-1">
-                    <span className={`text-[9px] uppercase tracking-wider ${active ? 'text-db-red' : 'text-text-tertiary'}`}>
+                    <span className={`text-[9px] uppercase tracking-wider ${active ? 'text-db-red-fg' : 'text-text-tertiary'}`}>
                       {layerName(depth)}
                     </span>
                     <span className="ml-auto flex items-center gap-1">
@@ -390,7 +390,7 @@ export default function StrategyEditor({ value, onChange, onProblems }) {
       {(loadError || problems.length > 0) && (
         <div className="rounded-lg border border-db-red/30 bg-db-red-50 px-3 py-2 space-y-1">
           {[loadError, ...problems].filter(Boolean).slice(0, 8).map((problem) => (
-            <p key={problem} className="text-[11px] text-db-red flex items-start gap-1.5">
+            <p key={problem} className="text-[11px] text-db-red-fg flex items-start gap-1.5">
               <AlertCircle size={12} className="mt-0.5 shrink-0" />
               {problem}
             </p>

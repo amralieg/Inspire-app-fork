@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check } from 'lucide-react';
 import BodyPortal from '../components/BodyPortal';
 import { generationFolder, sharedFolderWarning } from '../lib/workspaceLinks';
+import { catalogRow } from '../lib/useCaseFacets';
 import {
   IMPLEMENT_MODES,
   wizardSteps,
@@ -506,7 +507,7 @@ export default function ImplementWizard({
 
   if (loading) {
     return (
-      <Overlay title={title} steps={steps} step={step} onClose={onClose}>
+      <Overlay title={title} uc={uc} steps={steps} step={step} onClose={onClose}>
         <div className="flex items-center gap-2 p-8 text-sm text-text-secondary">
           <Loader2 size={16} className="animate-spin" /> Loading the use case…
         </div>
@@ -550,7 +551,7 @@ export default function ImplementWizard({
   };
 
   return (
-    <Overlay title={title} steps={steps} step={step} onClose={onClose}>
+    <Overlay title={title} uc={uc} steps={steps} step={step} onClose={onClose}>
       <div ref={bodyRef} className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
         {stepId === 'choose' && (
           <>
@@ -659,13 +660,13 @@ export default function ImplementWizard({
                         {lost && <span className="text-[9px] uppercase tracking-[0.18em] text-error-fg">{lost}</span>}
                       </div>
                       {removed ? (
-                        <button type="button" className="text-[11px] text-db-red shrink-0" onClick={() => { setSpec((prev) => restoreTable(prev, original)); setNotice(''); }}>
+                        <button type="button" className="text-[11px] text-db-red-fg shrink-0" onClick={() => { setSpec((prev) => restoreTable(prev, original)); setNotice(''); }}>
                           Use it again
                         </button>
                       ) : (
                         <button
                           type="button"
-                          className="text-[11px] text-db-red shrink-0"
+                          className="text-[11px] text-db-red-fg shrink-0"
                           onClick={() => {
                             const open = !changing[original];
                             setChanging((prev) => ({ ...prev, [original]: open }));
@@ -878,7 +879,7 @@ export default function ImplementWizard({
                           ) : appTaken ? (
                             <p className="text-[11px] text-error-fg">
                               {preflight.checks.app_name.detail}.{' '}
-                              <button type="button" className="text-db-red underline" onClick={() => patch('outputs.app_name', nextAppName(spec.outputs.app_name))}>
+                              <button type="button" className="text-db-red-fg underline" onClick={() => patch('outputs.app_name', nextAppName(spec.outputs.app_name))}>
                                 Use {nextAppName(spec.outputs.app_name)}
                               </button>
                             </p>
@@ -922,7 +923,7 @@ export default function ImplementWizard({
                     aria-pressed={freshness === option.id}
                     disabled={option.id === 'custom'}
                     onClick={() => setSpec((prev) => withFreshness(prev, option.id))}
-                    className={`px-4 py-1.5 text-xs font-medium border-r border-border last:border-r-0 ${freshness === option.id ? 'bg-db-red text-white' : 'bg-surface text-text-secondary hover:text-text-primary'}`}
+                    className={`px-4 py-1.5 text-xs font-medium border-r border-border last:border-r-0 ${freshness === option.id ? 'bg-db-red-solid text-white' : 'bg-surface text-text-secondary hover:text-text-primary'}`}
                   >
                     {option.label}
                   </button>
@@ -1082,7 +1083,7 @@ export default function ImplementWizard({
                   <button
                     key={`${p.type}:${p.name}`}
                     type="button"
-                    className="block text-[11px] text-text-secondary hover:text-db-red"
+                    className="block text-[11px] text-text-secondary hover:text-db-red-fg"
                     onClick={() => {
                       if (spec.sharing.principals.some((x) => x.name === p.name && x.type === p.type)) return;
                       patch('sharing.principals', [...spec.sharing.principals, { type: p.type, name: p.name }]);
@@ -1133,7 +1134,7 @@ export default function ImplementWizard({
             <button
               type="button"
               disabled={Boolean(checking)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-db-red disabled:opacity-70"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-70"
               onClick={goNext}
             >
               {checking ? <><Loader2 size={14} className="animate-spin" /> {checking}…</> : <>Next <ChevronRight size={14} /></>}
@@ -1142,7 +1143,7 @@ export default function ImplementWizard({
             <button
               type="button"
               disabled={busy}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-db-red disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
               onClick={generateNotebook}
             >
               {busy && <Loader2 size={14} className="animate-spin" />}
@@ -1152,7 +1153,7 @@ export default function ImplementWizard({
             <button
               type="button"
               disabled={implementBlocked}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-db-red disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
               onClick={submit}
             >
               {(busy || checksBusy) && <Loader2 size={14} className="animate-spin" />}
@@ -1172,7 +1173,7 @@ function ValuePicker({ label, values, selected, onLoad, onChange }) {
     <div className="border border-border rounded-lg p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-text-secondary">{label}</span>
-        {!values && <button type="button" className="text-[11px] text-db-red" onClick={onLoad}>Load values</button>}
+        {!values && <button type="button" className="text-[11px] text-db-red-fg" onClick={onLoad}>Load values</button>}
       </div>
       {values && values.length === 0 && <p className="text-[11px] text-text-tertiary">No values found in this column.</p>}
       <div className="flex flex-wrap gap-x-3 gap-y-1 max-h-40 overflow-y-auto">
@@ -1188,33 +1189,44 @@ function ValuePicker({ label, values, selected, onLoad, onChange }) {
   );
 }
 
-function Overlay({ title, steps, step, onClose, children }) {
+function Overlay({ title, uc, steps, step, onClose, children }) {
+  const row = uc ? catalogRow(uc, 0) : null;
+  const facts = row ? [['ID', row.id], ['Domain', row.domain], ['Subdomain', row.subdomain], ['Technique', row.technique]].filter(([, v]) => v) : [];
   return (
     <BodyPortal>
       <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" data-implement-overlay="">
-        <div role="dialog" aria-modal="true" aria-label="Start Use Case PoC with Genie" className="bg-surface border border-border rounded-xl shadow-elevated w-full max-w-3xl max-h-full flex flex-col overflow-hidden">
-          <header className="flex items-start justify-between gap-4 px-6 py-4 border-b border-border">
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-text-primary">Start Use Case PoC with Genie</h2>
-              <p className="text-[11px] text-text-secondary truncate">{title}</p>
-            </div>
-            <div className="flex items-center gap-4 shrink-0">
-              <ol className="flex items-center gap-2 text-[11px]">
-                {steps.map((item, i) => (
-                  <li
-                    key={item.id}
-                    aria-current={i === step ? 'step' : undefined}
-                    className={`px-2.5 py-1 rounded-full ${i === step ? 'bg-db-red-50 text-db-red font-semibold' : i < step ? 'text-text-primary' : 'text-text-tertiary'}`}
-                  >
-                    {i + 1}. {item.label}
-                  </li>
-                ))}
-              </ol>
-              <span className="sr-only">Step {step + 1} of {steps.length}</span>
-              <button type="button" onClick={onClose} className="text-text-tertiary hover:text-text-primary" aria-label="Close">
+        <div role="dialog" aria-modal="true" aria-label={title ? `Start Use Case PoC with Genie: ${title}` : 'Start Use Case PoC with Genie'} className="bg-surface border border-border rounded-xl shadow-elevated w-full max-w-3xl max-h-full flex flex-col overflow-hidden">
+          <header className="px-6 pt-4 pb-3 border-b border-border space-y-3" data-wizard-header="">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-db-red-fg">Start Use Case PoC with Genie</p>
+                <h2 className="mt-1 text-lg font-semibold leading-snug text-text-primary break-words">{title}</h2>
+                {facts.length > 0 && (
+                  <ul aria-label="About this use case" className="mt-2 flex flex-wrap gap-1.5">
+                    {facts.map(([label, value]) => (
+                      <li key={label} className="rounded-full border border-border bg-bg-subtle px-2 py-0.5 text-[11px] text-text-secondary">
+                        <span className="text-text-tertiary">{label}</span> <span className="font-medium text-text-primary">{value}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <button type="button" onClick={onClose} className="shrink-0 text-text-tertiary hover:text-text-primary" aria-label="Close">
                 <X size={16} />
               </button>
             </div>
+            <ol className="flex flex-wrap items-center gap-2 text-[11px]">
+              {steps.map((item, i) => (
+                <li
+                  key={item.id}
+                  aria-current={i === step ? 'step' : undefined}
+                  className={`px-2.5 py-1 rounded-full ${i === step ? 'bg-db-red-50 text-db-red-fg font-semibold' : i < step ? 'text-text-primary' : 'text-text-tertiary'}`}
+                >
+                  {i + 1}. {item.label}
+                </li>
+              ))}
+            </ol>
+            <span className="sr-only">Step {step + 1} of {steps.length}</span>
           </header>
           {children}
         </div>

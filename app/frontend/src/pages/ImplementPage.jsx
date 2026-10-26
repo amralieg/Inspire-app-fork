@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, ExternalLink, RefreshCw, Pencil, RotateCcw, Search, Sparkles } from 'lucide-react';
+import { Loader2, ExternalLink, FileText, RefreshCw, Pencil, RotateCcw, Search, Sparkles } from 'lucide-react';
 import {
   statusChip, statusReason, nextSpecFrom, retryableOutputs, rebuildableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
-  resultTierOptions, runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded,
+  runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded,
 } from '../lib/implementWizard';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
 import { buildUseCaseList } from '../lib/useCaseList';
@@ -10,9 +10,12 @@ import { workspaceNotebookUrl } from '../lib/workspaceLinks';
 import ImplementStatusBadge from '../components/ImplementStatusBadge';
 import ImplementWizard from './ImplementWizard';
 import ImplementControlTower from '../components/ImplementControlTower';
+import UseCaseDrawer from '../components/UseCaseDrawer';
+import UseCaseDetailBody from '../components/UseCaseDetailBody';
+import { catalogRow } from '../lib/useCaseFacets';
 import { CONTROL_REFRESH_MS, removeChanges } from '../lib/implementControl';
 
-const TABS = ['Progress', 'Results', 'Dashboard', 'Genie', 'App', 'Alert', 'History', 'Edit'];
+const TABS = ['Progress', 'Dashboard', 'Genie', 'App', 'Alert', 'History', 'Edit'];
 const TAB_OUTPUT = { Dashboard: 'dashboard', Genie: 'genie_space', App: 'app', Alert: 'alert' };
 const NO_RAIL = { latest: [], notebook_run: null, notebook_run_error: '' };
 
@@ -143,7 +146,7 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
                   onClick={() => select(item.id)}
                   className={`w-full text-left rounded-md px-2.5 py-2 text-xs ${item.id === shownId ? 'bg-db-red-50' : 'hover:bg-bg'}`}
                 >
-                  <div className={`font-medium truncate ${item.id === shownId ? 'text-db-red' : 'text-text-primary'}`}>{item.name}</div>
+                  <div className={`font-medium truncate ${item.id === shownId ? 'text-db-red-fg' : 'text-text-primary'}`}>{item.name}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <span className="font-mono text-[10px] text-text-tertiary">{item.id}</span>
                     <ImplementStatusBadge state={item.state} />
@@ -204,10 +207,10 @@ function NotebookPanel({ notebook, notebookPath, databricksHost, notebookRunErro
       {notebookPath && <p className="font-mono text-[11px] text-text-secondary break-all">{notebookPath}</p>}
       <div className="flex flex-wrap gap-3">
         {href && (
-          <a className="text-db-red inline-flex items-center gap-1" href={href} target="_blank" rel="noreferrer">Open the notebook <ExternalLink size={12} /></a>
+          <a className="text-db-red-fg inline-flex items-center gap-1" href={href} target="_blank" rel="noreferrer">Open the notebook <ExternalLink size={12} /></a>
         )}
         {notebook.url && (
-          <a className="text-db-red inline-flex items-center gap-1" href={notebook.url} target="_blank" rel="noreferrer">Open the notebook run <ExternalLink size={12} /></a>
+          <a className="text-db-red-fg inline-flex items-center gap-1" href={notebook.url} target="_blank" rel="noreferrer">Open the notebook run <ExternalLink size={12} /></a>
         )}
       </div>
     </section>
@@ -219,13 +222,12 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const hasPoc = Boolean(item.latest);
   const [status, setStatus] = useState(null);
   const [tab, setTab] = useState('Progress');
-  const [results, setResults] = useState({ rows: [], summary: [] });
   const [error, setError] = useState('');
   const [overrides, setOverrides] = useState({});
   const [rerunBusy, setRerunBusy] = useState(false);
   const [rerunError, setRerunError] = useState(null);
   const [submitBusy, setSubmitBusy] = useState(false);
-  const [filters, setFilters] = useState({ tier: '', segment: '' });
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [live, setLive] = useState(null);
   const [liveError, setLiveError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
@@ -258,16 +260,6 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     return () => clearInterval(id);
   }, [hasPoc, loadStatus, refreshKey]);
 
-  useEffect(() => {
-    if (tab !== 'Results' || !hasPoc) return undefined;
-    let cancelled = false;
-    const shown = new URLSearchParams({ use_case_id: useCaseId, tier: filters.tier, segment: filters.segment });
-    apiFetch(`/api/inspire/implement/results?${qBase}&${shown.toString()}`)
-      .then((data) => { if (!cancelled) setResults(data); })
-      .catch((e) => { if (!cancelled) setError(e.message); });
-    return () => { cancelled = true; };
-  }, [tab, hasPoc, useCaseId, apiFetch, qBase, filters.tier, filters.segment]);
-
   const latest = status?.latest;
   const stalled = status?.stalled || null;
   const chip = statusChip(latest?.status, stalled);
@@ -277,7 +269,6 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const missing = lostTables(latest, rerunError);
   const edited = latest?.status === 'failed' ? editedNotebook(latest) : null;
   const reason = missing.length || edited ? '' : statusReason(latest, stalled);
-  const tiers = resultTierOptions(results.summary);
   const genie = genieQuestions(latest);
   const genieAsset = latest?.asset_status?.genie_space || {};
 
@@ -348,7 +339,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
           type="button"
           disabled={active || submitBusy}
           onClick={() => retryOutput(name)}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-db-red disabled:opacity-50"
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
         >
           {submitBusy ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />} Retry the {failed.label}
         </button>
@@ -365,17 +356,34 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ImplementStatusBadge state={item.state} />
+          {item.uc && (
+            <button
+              type="button"
+              onClick={() => setDetailsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-border text-text-primary hover:bg-bg-subtle"
+            >
+              <FileText size={13} /> Use case details
+            </button>
+          )}
           {!hasPoc && (
             <button
               type="button"
               onClick={() => onEdit(null)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red hover:bg-db-red-hover shadow-sm shadow-db-red/20"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid hover:bg-db-red-solid-hover shadow-sm shadow-db-red/20"
             >
               <Sparkles size={13} /> Start Use Case PoC with Genie
             </button>
           )}
         </div>
       </header>
+      {detailsOpen && item.uc && (() => {
+        const row = catalogRow(item.uc, 0, { statusOf: () => item.state });
+        return (
+          <UseCaseDrawer row={row} onClose={() => setDetailsOpen(false)}>
+            <UseCaseDetailBody uc={item.uc} v130={item.uc._v130 || null} token={settings.token} databricksHost={databricksHost} />
+          </UseCaseDrawer>
+        );
+      })()}
       {item.notebook && (
         <NotebookPanel notebook={item.notebook} notebookPath={item.uc?.notebook_path || ''} databricksHost={databricksHost} notebookRunError={notebookRunError} />
       )}
@@ -407,7 +415,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                 role="tab"
                 aria-selected={tab === name}
                 onClick={() => setTab(name)}
-                className={`px-3 py-2 text-xs font-medium ${tab === name ? 'text-db-red border-b-2 border-db-red' : 'text-text-secondary'}`}
+                className={`px-3 py-2 text-xs font-medium ${tab === name ? 'text-db-red-fg border-b-2 border-db-red' : 'text-text-secondary'}`}
               >
                 {name}
               </button>
@@ -428,7 +436,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                   type="button"
                   disabled={active}
                   onClick={() => onEdit({ step: 'data', missingTables: missing })}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-db-red disabled:opacity-50"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
                 >
                   <Pencil size={12} /> Edit the Data step
                 </button>
@@ -443,7 +451,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                   type="button"
                   disabled={active || submitBusy}
                   onClick={() => submitNext({ confirm_notebook_overwrite: true })}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-db-red disabled:opacity-50"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
                 >
                   {submitBusy ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />} Rebuild and overwrite the edits
                 </button>
@@ -454,7 +462,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                 <p className={`text-xs font-semibold ${toneClass(chip.tone)}`}>{chip.label}</p>
                 {reason && <p className={`text-[12px] ${toneClass(chip.tone)}`}>{reason}</p>}
                 {stalled?.run_url && (
-                  <a className="text-[12px] text-db-red inline-flex items-center gap-1" href={stalled.run_url} target="_blank" rel="noreferrer">
+                  <a className="text-[12px] text-db-red-fg inline-flex items-center gap-1" href={stalled.run_url} target="_blank" rel="noreferrer">
                     Open the run that stopped <ExternalLink size={12} />
                   </a>
                 )}
@@ -469,63 +477,16 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                 ))}
               </div>
             )}
-            {tab === 'Results' && results.exists === false && (
-              <p className="text-[12px] text-text-tertiary">
-                {results.result_table
-                  ? `No results yet. The first run creates ${results.result_table} and writes its rows there.`
-                  : 'No results yet. Implement this use case to create them.'}
-              </p>
-            )}
-            {tab === 'Results' && results.exists !== false && (
-              <div className="overflow-x-auto space-y-2">
-                <div className="flex flex-wrap items-center gap-3 text-[11px]">
-                  <label className="inline-flex items-center gap-1">
-                    Tier
-                    <select className="px-2 py-1 border border-border rounded bg-surface" value={filters.tier}
-                      onChange={(e) => setFilters((prev) => ({ ...prev, tier: e.target.value }))}>
-                      <option value="">All</option>
-                      {tiers.map((t) => <option key={t.tier} value={t.tier}>{t.tier} ({t.rows})</option>)}
-                    </select>
-                  </label>
-                  <label className="inline-flex items-center gap-1">
-                    Segment
-                    <select className="px-2 py-1 border border-border rounded bg-surface" value={filters.segment}
-                      onChange={(e) => setFilters((prev) => ({ ...prev, segment: e.target.value }))}>
-                      <option value="">All</option>
-                      {(results.segments || []).map((s) => (
-                        <option key={s.segment_or_item} value={s.segment_or_item}>{s.segment_or_item} ({s.rows})</option>
-                      ))}
-                    </select>
-                  </label>
-                  <span className="text-text-tertiary">
-                    {(results.rows || []).length} row(s) of the latest run{results.result_table ? ` in ${results.result_table}` : ''}
-                  </span>
-                </div>
-                <table className="min-w-full text-[11px]">
-                  <thead>
-                    <tr>{Object.keys(results.rows[0] || {}).map((c) => <th key={c} className="text-left p-1 border-b border-border">{c}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    {(results.rows || []).slice(0, 200).map((row, i) => (
-                      <tr key={i}>
-                        {Object.keys(results.rows[0] || {}).map((c) => <td key={c} className="p-1 border-b border-border/50">{String(row[c] ?? '')}</td>)}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {results.rows?.length === 0 && <p className="text-[12px] text-text-tertiary">No result rows yet.</p>}
-              </div>
-            )}
             {TAB_OUTPUT[tab] && retryBanner(TAB_OUTPUT[tab])}
             {tab === 'Dashboard' && (
               latest?.dashboard_url
-                ? <a className="text-sm text-db-red inline-flex items-center gap-1" href={latest.dashboard_url} target="_blank" rel="noreferrer">Open dashboard <ExternalLink size={12} /></a>
+                ? <a className="text-sm text-db-red-fg inline-flex items-center gap-1" href={latest.dashboard_url} target="_blank" rel="noreferrer">Open dashboard <ExternalLink size={12} /></a>
                 : <p className="text-[12px] text-text-tertiary">No dashboard on this version.</p>
             )}
             {tab === 'Genie' && (
               latest?.genie_space_url ? (
                 <div className="space-y-2 text-[12px]">
-                  <a className="text-sm text-db-red inline-flex items-center gap-1" href={latest.genie_space_url} target="_blank" rel="noreferrer">Open Genie space <ExternalLink size={12} /></a>
+                  <a className="text-sm text-db-red-fg inline-flex items-center gap-1" href={latest.genie_space_url} target="_blank" rel="noreferrer">Open Genie space <ExternalLink size={12} /></a>
                   {genie.questions.length > 0 && (
                     <div>
                       <p className="font-medium">{genie.source === 'space' ? 'Sample questions in the space' : 'Questions you asked for'}</p>
@@ -545,7 +506,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
             {tab === 'App' && (
               latest?.app_url ? (
                 <div className="space-y-2 text-[12px]">
-                  <a className="text-sm text-db-red inline-flex items-center gap-1" href={latest.app_url} target="_blank" rel="noreferrer">Open App <ExternalLink size={12} /></a>
+                  <a className="text-sm text-db-red-fg inline-flex items-center gap-1" href={latest.app_url} target="_blank" rel="noreferrer">Open App <ExternalLink size={12} /></a>
                   <table className="text-[12px]">
                     <tbody>
                       {appStatusRows(status?.app_status, latest?.asset_status?.app).map(([label, value]) => (
@@ -559,7 +520,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
             {tab === 'Alert' && (
               latest?.alert_url ? (
                 <div className="space-y-2 text-[12px]">
-                  <a className="text-sm text-db-red inline-flex items-center gap-1" href={latest.alert_url} target="_blank" rel="noreferrer">Open alert <ExternalLink size={12} /></a>
+                  <a className="text-sm text-db-red-fg inline-flex items-center gap-1" href={latest.alert_url} target="_blank" rel="noreferrer">Open alert <ExternalLink size={12} /></a>
                   <p>Fires when: {alertAsset.trigger || '—'}</p>
                   {alertAsset.condition_sql && <pre className="text-[10px] font-mono text-text-secondary whitespace-pre-wrap border border-border rounded p-2">{alertAsset.condition_sql}</pre>}
                   <p>Notifies: {spec.outputs?.alert_recipients?.join(', ') || 'no email recipients'}
@@ -587,7 +548,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                     <div>{run.state || 'unknown'} · {runProfileText(run.profile)} · {run.trigger === 'PERIODIC' ? 'scheduled' : 'started by hand'}</div>
                     <div className="text-text-tertiary">
                       {run.started} · {run.duration_s}s
-                      {run.url && <> · <a className="text-db-red" href={run.url} target="_blank" rel="noreferrer">Open run</a></>}
+                      {run.url && <> · <a className="text-db-red-fg" href={run.url} target="_blank" rel="noreferrer">Open run</a></>}
                     </div>
                     {run.message && <div className="text-text-secondary">{run.message}</div>}
                   </div>
@@ -637,7 +598,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                     type="button"
                     disabled={rerunBusy || !latest?.job_id}
                     onClick={rerun}
-                    className="mt-2 w-full inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-db-red disabled:opacity-50"
+                    className="mt-2 w-full inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
                   >
                     {rerunBusy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Preview re-run
                   </button>
@@ -693,6 +654,6 @@ function toneClass(tone) {
   if (tone === 'success') return 'text-success-fg';
   if (tone === 'warning') return 'text-warning-fg';
   if (tone === 'error') return 'text-error-fg';
-  if (tone === 'busy') return 'text-db-red';
+  if (tone === 'busy') return 'text-db-red-fg';
   return 'text-text-tertiary';
 }

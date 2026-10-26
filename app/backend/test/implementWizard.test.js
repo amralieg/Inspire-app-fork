@@ -808,13 +808,9 @@ test('the App tab shows the live state, the last deployment and the health check
   assert.deepEqual(w.appStatusRows(null, null), []);
 });
 
-test('the tier filter lists the tiers of the latest run only, with their row counts', async () => {
+test('the run profile reads as the job default when none is chosen', async () => {
   const w = await load();
-  const summary = [{ as_of_date: '2026-10-24', priority_tier: 'Act now', rows: '3' }, { as_of_date: '2026-10-24', priority_tier: 'Review', rows: '9' },
-    { as_of_date: '2026-10-17', priority_tier: 'Monitor', rows: '40' }, { as_of_date: '2026-10-24', priority_tier: null, rows: '1' }];
-  assert.deepEqual(w.resultTierOptions(summary), [{ tier: 'Act now', rows: 3 }, { tier: 'Review', rows: 9 }]);
-  assert.deepEqual(w.resultTierOptions([]), []);
-  assert.deepEqual(w.resultTierOptions(undefined), []);
+  assert.equal(w.resultTierOptions, undefined);
   assert.equal(w.runProfileText('preview'), 'preview');
   assert.equal(w.runProfileText(''), 'full (job default)');
 });

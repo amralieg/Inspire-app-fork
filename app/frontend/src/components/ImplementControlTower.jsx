@@ -35,7 +35,7 @@ function RemoveDialog({ row, useCaseId, busy, onCancel, onConfirm }) {
               type="button"
               disabled={!ok || busy}
               onClick={onConfirm}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-error disabled:opacity-50"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-error-solid disabled:opacity-50"
             >
               {busy ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} Remove the {row.label}
             </button>

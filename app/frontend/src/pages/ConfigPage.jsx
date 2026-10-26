@@ -266,7 +266,7 @@ export default function ConfigPage({ settings, update, onConfigured }) {
                     >
                       <Server
                         size={16}
-                        className={`mt-0.5 ${selected ? 'text-db-red' : 'text-text-tertiary'}`}
+                        className={`mt-0.5 ${selected ? 'text-db-red-fg' : 'text-text-tertiary'}`}
                       />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-text-primary truncate">
@@ -280,7 +280,7 @@ export default function ConfigPage({ settings, update, onConfigured }) {
                           <span className="text-xs text-text-tertiary">{w.cluster_size}</span>
       </div>
       </div>
-                      {selected && <CheckCircle2 size={16} className="text-db-red mt-0.5" />}
+                      {selected && <CheckCircle2 size={16} className="text-db-red-fg mt-0.5" />}
                     </button>
                   );
                 })}
@@ -302,7 +302,7 @@ export default function ConfigPage({ settings, update, onConfigured }) {
             {/* DBC info */}
             {dbcInfo && (
               <div className="flex items-center gap-2 p-2.5 bg-bg rounded-md mb-4 text-xs text-text-secondary">
-                <Package size={14} className="text-db-red" />
+                <Package size={14} className="text-db-red-fg" />
                 <span>{dbcInfo.file}</span>
                 <span className="text-text-tertiary">
                   ({(dbcInfo.size / 1024).toFixed(0)} KB, {dbcInfo.notebooks?.length || 0} notebook{dbcInfo.notebooks?.length !== 1 ? 's' : ''})
@@ -324,7 +324,7 @@ export default function ConfigPage({ settings, update, onConfigured }) {
       <button
                 onClick={publish}
                 disabled={publishStatus === 'loading' || !username}
-                className="px-4 py-2 text-sm font-medium rounded-md bg-db-red text-white hover:bg-db-red-hover disabled:opacity-50 disabled:cursor-not-allowed transition-smooth flex items-center gap-2"
+                className="px-4 py-2 text-sm font-medium rounded-md bg-db-red-solid text-white hover:bg-db-red-solid-hover disabled:opacity-50 disabled:cursor-not-allowed transition-smooth flex items-center gap-2"
               >
                 {publishStatus === 'loading' ? (
                   <Loader2 size={14} className="animate-spin" />
@@ -357,7 +357,7 @@ export default function ConfigPage({ settings, update, onConfigured }) {
         <button
           onClick={onConfigured}
           disabled={!isReady}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-db-red text-white text-sm font-semibold rounded-lg hover:bg-db-red-hover disabled:opacity-40 disabled:cursor-not-allowed transition-smooth shadow-sm"
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-db-red-solid text-white text-sm font-semibold rounded-lg hover:bg-db-red-solid-hover disabled:opacity-40 disabled:cursor-not-allowed transition-smooth shadow-sm"
         >
           Get Started
           <ArrowRight size={16} />

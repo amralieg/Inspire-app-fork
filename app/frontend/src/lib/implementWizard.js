@@ -955,13 +955,6 @@ export function appStatusRows(appStatus, asset) {
   return rows;
 }
 
-export function resultTierOptions(summary) {
-  const rows = Array.isArray(summary) ? summary : [];
-  const latestDate = rows.map((r) => String(r.as_of_date ?? '')).sort().pop() || '';
-  return rows.filter((r) => String(r.as_of_date ?? '') === latestDate && String(r.priority_tier ?? ''))
-    .map((r) => ({ tier: String(r.priority_tier), rows: Number(r.rows) || 0 }));
-}
-
 export function runProfileText(profile) {
   return profile || 'full (job default)';
 }
