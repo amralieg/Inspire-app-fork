@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, ExternalLink, RefreshCw, Pencil, RotateCcw, Search, Sparkles } from 'lucide-react';
 import {
-  statusChip, statusReason, nextSpecFrom, retryableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
+  statusChip, statusReason, nextSpecFrom, retryableOutputs, rebuildableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
   resultTierOptions, runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded,
 } from '../lib/implementWizard';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
@@ -298,6 +298,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const toggleSchedule = () => submitNext({ schedule: { ...(spec.schedule || {}), enabled: !spec.schedule?.enabled } });
   const retryOutput = (name) => submitNext({ retry_outputs: [name] });
   const failedOutputs = retryableOutputs(latest);
+  const builtOutputs = rebuildableOutputs(latest);
   const alertAsset = latest?.asset_status?.alert || {};
 
   const retryBanner = (name) => {
@@ -608,6 +609,23 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                         className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-error/40 text-error disabled:opacity-50"
                       >
                         <RotateCcw size={12} /> Retry the {o.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {builtOutputs.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Rebuild an output</div>
+                    <p className="text-[10px] text-text-tertiary">Genie writes it again from this version, for an output that was built but does not work.</p>
+                    {builtOutputs.map((o) => (
+                      <button
+                        key={o.id}
+                        type="button"
+                        disabled={active || submitBusy}
+                        onClick={() => retryOutput(o.id)}
+                        className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-border text-text-secondary disabled:opacity-50"
+                      >
+                        <RotateCcw size={12} /> Rebuild the {o.label}
                       </button>
                     ))}
                   </div>

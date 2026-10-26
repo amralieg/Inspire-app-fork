@@ -112,6 +112,28 @@ test('only failed outputs that are still selected on a version with warnings can
   assert.deepEqual(w.retryableOutputs({ status: 'ready_with_warnings', spec_json: {}, asset_status: null }), []);
 });
 
+test('only an output that was built and still works can be rebuilt, and only once the PoC is ready', async () => {
+  const w = await load();
+  const latest = {
+    status: 'ready_with_warnings',
+    spec_json: { outputs: { dashboard: true, genie_space: true, app: true, alert: false } },
+    asset_status: {
+      dashboard: { state: 'ready' },
+      genie_space: { state: 'failed', error: 'space create 403' },
+      app: { state: 'ready', health: 'running' },
+      alert: { state: 'ready' },
+    },
+  };
+  assert.deepEqual(w.rebuildableOutputs(latest).map((o) => o.id), ['dashboard', 'app'],
+    'a failed output belongs to the retries and an unticked one is not rebuilt');
+  assert.deepEqual(w.rebuildableOutputs({ ...latest, status: 'ready' }).map((o) => o.id), ['dashboard', 'app']);
+  for (const status of ['queued', 'filling', 'building_outputs', 'failed']) {
+    assert.deepEqual(w.rebuildableOutputs({ ...latest, status }), [], status);
+  }
+  assert.deepEqual(w.rebuildableOutputs({ ...latest, asset_status: { app: { state: 'unmanaged' }, dashboard: { state: 'deleted' } } }), []);
+  assert.deepEqual(w.rebuildableOutputs(null), []);
+});
+
 test('alert recipients default to the decision owner and the users it is shared with, never groups', async () => {
   const w = await load();
   const spec = {

@@ -668,6 +668,49 @@ test('a failed output offers its own retry, which submits the next version that 
   }
 });
 
+test('an output that was built can be rebuilt on its own from the Edit tab, and a failed one stays under the retries', async () => {
+  const assets = JSON.parse(built().asset_status);
+  const warned = built({
+    spec_version: 2, status: 'ready_with_warnings', status_message: 'Genie space: space create 403',
+    asset_status: JSON.stringify({ ...assets, genie_space: { state: 'failed', error: 'space create 403', spec_version: 2 } }),
+  });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [warned] });
+  const { page, made } = ui;
+  try {
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
+    await studioTab(page, 'Edit');
+    const rebuilds = editPane(page).getByRole('button', { name: /^Rebuild the / });
+    await rebuilds.first().waitFor();
+    assert.deepEqual((await rebuilds.allTextContents()).map((t) => t.trim()), ['Rebuild the App', 'Rebuild the Alert']);
+    assert.deepEqual((await editPane(page).getByRole('button', { name: /^Retry the / }).allTextContents()).map((t) => t.trim()),
+      ['Retry the Genie space']);
+    await editPane(page).getByRole('button', { name: 'Rebuild the App' }).click();
+    await until(() => made.jobs.length === 1, 'the rebuild implement run');
+    const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
+    assert.equal(inserts.length, 1);
+    const value = (name) => inserts[0].parameters.find((p) => p.name === name).value;
+    assert.deepEqual([value('v'), value('based'), value('classes')], ['3', '2', 'retry']);
+    const spec = JSON.parse(value('spec'));
+    assert.deepEqual(spec.retry_outputs, ['app']);
+    assert.equal(spec.outputs.app_name, 'churn-desk', 'the rebuild keeps the App it replaces');
+    assert.equal(made.jobs[0].params.inspire_implement_spec_version, '3');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+  const busy = await openUi('implement', { ...STUDIO_STATE, history: [built({ status: 'building_outputs' })],
+    implementRun: { run_id: 1066484287074577, state: { life_cycle_state: 'RUNNING' } } });
+  try {
+    await busy.page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
+    await studioTab(busy.page, 'Edit');
+    await busy.page.getByRole('checkbox', { name: 'Schedule on' }).waitFor();
+    assert.equal(await editPane(busy.page).getByRole('button', { name: /^Rebuild the / }).count(), 0, 'nothing is rebuilt while a version runs');
+    assert.deepEqual(busy.pageErrors, []);
+  } finally {
+    await busy.close();
+  }
+});
+
 test('a dropped source table stops the re-run with its name, and Edit opens the Data step with that table marked and its Change open', async () => {
   const ui = await openUi('implement', { ...STUDIO_STATE, probeErrors: { '`main`.`s`.`returns`': GONE } });
   const { page, made } = ui;

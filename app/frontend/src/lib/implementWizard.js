@@ -717,6 +717,13 @@ export function retryableOutputs(latest) {
     .map((o) => ({ ...o, error: String(assets[o.id].error || ''), spec_version: assets[o.id].spec_version ?? latest.spec_version ?? null }));
 }
 
+export function rebuildableOutputs(latest) {
+  if (!latest || !['ready', 'ready_with_warnings'].includes(latest.status)) return [];
+  const chosen = latest.spec_json?.outputs || {};
+  const assets = latest.asset_status || {};
+  return IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id] && assets[o.id]?.state === 'ready');
+}
+
 export function sectionErrors(section, spec, extras = {}) {
   const errors = [];
   if (section === 'use_case') {
