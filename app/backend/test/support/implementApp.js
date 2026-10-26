@@ -11,6 +11,7 @@ function makeApp(overrides = {}) {
   const fetches = [];
   const jobs = [];
   const altered = [];
+  const flagged = [];
   const state = {
     implementColumns: IMPLEMENT_COLUMNS.map(([name]) => name),
     alertsOk: true,
@@ -105,7 +106,11 @@ function makeApp(overrides = {}) {
       if (path.startsWith('/api/2.1/jobs/runs/get')) {
         return json(state.implementRun || { run_id: 99, state: { life_cycle_state: 'RUNNING' } }, state.implementRunStatus || 200);
       }
-      if (path.startsWith('/api/2.1/jobs/runs/list')) return json(state.runs || { runs: [] }, state.runsStatus || 200);
+      if (path.startsWith('/api/2.1/jobs/list')) return json(state.jobsList || { jobs: [] }, state.jobsListStatus || 200);
+      if (path.startsWith('/api/2.1/jobs/runs/list')) {
+        const jobId = new URL(`https://x${path}`).searchParams.get('job_id');
+        return json((state.runsByJob && state.runsByJob[jobId]) || state.runs || { runs: [] }, state.runsStatus || 200);
+      }
       if (path.startsWith('/api/2.1/jobs/get')) return json(state.job || { job_id: 77 }, state.jobStatus || 200);
       if (path.includes('/serving-endpoints')) return json({ endpoints: [{ name: 'databricks-meta-llama-3-3-70b-instruct' }] });
       if (path.includes('/fs/files')) return json('raw', 404);
@@ -122,6 +127,7 @@ function makeApp(overrides = {}) {
     triggerInspireNotebookJob: async (_h, _t, args) => {
       jobs.push(args);
       if (state.triggerError) throw new Error(state.triggerError);
+      if (state.afterTrigger) state.afterTrigger(args);
       return { run_id: 99, job_id: 7, notebook_path: '/Shared/nb', job_run_url: 'https://example/#job/7/run/99' };
     },
     splitInspireDatabase: (v) => {
@@ -133,8 +139,16 @@ function makeApp(overrides = {}) {
       altered.push({ table, columns });
       for (const [name] of columns) if (!state.implementColumns.includes(name)) state.implementColumns.push(name);
     },
+    runRoute1GenieFlagUpdates: async (_h, _t, warehouseId, catalog, schema, sid, ids) => {
+      flagged.push({ warehouseId, catalog, schema, sid, ids });
+    },
   });
-  return { app, sqlCalls, fetches, jobs, state, altered };
+  app.get('/api/inspire/results', (_req, res) => res.json({ results: state.results || null }));
+  app.get('/api/inspire/usecases', (_req, res) => {
+    const usecases = state.useCases || (state.useCase ? [state.useCase] : []);
+    res.json({ usecases, count: usecases.length });
+  });
+  return { app, sqlCalls, fetches, jobs, state, altered, flagged };
 }
 
 function json(data, status = 200) {

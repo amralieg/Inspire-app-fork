@@ -28,7 +28,6 @@ import {
   Wrench,
   LayoutGrid,
   Sparkles,
-  XCircle,
   Compass,
   Flag,
   Star,
@@ -39,7 +38,6 @@ import GlassCard from '../components/GlassCard';
 import DomainSunburst from '../components/DomainSunburst';
 import PriorityHeatmap from '../components/PriorityHeatmap';
 import Celebration from '../components/Celebration';
-import DatabricksLogo from '../components/DatabricksLogo';
 import { SkeletonCard, SkeletonStats } from '../components/SkeletonLoader';
 import { DataAccessBadge, FeedbackPanel, FoundationsPanel, SidebarFilterPanel, StrategyCoveragePanel } from '../components/ResultsInsights';
 import { BestOfBestDetail, FeedbackChip, FeedbackControls, StrategyChip, UseCaseStrategyDetail } from '../components/UseCaseStrategyDetail';
@@ -47,19 +45,18 @@ import {
   NOT_ALIGNED_FILTER,
   bestOfBestLabel,
   compareBestOfBestFirst,
-  copyV130TrackingFields,
-  genieCardActions,
   knownPriorities,
   latestFeedbackMap,
   matchesStrategyFilter,
   priorityMatches,
   strategyFilterOptions,
-  v130View,
 } from '../lib/v130UseCase';
 import { visibleArtifactFiles } from '../lib/artifactFiles';
+import { normalizeDatabricksFsPath, workspaceNotebookUrl, workspaceWebUiHashPath } from '../lib/workspaceLinks';
+import ImplementCardActions from '../components/ImplementCardActions';
 import ImplementWizard from './ImplementWizard';
-import UseCaseStudio from './UseCaseStudio';
-import { caseIdOf } from '../lib/implementWizard';
+import { implementState, notebookRunEnded, notebookStatus, versionActive } from '../lib/implementWizard';
+import { buildUseCaseList } from '../lib/useCaseList';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
 
 /* ── Priority sort order ── */
@@ -122,24 +119,6 @@ function inspireScoreFromUc(uc) {
 
 const HIGH_TIER_IDX = PRIORITY_ORDER.indexOf('High');
 
-/** Collapse `/./` and `/../` (e.g. `/Shared/../demos/x` → `/demos/x`). Leaves `/Volumes/` unchanged. */
-function normalizeDatabricksFsPath(p) {
-  if (p == null || typeof p !== 'string') return '';
-  const t = p.trim().replace(/\/+/g, '/');
-  if (!t) return '';
-  if (t.startsWith('/Volumes/')) return t.replace(/\/+$/, '') || t;
-  if (!t.startsWith('/')) return t;
-  const segments = t.split('/').filter(Boolean);
-  const stack = [];
-  for (const seg of segments) {
-    if (seg === '.') continue;
-    if (seg === '..') {
-      if (stack.length) stack.pop();
-    } else stack.push(seg);
-  }
-  return stack.length ? `/${stack.join('/')}` : '/';
-}
-
 /**
  * REST + browser hash paths: try normalized path, then `/Workspace` + path for `/Shared`, `/Users`, `/demos`, …
  */
@@ -159,14 +138,6 @@ function expandWorkspaceListCandidates(p) {
     push(stripped);
   }
   return out;
-}
-
-/** `#workspace` deep-link segment — UI expects `/Workspace/...` on current control planes. */
-function workspaceWebUiHashPath(fsPath) {
-  const n = normalizeDatabricksFsPath(fsPath);
-  if (!n || n.startsWith('/Volumes/')) return n;
-  if (n.startsWith('/Workspace')) return n;
-  return `/Workspace${n}`;
 }
 
 /** True when Auto-Genie shipped instructions for this UC (not skeleton-only). */
@@ -233,96 +204,10 @@ function findUcForNotebookFilename(fname, useCases) {
 }
 
 /** When overlaying Inspire tracking row id onto domain JSON, keep the prior catalog id for notebook filename matching. */
-function applyInspireTrackingId(uc, trackId) {
-  if (trackId == null || String(trackId).trim() === '') return;
-  const tid = String(trackId).trim();
-  const prev = String(uc.No ?? uc.id ?? '').trim();
-  if (prev && prev !== tid) uc.catalog_no = prev;
-  uc.id = tid;
-  uc.No = tid;
-}
-
 /** Inspire `__inspire_usecases.id` / catalog `No` — tracking id for merges. */
 function useCaseTrackingId(uc) {
   if (!uc || typeof uc !== 'object') return '';
   return String(uc.id ?? uc.No ?? uc['No'] ?? '').trim();
-}
-
-/** Sorted unique Inspire tracking ids — React-friendly selection state (avoid `Set` in `useState`). */
-function sortUniqueGenieIds(ids) {
-  if (!Array.isArray(ids) || ids.length === 0) return [];
-  const seen = new Set();
-  const out = [];
-  for (const raw of ids) {
-    const s = String(raw ?? '').trim();
-    if (!s || seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  out.sort();
-  return out;
-}
-
-/** Same shape as backend `databricksJobRunUrl` when `job_run_url` is omitted. */
-function genieJobRunUrlFromHost(databricksHost, jobId, runId) {
-  const h = String(databricksHost || '').trim().replace(/\/+$/, '');
-  if (!h || jobId == null || runId == null) return '';
-  const origin = h.startsWith('http') ? h.replace(/^http:\/\//i, 'https://') : `https://${h}`;
-  return `${origin}/#job/${encodeURIComponent(String(jobId))}/run/${encodeURIComponent(String(runId))}`;
-}
-
-/**
- * Combine Jobs API run state with Delta flag counts from `/api/inspire/genie-progress`.
- * Returns `key` for styling and stopping poll (`done` | `failed`).
- */
-function deriveGenieOverallStatus(p) {
-  if (!p || typeof p !== 'object') {
-    return { key: 'running', label: 'In progress', detail: 'Waiting for status…' };
-  }
-  const lc = String(p.run_life_cycle_state || '').toUpperCase();
-  const rs = String(p.run_result_state || '').toUpperCase();
-  const remaining = Number(p.remaining_yes) || 0;
-  const total = Number(p.selected_total) || 0;
-
-  if (rs === 'FAILED' || rs === 'CANCELED' || rs === 'CANCELLED' || rs === 'TIMEDOUT' || rs === 'TIMEOUT') {
-    return { key: 'failed', label: 'Failed', detail: rs.replace(/_/g, ' ') };
-  }
-  if (lc === 'INTERNAL_ERROR') {
-    return { key: 'failed', label: 'Failed', detail: 'Internal error' };
-  }
-  if (lc === 'SKIPPED') {
-    return { key: 'failed', label: 'Failed', detail: 'Run skipped' };
-  }
-
-  const jobStillLive =
-    !lc ||
-    lc === 'PENDING' ||
-    lc === 'RUNNING' ||
-    lc === 'TERMINATING' ||
-    lc === 'BLOCKED' ||
-    lc === 'WAITING_FOR_RETRY' ||
-    lc === 'QUEUED';
-
-  if (jobStillLive) {
-    return { key: 'running', label: 'In progress', detail: lc ? `Run: ${lc.replace(/_/g, ' ')}` : undefined };
-  }
-
-  if (lc === 'TERMINATED' && (rs === 'SUCCESS' || rs === '')) {
-    if (total > 0 && remaining > 0) {
-      return {
-        key: 'running',
-        label: 'In progress',
-        detail: 'Job succeeded; waiting for Genie flags to clear on selected use cases…',
-      };
-    }
-    return { key: 'done', label: 'Done', detail: 'Job finished and use case flags updated' };
-  }
-
-  if (total > 0 && remaining === 0) {
-    return { key: 'done', label: 'Done', detail: 'Genie flags cleared for selected use cases' };
-  }
-
-  return { key: 'running', label: 'In progress', detail: lc ? `Run: ${lc.replace(/_/g, ' ')}` : undefined };
 }
 
 /** True if Priority or Quality matches Ultra / Very High / High tier labels. */
@@ -438,14 +323,6 @@ function mergeFreshResultsJson(prev, fresh) {
   };
 }
 
-function cloneDomainUseCaseForList(uc) {
-  try {
-    return typeof structuredClone === 'function' ? structuredClone(uc) : { ...uc };
-  } catch {
-    return { ...uc };
-  }
-}
-
 /* ── Date formatter for session display ── */
 function formatSessionDate(dateStr) {
   if (!dateStr) return '';
@@ -542,6 +419,8 @@ export default function ResultsPage({
   update,
   sessionId: propSessionId,
   embedded = false,
+  onOpenImplement,
+  onSessionChange,
 }) {
   const {
     databricksHost,
@@ -637,26 +516,9 @@ export default function ResultsPage({
   const [expandedUseCase, setExpandedUseCase] = useState(null);
   const [implementUc, setImplementUc] = useState(null);
   const [implementFocus, setImplementFocus] = useState(null);
-  const [studioUseCaseId, setStudioUseCaseId] = useState(null);
-
-  /** Inspire `__inspire_usecases` Route 1 flags: user selection → debounced POST sync-genie-flags. */
-  const [genieRegenSelectedIds, setGenieRegenSelectedIds] = useState(() => []);
-  const [genieFlagSyncing, setGenieFlagSyncing] = useState(false);
-  /** True after checkbox changes until `sync-genie-flags` succeeds (includes debounce + in-flight request). */
-  const [genieDeltaSyncPending, setGenieDeltaSyncPending] = useState(false);
-  const [genieFlagSyncError, setGenieFlagSyncError] = useState('');
-  const [genieJobRunning, setGenieJobRunning] = useState(false);
-  const [genieJobError, setGenieJobError] = useState('');
-  const [genieJobLastRun, setGenieJobLastRun] = useState(null);
-  /** Latest `/api/inspire/genie-progress` payload while tracking an active Genie job run. */
-  const [genieJobProgress, setGenieJobProgress] = useState(null);
-  /** Genie instructions card body; auto-collapses when the tracked job reaches success (`done`). */
-  const [genieInstructionsPanelExpanded, setGenieInstructionsPanelExpanded] = useState(true);
-  const genieSelectionDirtyRef = useRef(false);
-  const genieRegenSelectedIdsRef = useRef(genieRegenSelectedIds);
-  useEffect(() => {
-    genieRegenSelectedIdsRef.current = genieRegenSelectedIds;
-  }, [genieRegenSelectedIds]);
+  const [implementView, setImplementView] = useState({ latest: [], notebook_run: null });
+  const [implementRefresh, setImplementRefresh] = useState(0);
+  const lastNotebookRun = useRef(null);
 
   const apiFetch = useMemo(() => makeApiFetch({ token, databricksHost }), [token, databricksHost]);
   const apiPostJson = useMemo(() => makeApiPostJson({ token, databricksHost }), [token, databricksHost]);
@@ -714,135 +576,6 @@ export default function ResultsPage({
     [selectedSessionId, inspireDb, warehouseId, apiPostJson]
   );
 
-  useEffect(() => {
-    genieSelectionDirtyRef.current = false;
-    setGenieRegenSelectedIds([]);
-    setGenieFlagSyncError('');
-    setGenieJobError('');
-    setGenieJobLastRun(null);
-    setGenieJobProgress(null);
-    setGenieDeltaSyncPending(false);
-  }, [selectedSessionId]);
-
-  useEffect(() => {
-    if (!selectedSessionId || !usecases?.length) return;
-    if (genieSelectionDirtyRef.current) return;
-    const next = [];
-    for (const row of usecases) {
-      const id = String(row.No ?? row.id ?? '').trim();
-      const ggi = String(row.generate_genie_code_instruction ?? '').trim().toUpperCase();
-      if (id && ggi === 'YES') next.push(id);
-    }
-    setGenieRegenSelectedIds(sortUniqueGenieIds(next));
-    setGenieDeltaSyncPending(false);
-  }, [selectedSessionId, usecases]);
-
-  const genieSelectedSortedKey = useMemo(
-    () => JSON.stringify(sortUniqueGenieIds(genieRegenSelectedIds)),
-    [genieRegenSelectedIds]
-  );
-
-  useEffect(() => {
-    if (!genieSelectionDirtyRef.current) return;
-    if (!selectedSessionId || !inspireDb || !warehouseId) return;
-
-    const t = setTimeout(() => {
-      let ids = [];
-      try {
-        const parsed = JSON.parse(genieSelectedSortedKey);
-        ids = Array.isArray(parsed) ? parsed.map((x) => String(x).trim()).filter(Boolean) : [];
-      } catch {
-        ids = [];
-      }
-      setGenieFlagSyncing(true);
-      setGenieFlagSyncError('');
-      (async () => {
-        try {
-          await apiPostJson('/api/inspire/sync-genie-flags', {
-            inspire_database: inspireDb,
-            warehouse_id: warehouseId,
-            session_id: String(selectedSessionId),
-            use_case_ids: ids,
-          });
-          genieSelectionDirtyRef.current = false;
-          setGenieDeltaSyncPending(false);
-        } catch (e) {
-          setGenieFlagSyncError(
-            `${e.message || 'Failed to sync Genie flags to Delta.'} Change any checkbox to retry.`,
-          );
-        } finally {
-          setGenieFlagSyncing(false);
-        }
-      })();
-    }, 450);
-    return () => clearTimeout(t);
-  }, [genieSelectedSortedKey, selectedSessionId, inspireDb, warehouseId, apiPostJson]);
-
-  const toggleGenieRegenForUc = useCallback((tid, checked) => {
-    const sid = String(tid ?? '').trim();
-    if (!sid) return;
-    setGenieRegenSelectedIds((prev) => {
-      const cur = sortUniqueGenieIds(Array.isArray(prev) ? prev : []);
-      if (checked) {
-        if (cur.length >= 50 && !cur.includes(sid)) {
-          setGenieFlagSyncError('At most 50 use cases can be marked for Genie Code generation per run.');
-          return prev;
-        }
-        setGenieFlagSyncError('');
-        if (cur.includes(sid)) return prev;
-        genieSelectionDirtyRef.current = true;
-        queueMicrotask(() => setGenieDeltaSyncPending(true));
-        return sortUniqueGenieIds([...cur, sid]);
-      }
-      setGenieFlagSyncError('');
-      if (!cur.includes(sid)) return prev;
-      genieSelectionDirtyRef.current = true;
-      queueMicrotask(() => setGenieDeltaSyncPending(true));
-      return cur.filter((x) => x !== sid);
-    });
-  }, []);
-
-  const handleGenerateGenieJob = useCallback(async () => {
-    if (!selectedSessionId || !inspireDb || !warehouseId) return;
-    const ids = [...genieRegenSelectedIdsRef.current];
-    if (ids.length === 0) {
-      setGenieJobError('Select at least one use case (checkbox).');
-      return;
-    }
-    if (ids.length > 50) {
-      setGenieJobError('At most 50 use cases per Generate job.');
-      return;
-    }
-    setGenieJobRunning(true);
-    setGenieJobError('');
-    setGenieJobProgress(null);
-    setGenieInstructionsPanelExpanded(true);
-    try {
-      if (genieSelectionDirtyRef.current) {
-        await apiPostJson('/api/inspire/sync-genie-flags', {
-          inspire_database: inspireDb,
-          warehouse_id: warehouseId,
-          session_id: String(selectedSessionId),
-          use_case_ids: ids.sort(),
-        });
-        genieSelectionDirtyRef.current = false;
-        setGenieDeltaSyncPending(false);
-      }
-      const out = await apiPostJson('/api/inspire/generate-genie', {
-        inspire_database: inspireDb,
-        warehouse_id: warehouseId,
-        session_id: String(selectedSessionId),
-        use_case_ids: ids,
-        ...(settingsNotebookPath ? { notebook_path: settingsNotebookPath } : {}),
-      });
-      setGenieJobLastRun(out);
-    } catch (e) {
-      setGenieJobError(e.message || 'Generating the Genie instructions failed.');
-    } finally {
-      setGenieJobRunning(false);
-    }
-  }, [selectedSessionId, inspireDb, warehouseId, apiPostJson, settingsNotebookPath]);
-
   /** Re-fetch `__inspire_usecases` rows (e.g. after Genie generation) without reloading results/artifacts. */
   const refreshUsecasesForSession = useCallback(
     async (sid) => {
@@ -882,78 +615,39 @@ export default function ResultsPage({
     [apiFetch, inspireDb, warehouseId]
   );
 
-  const genieJobPollKey = useMemo(() => {
-    const run = genieJobLastRun;
-    if (!run?.run_id || !Array.isArray(run.flagged_use_case_ids) || run.flagged_use_case_ids.length === 0) {
-      return '';
-    }
-    return `${run.run_id}:${run.flagged_use_case_ids.join(',')}`;
-  }, [genieJobLastRun]);
-
+  const implementRunning = implementView.notebook_run?.state === 'running'
+    || implementView.latest.some((row) => versionActive(row, row.stalled));
   useEffect(() => {
-    if (!genieJobPollKey || !selectedSessionId || !inspireDb || !warehouseId) return;
-    const run = genieJobLastRun;
-    if (!run?.run_id || !run.flagged_use_case_ids?.length) return;
-
+    if (!selectedSessionId || !inspireDb || !warehouseId) {
+      setImplementView({ latest: [], notebook_run: null });
+      return undefined;
+    }
     let cancelled = false;
-    let intervalId = null;
+    const q = new URLSearchParams({ inspire_database: inspireDb, warehouse_id: warehouseId, session_id: String(selectedSessionId) });
+    const load = () => apiFetch(`/api/inspire/implement/history?${q}`)
+      .then((data) => { if (!cancelled) setImplementView({ latest: data.latest || [], notebook_run: data.notebook_run || null }); })
+      .catch(() => {});
+    load();
+    const timer = implementRunning ? setInterval(load, 15000) : null;
+    return () => { cancelled = true; if (timer) clearInterval(timer); };
+  }, [selectedSessionId, inspireDb, warehouseId, apiFetch, implementRefresh, implementRunning]);
 
-    const tick = async () => {
-      if (cancelled) return;
-      const q = new URLSearchParams({
-        inspire_database: inspireDb,
-        warehouse_id: warehouseId,
-        session_id: String(selectedSessionId),
-        use_case_ids: run.flagged_use_case_ids.join(','),
-        run_id: String(run.run_id),
-      });
-      try {
-        const data = await apiFetch(`/api/inspire/genie-progress?${q}`);
-        if (cancelled) return;
-        setGenieJobProgress(data);
-        const { key } = deriveGenieOverallStatus(data);
-        if (key === 'done' || key === 'failed') {
-          if (intervalId) clearInterval(intervalId);
-          intervalId = null;
-          if (key === 'done' && !cancelled) {
-            void (async () => {
-              await refreshResultsJsonForSession(selectedSessionId);
-              await refreshUsecasesForSession(selectedSessionId);
-            })();
-          }
-        }
-      } catch (e) {
-        if (cancelled) return;
-        setGenieJobProgress((prev) => ({
-          ...(prev && typeof prev === 'object' ? prev : {}),
-          poll_error: e.message || 'Progress request failed',
-        }));
-      }
-    };
-
-    void tick();
-    intervalId = setInterval(tick, 2800);
-    return () => {
-      cancelled = true;
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [
-    genieJobPollKey,
-    selectedSessionId,
-    inspireDb,
-    warehouseId,
-    apiFetch,
-    refreshUsecasesForSession,
-    refreshResultsJsonForSession,
-  ]);
-
-  /** Collapse the Genie instructions panel once the job run is fully successful (flags cleared / terminal success). */
   useEffect(() => {
-    if (!genieJobLastRun?.run_id) return;
-    if (deriveGenieOverallStatus(genieJobProgress).key === 'done') {
-      setGenieInstructionsPanelExpanded(false);
-    }
-  }, [genieJobProgress, genieJobLastRun?.run_id]);
+    const run = implementView.notebook_run;
+    const prev = lastNotebookRun.current;
+    lastNotebookRun.current = run;
+    if (!selectedSessionId || !notebookRunEnded(prev, run)) return;
+    void refreshResultsJsonForSession(selectedSessionId).then(() => refreshUsecasesForSession(selectedSessionId));
+  }, [implementView.notebook_run, selectedSessionId, refreshResultsJsonForSession, refreshUsecasesForSession]);
+
+  useEffect(() => {
+    if (selectedSessionId) onSessionChange?.(String(selectedSessionId));
+  }, [selectedSessionId, onSessionChange]);
+
+  const implementLatestById = useMemo(
+    () => Object.fromEntries(implementView.latest.map((row) => [String(row.use_case_id), row])),
+    [implementView.latest],
+  );
 
   // ── Auto-load sessions when settings are available ──
   const [autoLoaded, setAutoLoaded] = useState(false);
@@ -967,7 +661,6 @@ export default function ResultsPage({
     setDomainPanelOpen(false);
     setBeneficiaryPanelOpen(false);
     setSponsorPanelOpen(false);
-    setGenieInstructionsPanelExpanded(true);
   }, [selectedSessionId]);
 
   const handleLoadSessions = async (autoLoad = false) => {
@@ -1067,126 +760,7 @@ export default function ResultsPage({
   };
 
   // ── Extract use cases (defensive — guard against non-array shapes) ──
-  let allUseCases = [];
-  try {
-    // Prefer results_json domains (rich structure), then overlay __inspire_usecases tracking fields (notebook_path, genie_instruction).
-    if (Array.isArray(results?.domains)) {
-      for (const domain of results.domains) {
-        const ucs = Array.isArray(domain?.use_cases) ? domain.use_cases : [];
-        for (const uc of ucs) {
-          const base = cloneDomainUseCaseForList(uc);
-          allUseCases.push({ ...base, _domain: domain.domain_name || '' });
-        }
-      }
-    } else if (usecases && usecases.length > 0) {
-      allUseCases = usecases.map((uc) => ({
-        ...uc,
-        _domain: uc['Business Domain'] || uc.domain || uc._domain || '',
-        Name: uc.Name || uc.use_case_name || uc.name || '',
-        Statement: uc.Statement || uc.description || uc.problem_statement || '',
-        Solution: uc.Solution || uc.solution || '',
-        Priority: uc.Priority || uc.priority || '',
-        SQL: uc.SQL || uc.sql || uc.sql_query || '',
-      }));
-    } else if (Array.isArray(results?.use_cases)) {
-      for (const uc of results.use_cases) {
-        allUseCases.push(cloneDomainUseCaseForList(uc));
-      }
-    } else if (Array.isArray(results)) {
-      for (const uc of results) {
-        allUseCases.push(cloneDomainUseCaseForList(uc));
-      }
-    }
-
-    if (usecases && usecases.length > 0 && allUseCases.length > 0) {
-      const rowKey = (uc) => String(uc?.No ?? uc?.id ?? uc?.['No'] ?? '').trim();
-      const tableById = new Map();
-      for (const row of usecases) {
-        const k = rowKey(row);
-        if (k) tableById.set(k, row);
-      }
-      for (const uc of allUseCases) {
-        const k = rowKey(uc);
-        if (!k) continue;
-        const row = tableById.get(k);
-        if (!row) continue;
-        const trackId = row.id ?? row.No ?? row['No'];
-        applyInspireTrackingId(uc, trackId);
-        const nb = row.notebook_path || row.Notebook_Path || row.NOTEBOOK_PATH || '';
-        if (nb && !uc.notebook_path) uc.notebook_path = nb;
-        const ggi = row.generate_genie_code_instruction;
-        if (ggi != null && String(ggi).trim() !== '') uc.generate_genie_code_instruction = String(ggi).trim();
-        const hgc = row.has_genie_code;
-        if (hgc != null && String(hgc).trim() !== '') uc.has_genie_code = String(hgc).trim();
-        const gi = row.genie_instruction || row.Genie_Instruction || '';
-        if (gi && !uc.genie_instruction) uc.genie_instruction = gi;
-        const desc = row.description || row.Description;
-        if (desc && !uc.description) uc.description = desc;
-        const sn = row.short_name || row.shortName;
-        if (sn && !uc.short_name) uc.short_name = sn;
-        const copyScore = (field) => {
-          const v = row[field];
-          if (v == null || v === '') return;
-          if (uc[field] != null && uc[field] !== '') return;
-          uc[field] = v;
-        };
-        copyScore('priority_score');
-        copyScore('value_score');
-        copyScore('feasibility_score');
-        for (const field of ['quality', 'quality_mode', 'elite_status', 'elite_score', 'elite_assessment', 'selection_flags', 'selection_drop_reason']) {
-          if (row[field] != null && row[field] !== '' && (uc[field] == null || uc[field] === '')) uc[field] = row[field];
-        }
-        copyV130TrackingFields(uc, row);
-      }
-      // When domain JSON `No`/`id` ≠ tracking table `id`, attach scores by Name + Business Domain.
-      const normKey = (name, domain) =>
-        `${String(name || '').trim().toLowerCase().replace(/\s+/g, ' ')}|${String(domain || '').trim().toLowerCase().replace(/\s+/g, ' ')}`;
-      const byNameDomain = new Map();
-      for (const row of usecases) {
-        const nm = String(row.Name || '').trim();
-        if (!nm) continue;
-        const k = normKey(nm, row._domain || row['Business Domain'] || '');
-        byNameDomain.set(k, row);
-      }
-      for (const uc of allUseCases) {
-        const nm = String(uc.Name || '').trim();
-        if (!nm) continue;
-        const hasScore =
-          uc.priority_score != null && uc.priority_score !== '' && Number.isFinite(Number(uc.priority_score));
-        if (hasScore) continue;
-        const row = byNameDomain.get(normKey(nm, uc._domain || uc['Business Domain'] || ''));
-        if (!row) continue;
-        const copyScore2 = (field) => {
-          const v = row[field];
-          if (v == null || v === '') return;
-          if (uc[field] != null && uc[field] !== '') return;
-          uc[field] = v;
-        };
-        copyScore2('priority_score');
-        copyScore2('value_score');
-        copyScore2('feasibility_score');
-        if (!uc.Priority && row.Priority) uc.Priority = row.Priority;
-        if (!uc.Quality && row.Quality) uc.Quality = row.Quality;
-        copyV130TrackingFields(uc, row);
-        const trackId = row.id ?? row.No ?? row['No'];
-        applyInspireTrackingId(uc, trackId);
-        const ggi2 = row.generate_genie_code_instruction;
-        if (ggi2 != null && String(ggi2).trim() !== '') uc.generate_genie_code_instruction = String(ggi2).trim();
-        const hgc2 = row.has_genie_code;
-        if (hgc2 != null && String(hgc2).trim() !== '') uc.has_genie_code = String(hgc2).trim();
-        const nb2 = row.notebook_path || row.Notebook_Path || row.NOTEBOOK_PATH || '';
-        if (nb2 && !uc.notebook_path) uc.notebook_path = nb2;
-        const gi2 = row.genie_instruction || row.Genie_Instruction || '';
-        if (gi2 && !uc.genie_instruction) uc.genie_instruction = gi2;
-      }
-    }
-  } catch (err) {
-    console.error('Error extracting use cases:', err);
-    allUseCases = [];
-  }
-  for (const uc of allUseCases) {
-    if (uc && typeof uc === 'object') uc._v130 = v130View(uc);
-  }
+  const allUseCases = buildUseCaseList(results, usecases);
   const bizPriorities = knownPriorities(results);
 
   // ── Resolve table from registry ──
@@ -2962,210 +2536,6 @@ export default function ResultsPage({
                 )}
               </div>
 
-              {/* Genie instruction regeneration: Delta flags + optional job (below filter toolbar); collapses when job succeeds */}
-              {selectedSessionId && inspireDb && warehouseId && allUseCases.length > 0 && (() => {
-                const genieInstrCollapsedSummary = (() => {
-                  if (genieJobRunning) return 'Job starting… Expand to watch progress.';
-                  const n = genieRegenSelectedIds.length;
-                  if (genieJobLastRun?.run_id != null) {
-                    const { key, label } = deriveGenieOverallStatus(genieJobProgress);
-                    if (key === 'done') {
-                      return `Last run finished · ${n} marked. Expand for details.`;
-                    }
-                    if (key === 'failed') {
-                      return `Last run failed (${label}). Expand for details.`;
-                    }
-                    return `${label} — expand for status and Databricks link.`;
-                  }
-                  return `${n} marked for Genie Code generation. Expand for details.`;
-                })();
-                return (
-                  <div className="mb-4 shrink-0 p-4 bg-gradient-to-br from-db-red-50 to-surface dark:from-db-red/10 dark:to-surface border border-db-red/20 rounded-xl shadow-elevated">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="flex min-w-0 flex-1 flex-col gap-3">
-                        <div className="flex flex-col gap-3 min-[480px]:flex-row min-[480px]:items-start min-[480px]:justify-between">
-                          <button
-                            type="button"
-                            onClick={() => setGenieInstructionsPanelExpanded((v) => !v)}
-                            aria-expanded={genieInstructionsPanelExpanded}
-                            id="genie-instructions-panel-toggle"
-                            className="flex min-w-0 flex-1 items-start gap-3 rounded-lg text-left outline-none transition-smooth hover:bg-white/30 dark:hover:bg-black/10 focus-visible:ring-2 focus-visible:ring-db-red/25 -m-1 p-1"
-                          >
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-db-red/10 p-0.5 ring-1 ring-inset ring-db-red/20">
-                              <DatabricksLogo className="h-7 w-7 object-contain" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-semibold text-text-primary tracking-tight">Genie instructions</p>
-                              {!genieInstructionsPanelExpanded && (
-                                <p className="text-[11px] text-text-secondary mt-0.5 leading-snug line-clamp-2">
-                                  {genieInstrCollapsedSummary}
-                                </p>
-                              )}
-                            </div>
-                            <ChevronRight
-                              size={18}
-                              className={`mt-0.5 shrink-0 text-text-tertiary transition-transform duration-200 min-[480px]:mt-1 ${
-                                genieInstructionsPanelExpanded ? 'rotate-90' : ''
-                              }`}
-                              aria-hidden
-                            />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={
-                              genieJobRunning ||
-                              genieRegenSelectedIds.length === 0 ||
-                              genieDeltaSyncPending ||
-                              genieFlagSyncing
-                            }
-                            title={
-                              genieDeltaSyncPending || genieFlagSyncing
-                                ? 'Wait until your marks are saved before generating.'
-                                : genieRegenSelectedIds.length === 0
-                                  ? 'Mark at least one use case with Mark Ready for Genie Code Generation first.'
-                                  : undefined
-                            }
-                            onClick={() => void handleGenerateGenieJob()}
-                            className="inline-flex w-full min-[480px]:w-auto shrink-0 items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-db-red hover:bg-db-red-hover shadow-md shadow-db-red/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none transition-smooth min-[480px]:self-start"
-                          >
-                            {genieJobRunning ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                            Generate Genie Instruction for Marked use cases
-                            <span className="inline-flex min-w-[1.5rem] justify-center rounded-full bg-white/20 px-1.5 py-0.5 text-xs tabular-nums">
-                              {genieRegenSelectedIds.length}
-                            </span>
-                          </button>
-                        </div>
-                        {genieInstructionsPanelExpanded && (
-                          <div className="min-w-0 space-y-2 border-t border-db-red/15 pt-3 sm:pl-0">
-                            <p className="text-[11px] text-text-secondary leading-snug">
-                              Mark use cases with <span className="font-semibold text-text-primary">Mark Ready for Genie Code Generation</span> on their cards, then generate. Inspire writes the Genie instruction and its notebook for the marked use cases only.
-                            </p>
-                            <p className="text-[11px] text-text-tertiary flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-db-red/10 text-db-red font-semibold">
-                                {genieRegenSelectedIds.length} marked
-                              </span>
-                              {(genieFlagSyncing || genieDeltaSyncPending) && (
-                                <span className="inline-flex items-center gap-1 text-db-red">
-                                  <Loader2 size={11} className="animate-spin" />
-                                  Saving marks…
-                                </span>
-                              )}
-                            </p>
-                            {(genieFlagSyncing || genieDeltaSyncPending) && (
-                              <p className="text-[11px] text-text-secondary leading-snug max-w-xl">
-                                <span className="font-semibold text-text-primary">Generate Genie Instruction for Marked use cases</span> stays greyed out until your marks are saved, so it runs on the same use cases you see here.
-                              </p>
-                            )}
-                            {genieFlagSyncError && (
-                              <p className="text-[11px] text-error">{genieFlagSyncError}</p>
-                            )}
-                            {genieJobError && (
-                              <p className="text-[11px] text-error">{genieJobError}</p>
-                            )}
-                            {genieJobLastRun?.run_id != null && (() => {
-                              const runHref =
-                                genieJobLastRun.job_run_url ||
-                                genieJobRunUrlFromHost(
-                                  databricksHost,
-                                  genieJobLastRun.job_id,
-                                  genieJobLastRun.run_id,
-                                );
-                              const overall = deriveGenieOverallStatus(genieJobProgress);
-                              const pct =
-                                genieJobProgress && typeof genieJobProgress.percent === 'number'
-                                  ? genieJobProgress.percent
-                                  : null;
-                              const cleared = genieJobProgress?.cleared;
-                              const totalSel = genieJobProgress?.selected_total;
-                              const waitingPoll = !genieJobProgress;
-                              return (
-                                <div className="mt-2 space-y-2 border-t border-db-red/15 pt-2">
-                                  {runHref ? (
-                                    <a
-                                      href={runHref}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-db-red hover:underline"
-                                    >
-                                      <ExternalLink size={14} className="shrink-0" />
-                                      Open this job run in Databricks
-                                    </a>
-                                  ) : (
-                                    <p className="text-[11px] text-text-tertiary">
-                                      Set Databricks host in setup to open the job in the workspace UI.
-                                    </p>
-                                  )}
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-[0.18em]">
-                                      Overall
-                                    </span>
-                                    {waitingPoll && (
-                                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-db-red">
-                                        <Loader2 size={12} className="animate-spin" />
-                                        In progress
-                                      </span>
-                                    )}
-                                    {!waitingPoll && overall.key === 'running' && (
-                                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-db-red">
-                                        <Loader2 size={12} className="animate-spin" />
-                                        {overall.label}
-                                      </span>
-                                    )}
-                                    {!waitingPoll && overall.key === 'done' && (
-                                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success">
-                                        <CheckCircle2 size={12} className="shrink-0" />
-                                        {overall.label}
-                                      </span>
-                                    )}
-                                    {!waitingPoll && overall.key === 'failed' && (
-                                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-error">
-                                        <XCircle size={12} className="shrink-0" />
-                                        {overall.label}
-                                      </span>
-                                    )}
-                                  </div>
-                                  {overall.detail && !waitingPoll && (
-                                    <p className="text-[10px] text-text-tertiary">{overall.detail}</p>
-                                  )}
-                                  {genieJobProgress?.poll_error && (
-                                    <p className="text-[10px] text-error">{genieJobProgress.poll_error}</p>
-                                  )}
-                                  {pct != null && totalSel != null && totalSel > 0 && (
-                                    <div className="space-y-1">
-                                      <div className="flex justify-between text-[10px] text-text-secondary">
-                                        <span>
-                                          Use cases with flag cleared:{' '}
-                                          <span className="font-mono text-text-primary">
-                                            {cleared ?? 0} / {totalSel}
-                                          </span>
-                                        </span>
-                                        <span className="font-mono tabular-nums">{pct}%</span>
-                                      </div>
-                                      <div className="h-1.5 w-full rounded-full bg-db-red/15 overflow-hidden">
-                                        <div
-                                          className={`h-full rounded-full transition-all duration-300 ${
-                                            overall.key === 'failed'
-                                              ? 'bg-error'
-                                              : overall.key === 'done'
-                                                ? 'bg-success'
-                                                : 'bg-db-red'
-                                          }`}
-                                          style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
-                                        />
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-
               {/* Use case cards — only this region scrolls; sidebar + filter bar stay visible */}
               <div
                 className={`overflow-y-auto overscroll-y-contain scroll-smooth pr-0.5 [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong/70 [&::-webkit-scrollbar-track]:bg-transparent ${
@@ -3192,12 +2562,6 @@ export default function ResultsPage({
                         }
                         isFavorite={!!(favKey && favorites[favKey])}
                         onToggleFavorite={() => toggleFavorite(uc)}
-                        genieRegenSelected={!!tid && genieRegenSelectedIds.includes(tid)}
-                        onToggleGenieRegenSelect={
-                          selectedSessionId && inspireDb && warehouseId && tid
-                            ? (checked) => toggleGenieRegenForUc(tid, checked)
-                            : undefined
-                        }
                         resolveTable={resolveTable}
                         token={token}
                         databricksHost={databricksHost}
@@ -3211,8 +2575,8 @@ export default function ResultsPage({
                         feedbackBusy={!!uc._v130?.useCaseKey && feedbackBusyKey === uc._v130.useCaseKey}
                         feedbackError={uc._v130?.useCaseKey && feedbackError.key === uc._v130.useCaseKey ? feedbackError.message : ''}
                         onFeedback={(status, reason) => submitFeedback(uc, uc._v130, status, reason)}
-                        onImplement={() => { setImplementFocus(null); setImplementUc(uc); }}
-                        onOpenStudio={() => setStudioUseCaseId(caseIdOf(uc))}
+                        implementStatus={tid ? implementState(implementLatestById[tid] || null, notebookStatus(uc, implementView.notebook_run)) : null}
+                        onImplement={selectedSessionId && inspireDb && warehouseId ? () => { setImplementFocus(null); setImplementUc(uc); } : undefined}
                       />
                       );
                     })}
@@ -3248,26 +2612,9 @@ export default function ResultsPage({
           onImplemented={(data) => {
             setImplementUc(null);
             setImplementFocus(null);
-            setStudioUseCaseId(data.use_case_id);
+            setImplementRefresh((n) => n + 1);
+            onOpenImplement?.(String(selectedSessionId), data.use_case_id);
           }}
-        />
-      )}
-      {studioUseCaseId && selectedSessionId && inspireDb && warehouseId && (
-        <UseCaseStudio
-          sessionId={selectedSessionId}
-          settings={{ ...settings, warehouseId, inspireDatabase: inspireDb, notebookPath: settingsNotebookPath }}
-          useCaseId={studioUseCaseId}
-          useCases={allUseCases}
-          apiFetch={apiFetch}
-          apiPostJson={apiPostJson}
-          onClose={() => setStudioUseCaseId(null)}
-          onEdit={(id, focus) => {
-            const found = allUseCases.find((u) => caseIdOf(u) === id);
-            setStudioUseCaseId(null);
-            setImplementFocus(focus || null);
-            if (found) setImplementUc(found);
-          }}
-          onOpenUseCase={setStudioUseCaseId}
         />
       )}
 
@@ -3367,8 +2714,7 @@ function UseCaseCard({
   onToggle,
   isFavorite,
   onToggleFavorite,
-  genieRegenSelected = false,
-  onToggleGenieRegenSelect,
+  implementStatus = null,
   resolveTable,
   token,
   databricksHost,
@@ -3383,7 +2729,6 @@ function UseCaseCard({
   feedbackError = '',
   onFeedback,
   onImplement,
-  onOpenStudio,
 }) {
   const [notebookContent, setNotebookContent] = useState(null);
   const [notebookLoading, setNotebookLoading] = useState(false);
@@ -3428,8 +2773,6 @@ function UseCaseCard({
   const storedNotebookPath = s(u.notebook_path);
   const genieInstruction = s(u.genie_instruction);
   const shippedGenie = useCaseHasShippedGenieCode(u);
-  const hasGenieInstructionText = !!genieInstruction.trim();
-  const showGenieInstructionBadge = shippedGenie || hasGenieInstructionText;
 
   // Stored path, or match artifact tree — same for skeleton and shipped Genie (preview is useful for both).
   // Notebook filenames follow: {use_case_id}-{sanitized_name}.ipynb (e.g. "N01-AI05-predict_churn.ipynb"); ids may be DB row ids after merge — see catalog_no.
@@ -3560,19 +2903,7 @@ function UseCaseCard({
           ? 'text-warning bg-warning-bg border-warning/20'
           : 'text-text-secondary bg-bg border-border';
 
-  const workspaceNotebookHref = (() => {
-    if (!notebookPath || !databricksHost) return '';
-    const base = databricksHost.replace(/\/+$/, '').replace(/^http:\/\//i, 'https://');
-    const origin = base.startsWith('http') ? base : `https://${base}`;
-    const path = workspaceWebUiHashPath(notebookPath);
-    const pathSeg = path.startsWith('/') ? path : `/${path}`;
-    return `${origin}/#workspace${pathSeg}`;
-  })();
-  const genieActions = genieCardActions({
-    hasGenieInstruction: shippedGenie,
-    canMark: typeof onToggleGenieRegenSelect === 'function',
-    notebookHref: workspaceNotebookHref,
-  });
+  const workspaceNotebookHref = workspaceNotebookUrl(databricksHost, notebookPath);
 
   if (!card) return null;
 
@@ -3617,22 +2948,6 @@ function UseCaseCard({
                   >
                     <Star size={11} className="fill-amber-400 text-amber-500" />
                     Best of Best{v130.bestOfBest.rank ? ` #${v130.bestOfBest.rank}` : ''}
-                  </span>
-                )}
-                {showGenieInstructionBadge && (
-                  <span
-                    className={`text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.14em] px-2 py-0.5 rounded-md border shrink-0 leading-none ${
-                      shippedGenie
-                        ? 'text-success border-success/35 bg-success-bg'
-                        : 'text-text-secondary border-border bg-bg-subtle'
-                    }`}
-                    title={
-                      shippedGenie
-                        ? 'Full Genie code instruction (shipped)'
-                        : 'Genie instruction text present (partial or skeleton)'
-                    }
-                  >
-                    {shippedGenie ? 'Has Genie instruction' : 'Genie (partial)'}
                   </span>
                 )}
                 {belowBarLabelFromUseCase(u) && (
@@ -3682,95 +2997,7 @@ function UseCaseCard({
       </div>
       </div>
 
-      <div className="px-5 pb-3 flex flex-wrap items-center gap-2">
-        {typeof onImplement === 'function' && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onImplement(); }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red hover:bg-db-red-hover shadow-sm shadow-db-red/20 transition-smooth"
-          >
-            <Sparkles size={13} />
-            Implement with Genie
-          </button>
-        )}
-        {typeof onOpenStudio === 'function' && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onOpenStudio(); }}
-            className="inline-flex items-center gap-1 text-[11px] font-medium text-text-secondary hover:text-db-red"
-          >
-            Open Studio
-          </button>
-        )}
-      </div>
-      {(genieActions.primary || genieActions.openCurrentNotebook) && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-4">
-          {genieActions.primary === 'open-notebook' && (
-            workspaceNotebookHref ? (
-              <a
-                href={workspaceNotebookHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red hover:bg-db-red-hover shadow-sm shadow-db-red/20 transition-smooth"
-              >
-                <ExternalLink size={13} />
-                Open Notebook to implement
-              </a>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!expanded) onToggle();
-                }}
-                title={notebookPath && !databricksHost ? 'Set the Databricks host in setup to open the notebook in the workspace' : 'The Genie instruction is shown in the details'}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red hover:bg-db-red-hover shadow-sm shadow-db-red/20 transition-smooth"
-              >
-                <FileText size={13} />
-                Open Notebook to implement
-              </button>
-            )
-          )}
-          {genieActions.primary === 'mark' && (
-            <button
-              type="button"
-              aria-pressed={genieRegenSelected}
-              onClick={() => onToggleGenieRegenSelect(!genieRegenSelected)}
-              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border transition-smooth ${
-                genieRegenSelected
-                  ? 'border-db-red bg-db-red-50 text-db-red'
-                  : 'border-db-red/40 bg-surface text-db-red hover:bg-db-red-50'
-              }`}
-            >
-              {genieRegenSelected ? <CheckCircle2 size={13} /> : <Sparkles size={13} />}
-              {genieRegenSelected ? 'Marked Ready for Genie Code Generation' : 'Mark Ready for Genie Code Generation'}
-            </button>
-          )}
-          {genieActions.regenerate && (
-            <button
-              type="button"
-              aria-pressed={genieRegenSelected}
-              onClick={() => onToggleGenieRegenSelect(!genieRegenSelected)}
-              className={`inline-flex items-center gap-1 text-[11px] font-medium transition-smooth ${
-                genieRegenSelected ? 'text-db-red' : 'text-text-secondary hover:text-db-red'
-              }`}
-            >
-              {genieRegenSelected ? <CheckCircle2 size={12} /> : <RefreshCw size={12} />}
-              {genieRegenSelected ? 'Marked to regenerate' : 'Mark to regenerate'}
-            </button>
-          )}
-          {genieActions.openCurrentNotebook && (
-            <a
-              href={workspaceNotebookHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-text-secondary hover:text-db-red transition-smooth"
-            >
-              <ExternalLink size={12} />
-              Open the current notebook
-            </a>
-          )}
-        </div>
-      )}
+      <ImplementCardActions status={implementStatus} onImplement={onImplement} />
 
       {/* Expanded */}
       {expanded && (
@@ -3926,7 +3153,7 @@ function UseCaseCard({
 
               {!shippedGenie && notebookPath && (
                 <p className="text-[10px] text-text-tertiary mb-2 leading-relaxed">
-                  Skeleton or partial Genie text — run <span className="font-mono">Generate Use Cases</span> (or enable Auto-Genie on Discover) for full Genie instructions. Preview shows notebook cells / instruction text when available.
+                  Skeleton or partial Genie text. To write the full Genie instruction, use <span className="font-semibold">Start Use Case PoC with Genie</span> and choose Notebook only. Preview shows notebook cells / instruction text when available.
                 </p>
               )}
 

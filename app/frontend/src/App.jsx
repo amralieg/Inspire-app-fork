@@ -8,6 +8,7 @@ import GenerateDataPage from './pages/GenerateDataPage';
 import MonitorPage from './pages/MonitorPage';
 import ResultsPage from './pages/ResultsPage';
 import ChoosePage from './pages/ChoosePage';
+import ImplementPage from './pages/ImplementPage';
 import ScrollProgressRing from './components/ScrollProgressRing';
 import ParticleField from './components/ParticleField';
 
@@ -84,6 +85,14 @@ export default function App() {
   // Session tracking
   const [sessionId, setSessionId] = useState(null);
   const [runId, setRunId] = useState(null);
+  const [implement, setImplement] = useState({ sessionId: null, focus: null });
+
+  const onResultsSession = useCallback((sid) => {
+    setImplement((prev) => (prev.sessionId === sid ? prev : { sessionId: sid, focus: null }));
+  }, []);
+  const onImplementFocus = useCallback((id) => {
+    setImplement((prev) => ({ ...prev, focus: id }));
+  }, []);
 
   const update = useCallback((key, val) => {
     setSettings((prev) => ({ ...prev, [key]: val }));
@@ -247,6 +256,11 @@ export default function App() {
     }, 200);
   }, [page]);
 
+  const openImplement = useCallback((sid, useCaseId) => {
+    setImplement({ sessionId: String(sid), focus: useCaseId || null });
+    nav('implement');
+  }, [nav]);
+
   const finishSetup = useCallback(() => {
     try {
       localStorage.setItem('db_setup_complete', '1');
@@ -257,6 +271,7 @@ export default function App() {
   const canLaunch = true;
   const canMonitor = Boolean(sessionId || runId);
   const canResults = true;
+  const implementSessionId = implement.sessionId || (sessionId ? String(sessionId) : null);
 
   return (
     <ThemeProvider>
@@ -270,6 +285,7 @@ export default function App() {
           canLaunch={canLaunch}
           canMonitor={canMonitor}
           canResults={canResults}
+          canImplement={Boolean(implementSessionId)}
         />
       )}
 
@@ -340,6 +356,8 @@ export default function App() {
               sessionId={sessionId}
               runId={runId}
               onComplete={() => nav('results')}
+              onResultsSession={onResultsSession}
+              onOpenImplement={openImplement}
             />
           </div>
         )}
@@ -351,8 +369,22 @@ export default function App() {
                 settings={settings}
                 update={update}
                 sessionId={sessionId}
+                onSessionChange={onResultsSession}
+                onOpenImplement={openImplement}
               />
             </div>
+          </ErrorBoundary>
+        )}
+
+        {page === 'implement' && implementSessionId && (
+          <ErrorBoundary key="implement">
+            <ImplementPage
+              key={implementSessionId}
+              settings={settings}
+              sessionId={implementSessionId}
+              focusId={implement.focus}
+              onFocus={onImplementFocus}
+            />
           </ErrorBoundary>
         )}
       </main>

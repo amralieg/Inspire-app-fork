@@ -1,7 +1,27 @@
+export const IMPLEMENT_MODES = [
+  { id: 'poc', label: 'Full PoC', blurb: 'Genie builds the result table, then the outputs you pick: dashboard, Genie space, App or alert.' },
+  { id: 'notebook', label: 'Notebook only', blurb: 'Inspire writes the Genie Code notebook for this use case. Nothing else is built; you run the notebook yourself.' },
+];
+
+const CHOOSE_STEP = { id: 'choose', label: 'Choose', sections: [], advanced: [] };
+
 export const IMPLEMENT_STEPS = [
+  CHOOSE_STEP,
   { id: 'data', label: 'Data', sections: ['use_case', 'data', 'configure'], advanced: ['use_case', 'data', 'configure'] },
   { id: 'delivery', label: 'Delivery', sections: ['use_it', 'alert', 'schedule'], advanced: ['alert', 'schedule'] },
 ];
+
+export const NOTEBOOK_STEPS = [
+  CHOOSE_STEP,
+  { id: 'data', label: 'Data', sections: [], advanced: [] },
+  { id: 'notebook', label: 'Notebook', sections: [], advanced: [] },
+];
+
+export function wizardSteps(mode) {
+  if (mode === 'poc') return IMPLEMENT_STEPS;
+  if (mode === 'notebook') return NOTEBOOK_STEPS;
+  throw new Error(`unknown implement mode '${mode}'`);
+}
 
 export const FRESHNESS_OPTIONS = [
   { id: 'off', label: 'Off' },
@@ -748,18 +768,18 @@ export function sectionErrors(section, spec, extras = {}) {
   return errors;
 }
 
-function stepOf(id) {
-  const step = IMPLEMENT_STEPS.find((s) => s.id === id);
+function stepOf(id, mode) {
+  const step = wizardSteps(mode).find((s) => s.id === id);
   if (!step) throw new Error(`unknown wizard step '${id}'`);
   return step;
 }
 
-export function stepErrors(step, spec, extras = {}) {
-  return stepOf(step).sections.flatMap((section) => sectionErrors(section, spec, extras));
+export function stepErrors(step, spec, extras = {}, mode = 'poc') {
+  return stepOf(step, mode).sections.flatMap((section) => sectionErrors(section, spec, extras));
 }
 
-export function advancedErrors(step, spec, extras = {}) {
-  return stepOf(step).advanced.flatMap((section) => sectionErrors(section, spec, extras));
+export function advancedErrors(step, spec, extras = {}, mode = 'poc') {
+  return stepOf(step, mode).advanced.flatMap((section) => sectionErrors(section, spec, extras));
 }
 
 export function freshnessOf(schedule) {
@@ -819,11 +839,77 @@ export function lostTablesText(missing) {
     + 'Swap each for a table with the same role, or remove it.';
 }
 
-export function initialStepIndex(focus) {
+export function initialStepIndex(focus, mode = 'poc') {
+  const steps = wizardSteps(mode);
   const want = focus?.step;
-  if (want === 'review') return IMPLEMENT_STEPS.length - 1;
-  const index = IMPLEMENT_STEPS.findIndex((s) => s.id === want || s.sections.includes(want));
+  if (want === 'review') return steps.length - 1;
+  const index = steps.findIndex((s) => s.id === want || s.sections.includes(want));
   return index < 0 ? 0 : index;
+}
+
+const flagYes = (value) => ['Y', 'YES', 'TRUE'].includes(String(value ?? '').trim().toUpperCase());
+
+export function notebookStatus(uc, notebookRun) {
+  if (flagYes(uc?.has_genie_code)) return { state: 'ready', label: 'Notebook ready', tone: 'success', reason: '', url: '' };
+  if (!flagYes(uc?.generate_genie_code_instruction)) return null;
+  if (!notebookRun) {
+    return { state: 'requested', label: 'Notebook requested', tone: 'idle', reason: 'No notebook run of this session is visible to you yet.', url: '' };
+  }
+  const url = String(notebookRun.url || '');
+  if (notebookRun.state === 'running') return { state: 'running', label: 'Notebook running', tone: 'busy', reason: '', url };
+  const ended = notebookRun.result_state || notebookRun.life_cycle_state || 'failed';
+  const reason = notebookRun.state === 'succeeded'
+    ? 'The notebook run finished without writing this notebook. Open the run to see why.'
+    : `The notebook run ended ${ended}${notebookRun.message ? `: ${notebookRun.message}` : ''}.`;
+  return { state: 'failed', label: 'Notebook failed', tone: 'error', reason, url };
+}
+
+export function notebookRunEnded(prev, run) {
+  if (!prev || !run || run.state === 'running') return false;
+  return prev.state === 'running' || String(prev.run_id) !== String(run.run_id);
+}
+
+export const IMPLEMENT_GROUPS = [
+  { id: 'in_progress', label: 'In progress' },
+  { id: 'ready', label: 'Ready' },
+  { id: 'failed', label: 'Failed' },
+  { id: 'not_started', label: 'Not started' },
+];
+
+const NOTEBOOK_GROUP = { running: 'in_progress', ready: 'ready', failed: 'failed', requested: 'not_started' };
+
+export function implementState(latest, notebook = null) {
+  const s = String(latest?.status || '');
+  if (s) {
+    if (s === 'ready') return { group: 'ready', label: 'PoC ready', tone: 'success', kind: 'poc' };
+    if (s === 'ready_with_warnings') return { group: 'ready', label: 'PoC ready with warnings', tone: 'warning', kind: 'poc' };
+    if (s === 'failed') return { group: 'failed', label: 'PoC failed', tone: 'error', kind: 'poc' };
+    if (IMPLEMENT_ACTIVE_STATUSES.includes(s) && latest.stalled) return { group: 'failed', label: 'PoC stopped', tone: 'error', kind: 'poc' };
+    if (IMPLEMENT_ACTIVE_STATUSES.includes(s)) return { group: 'in_progress', label: 'PoC running', tone: 'busy', kind: 'poc' };
+    return { group: 'in_progress', label: `PoC ${s.replace(/_/g, ' ')}`, tone: 'idle', kind: 'poc' };
+  }
+  if (notebook) return { group: NOTEBOOK_GROUP[notebook.state], label: notebook.label, tone: notebook.tone, kind: 'notebook' };
+  return { group: 'not_started', label: '', tone: 'idle', kind: 'none' };
+}
+
+export function implementGroups(useCases, latestRows, notebookRun, query = '') {
+  const latestById = new Map((Array.isArray(latestRows) ? latestRows : []).map((row) => [String(row?.use_case_id ?? '').trim(), row]));
+  const listed = (Array.isArray(useCases) ? useCases : []).filter((uc) => caseIdOf(uc));
+  const listedIds = new Set(listed.map(caseIdOf));
+  const orphans = [...latestById.entries()]
+    .filter(([id]) => id && !listedIds.has(id))
+    .map(([id, row]) => ({ id, Name: String(row.use_case_name || id) }));
+  const terms = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const items = [...listed, ...orphans].map((uc) => {
+    const id = caseIdOf(uc);
+    const latest = latestById.get(id) || null;
+    const notebook = notebookStatus(uc, notebookRun);
+    return { id, name: caseNameOf(uc) || id, domain: String(uc._domain || uc['Business Domain'] || ''), uc, latest, notebook, state: implementState(latest, notebook) };
+  }).filter((item) => {
+    const text = `${item.id} ${item.name} ${item.domain}`.toLowerCase();
+    return terms.every((t) => text.includes(t));
+  });
+  return IMPLEMENT_GROUPS.map((group) => ({ ...group, items: items.filter((item) => item.state.group === group.id) }));
 }
 
 const questionKey = (text) => String(text ?? '').split(/\s+/).filter(Boolean).join(' ').toLowerCase();

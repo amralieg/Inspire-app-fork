@@ -121,14 +121,21 @@ async function onStep(page, label) {
 }
 
 const next = (page) => page.getByRole('button', { name: 'Next' }).click();
-const studioTab = (page, name) => page.getByRole('button', { name, exact: true }).click();
+const studioTab = (page, name) => page.getByRole('tab', { name, exact: true }).click();
+const editPane = (page) => page.getByRole('region', { name: 'Edit the PoC' });
+
+async function toData(page) {
+  await onStep(page, 'Choose');
+  await next(page);
+  await onStep(page, 'Data');
+}
 const advanced = (page) => page.getByRole('button', { name: 'Advanced settings' });
 const footerErrors = (page) => page.locator('[role="alert"] p').allTextContents();
 
 async function implementWhenReady(page) {
-  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Implement' && !b.disabled),
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Start PoC' && !b.disabled),
     null, { timeout: 15000 });
-  await page.getByRole('button', { name: 'Implement', exact: true }).click();
+  await page.getByRole('button', { name: 'Start PoC', exact: true }).click();
 }
 
 function submittedSpec(made) {
@@ -137,14 +144,20 @@ function submittedSpec(made) {
   return JSON.parse(inserts[0].parameters.find((p) => p.name === 'spec').value);
 }
 
-test('the wizard is two steps: Data shows the summary and Inspire\'s tables, Delivery picks the outputs, and Implement launches one run', async () => {
+test('the wizard is three steps: Choose shows the summary with Full PoC as the default, Data shows Inspire\'s tables, Delivery picks the outputs, and Start PoC launches one run', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Data');
+    await onStep(page, 'Choose');
+    assert.deepEqual(await page.locator('ol li').allTextContents(), ['1. Choose', '2. Data', '3. Delivery']);
     const summary = page.getByRole('region', { name: 'Executive summary' });
     await summary.getByText('Cut churn in the top segment').waitFor();
     await summary.getByText('Head of Retention').waitFor();
+    assert.equal(await page.getByRole('radio', { name: /^Full PoC \(default\)/ }).isChecked(), true);
+    assert.equal(await page.getByRole('radio', { name: /^Notebook only/ }).isChecked(), false);
+    assert.equal(await advanced(page).count(), 0, 'Choose has nothing under Advanced settings');
+    await next(page);
+    await onStep(page, 'Data');
     assert.deepEqual(await page.locator('[data-table]').evaluateAll((rows) => rows.map((r) => r.dataset.table)), ['main.s.orders', 'main.s.returns']);
     assert.equal(await advanced(page).getAttribute('aria-expanded'), 'false');
     assert.equal(await page.getByLabel('Goal sentence').count(), 0, 'every other setting waits under Advanced settings');
@@ -164,7 +177,7 @@ test('the wizard is two steps: Data shows the summary and Inspire\'s tables, Del
     assert.equal(await fresh.getByRole('button', { name: 'Weekly' }).getAttribute('aria-pressed'), 'true');
     assert.equal(made.jobs.length, 0);
     await implementWhenReady(page);
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
 
     assert.equal(made.jobs.length, 1);
     const params = made.jobs[0].params;
@@ -195,15 +208,17 @@ test('the wizard names the use case as the card the person clicked, while the da
   const ui = await openUi('wizard', { useCase: { ...row, use_case: 'Keep customers who would leave', statement: 'Keep the top segment buying' } });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Data');
+    await onStep(page, 'Choose');
     const summary = page.getByRole('region', { name: 'Executive summary' });
     await summary.getByText('Keep the top segment buying').waitFor();
     assert.equal(await summary.locator('h3').innerText(), HARNESS_USE_CASE.Name);
     assert.equal(await page.getByRole('dialog').getByText('Keep customers who would leave').count(), 0, 'one name for the use case, the one on its card');
     await next(page);
+    await onStep(page, 'Data');
+    await next(page);
     await onStep(page, 'Delivery');
     await implementWhenReady(page);
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     assert.equal(submittedSpec(made).use_case_name, HARNESS_USE_CASE.Name);
     assert.deepEqual(ui.pageErrors, []);
   } finally {
@@ -213,13 +228,16 @@ test('the wizard names the use case as the card the person clicked, while the da
 
 test('Edit keeps the card name even when the saved version carries the tracking-table name', async () => {
   const legacy = built({ spec_json: JSON.stringify({ ...builtSpec(), use_case_name: 'Keep customers who would leave' }) });
-  const ui = await openUi('studio', { ...STUDIO_STATE, history: [legacy] });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [legacy] });
   const { page } = ui;
   try {
-    const studio = page.locator('[data-studio-overlay]');
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
-    assert.equal(await studio.getByText('Keep customers who would leave').count(), 0);
-    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    const shown = page.locator('[data-implement-page]');
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
+    await page.getByRole('heading', { name: HARNESS_USE_CASE.Name, exact: true }).waitFor();
+    assert.equal(await shown.getByText('Keep customers who would leave').count(), 0);
+    await studioTab(page, 'Edit');
+    await editPane(page).getByRole('button', { name: 'Edit the PoC' }).click();
+    await onStep(page, 'Choose');
     const summary = page.getByRole('region', { name: 'Executive summary' });
     await summary.waitFor();
     assert.equal(await summary.locator('h3').innerText(), HARNESS_USE_CASE.Name);
@@ -238,7 +256,7 @@ test('Edit of a failed version the old wizard saved under the use case id names 
   });
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' }, history: [failed] });
   try {
-    await onStep(ui.page, 'Data');
+    await toData(ui.page);
     await next(ui.page);
     await onStep(ui.page, 'Delivery');
     assert.equal(await ui.page.getByLabel('App name').inputValue(), 'predict-churn', 'the App is named after the use case, not its id');
@@ -248,35 +266,31 @@ test('Edit of a failed version the old wizard saved under the use case id names 
   }
 });
 
-test('the wizard and the Studio cover the screen from any scroll position, above the App header, inside an animated page', async () => {
-  for (const open of ['wizard', 'studio']) {
-    const ui = await openUi(`${open}&nest=1`, open === 'studio' ? STUDIO_STATE : { me: { userName: OWNER, displayName: 'Owner' } });
-    const { page } = ui;
-    try {
-      const overlay = page.locator(open === 'wizard' ? '[data-implement-overlay]' : '[data-studio-overlay]');
-      await overlay.waitFor();
-      await page.evaluate(() => window.scrollTo(0, 1200));
-      await page.waitForFunction(() => window.scrollY === 1200);
-      await page.waitForFunction(() => getComputedStyle(document.querySelector('main')).transform === 'none', null, { timeout: 5000 })
-        .catch(async () => {
-          throw new Error(`the page animation leaves a transform behind: ${await page.evaluate(() => getComputedStyle(document.querySelector('main')).transform)}`);
-        });
-      assert.equal(await overlay.evaluate((el) => el.parentElement === document.body), true, `${open} renders at the top of the page`);
-      const box = await overlay.boundingBox();
-      assert.deepEqual([box.x, box.y, box.width, box.height], [0, 0, 1440, 1000], `${open} fills the viewport`);
-      assert.equal(await page.evaluate(() => Boolean(document.elementFromPoint(720, 30)?.closest('[data-implement-overlay],[data-studio-overlay]'))), true,
-        `the App header never paints over the ${open}`);
-      if (open === 'wizard') {
-        const dialog = await page.getByRole('dialog', { name: 'Implement with Genie' }).boundingBox();
-        assert.ok(dialog.y >= 0 && dialog.y + dialog.height <= 1000, JSON.stringify(dialog));
-        const button = await page.getByRole('button', { name: 'Next' }).boundingBox();
-        assert.ok(button.y >= 0 && button.y + button.height <= 1000, 'Next is on screen without scrolling the page');
-        await page.getByRole('region', { name: 'Executive summary' }).waitFor();
-      }
-      assert.deepEqual(ui.pageErrors, []);
-    } finally {
-      await ui.close();
-    }
+test('the wizard covers the screen from any scroll position, above the App header, inside an animated page', async () => {
+  const ui = await openUi('wizard&nest=1', { me: { userName: OWNER, displayName: 'Owner' } });
+  const { page } = ui;
+  try {
+    const overlay = page.locator('[data-implement-overlay]');
+    await overlay.waitFor();
+    await page.evaluate(() => window.scrollTo(0, 1200));
+    await page.waitForFunction(() => window.scrollY === 1200);
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('main')).transform === 'none', null, { timeout: 5000 })
+      .catch(async () => {
+        throw new Error(`the page animation leaves a transform behind: ${await page.evaluate(() => getComputedStyle(document.querySelector('main')).transform)}`);
+      });
+    assert.equal(await overlay.evaluate((el) => el.parentElement === document.body), true, 'the wizard renders at the top of the page');
+    const box = await overlay.boundingBox();
+    assert.deepEqual([box.x, box.y, box.width, box.height], [0, 0, 1440, 1000], 'the wizard fills the viewport');
+    assert.equal(await page.evaluate(() => Boolean(document.elementFromPoint(720, 30)?.closest('[data-implement-overlay]'))), true,
+      'the App header never paints over the wizard');
+    const dialog = await page.getByRole('dialog', { name: 'Start Use Case PoC with Genie' }).boundingBox();
+    assert.ok(dialog.y >= 0 && dialog.y + dialog.height <= 1000, JSON.stringify(dialog));
+    const button = await page.getByRole('button', { name: 'Next' }).boundingBox();
+    assert.ok(button.y >= 0 && button.y + button.height <= 1000, 'Next is on screen without scrolling the page');
+    await page.getByRole('region', { name: 'Executive summary' }).waitFor();
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
   }
 });
 
@@ -284,7 +298,7 @@ test('the signed-in person is the decision owner and is shared with by default, 
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Data');
+    await toData(page);
     await advanced(page).click();
     assert.equal(await page.getByLabel('Decision owner').inputValue(), OWNER);
     await next(page);
@@ -295,7 +309,7 @@ test('the signed-in person is the decision owner and is shared with by default, 
     await chip.click();
     await chip.waitFor({ state: 'detached' });
     await implementWhenReady(page);
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     const spec = submittedSpec(made);
     assert.equal(spec.use_case.decision_owner, OWNER);
     assert.deepEqual(spec.sharing.principals, []);
@@ -312,7 +326,7 @@ test('a new App that could not get access is disabled up front with the reason, 
   const ui = await openUi('wizard', { access, me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Data');
+    await toData(page);
     await next(page);
     await onStep(page, 'Delivery');
     const appBox = page.getByRole('checkbox', { name: /^App / });
@@ -326,7 +340,7 @@ test('a new App that could not get access is disabled up front with the reason, 
     await warn.waitFor();
     assert.equal(await warn.count(), 1, 'the warning shows on the main view, once');
     await implementWhenReady(page);
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     assert.equal(submittedSpec(made).outputs.app, false);
     assert.deepEqual(ui.pageErrors, []);
   } finally {
@@ -340,7 +354,7 @@ test('Next stops when the data to work with has no rows and says what to widen, 
   const { page, made } = ui;
   const eventDate = () => page.getByLabel('event date');
   try {
-    await onStep(page, 'Data');
+    await toData(page);
     await advanced(page).click();
     await eventDate().locator('option[value="main.s.returns.order_date"]').waitFor({ state: 'attached' });
     await eventDate().selectOption('main.s.orders.order_date');
@@ -350,7 +364,7 @@ test('Next stops when the data to work with has no rows and says what to widen, 
     await page.locator('[role="alert"]').waitFor();
     assert.deepEqual(await footerErrors(page),
       ['No rows to work with: main.s.orders has no rows inside the date window you picked. Widen or clear it under Advanced settings.']);
-    assert.equal(await page.locator('[aria-current="step"]').innerText(), '1. Data', 'the wizard stays on Data');
+    assert.equal(await page.locator('[aria-current="step"]').innerText(), '2. Data', 'the wizard stays on Data');
     assert.equal(await advanced(page).getAttribute('aria-expanded'), 'true');
     const counted = made.sqlCalls.filter((c) => String(c.sql).startsWith('SELECT COUNT(*) AS row_count'));
     assert.equal(counted.length, 1);
@@ -372,7 +386,7 @@ test('what blocks a step shows in the footer, opens Advanced on the field to fix
   const ui = await openUi('wizard', { useCase: { ...HARNESS_USE_CASE, statement: '', sponsor: '' }, me: { userName: '', displayName: '' } });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Data');
+    await toData(page);
     assert.deepEqual(await footerErrors(page), [], 'nothing is flagged before the person tries to move on');
     await next(page);
     await page.locator('[role="alert"]').waitFor();
@@ -395,7 +409,7 @@ test('what blocks a step shows in the footer, opens Advanced on the field to fix
     await page.getByLabel('Email recipients (comma separated)').fill(OWNER);
     await page.locator('[role="alert"]').waitFor({ state: 'detached' });
     await implementWhenReady(page);
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     assert.deepEqual(submittedSpec(made).outputs.alert_recipients, [OWNER]);
     assert.deepEqual(ui.pageErrors, []);
   } finally {
@@ -410,17 +424,17 @@ test('an App name another App already uses offers the next name, and Implement w
   });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Data');
+    await toData(page);
     await next(page);
     await onStep(page, 'Delivery');
     await page.getByRole('checkbox', { name: /^App / }).check();
     await page.getByText("'predict-churn' is used by another App in this workspace; pick another name.", { exact: false }).waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Implement', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Start PoC', exact: true }).isDisabled(), true);
     await page.getByRole('button', { name: 'Use predict-churn-2' }).click();
     assert.equal(await page.getByLabel('App name').inputValue(), 'predict-churn-2');
     await page.getByText("'predict-churn-2' is free").waitFor();
     await implementWhenReady(page);
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     assert.equal(submittedSpec(made).outputs.app_name, 'predict-churn-2');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
@@ -435,7 +449,7 @@ test('Change swaps a table for a similar one or drops it, and never offers to dr
   });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Data');
+    await toData(page);
     const row = (table) => page.locator(`[data-table="${table}"]`);
     await row('main.s.orders').getByRole('button', { name: 'Change' }).click();
     const ordersPick = page.getByLabel('Table to use for main.s.orders');
@@ -453,7 +467,7 @@ test('Change swaps a table for a similar one or drops it, and never offers to dr
     await next(page);
     await onStep(page, 'Delivery');
     await implementWhenReady(page);
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     const spec = submittedSpec(made);
     assert.deepEqual(spec.data.tables, { 'main.s.orders': 'main.s2.orders_v2' });
     assert.deepEqual(spec.data.removed_tables, ['main.s.returns']);
@@ -463,12 +477,17 @@ test('Change swaps a table for a similar one or drops it, and never offers to dr
   }
 });
 
-test('the Studio shows every output, the job runs and the filtered results of a built version', async () => {
-  const ui = await openUi('studio', STUDIO_STATE);
+test('the Implement page shows every output, the job runs and the filtered results of a built version', async () => {
+  const ui = await openUi('implement', STUDIO_STATE);
   const { page, made } = ui;
   try {
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     await page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
+    const listed = page.getByRole('navigation', { name: 'Use cases' });
+    await listed.getByRole('region', { name: 'Ready' }).getByText('PoC ready', { exact: true }).waitFor();
+    assert.equal(await listed.locator('[aria-current="true"]').innerText().then((t) => t.includes(HARNESS_USE_CASE.Name)), true);
+    assert.deepEqual(await page.getByRole('tablist', { name: 'PoC views' }).getByRole('tab').allTextContents(),
+      ['Progress', 'Results', 'Dashboard', 'Genie', 'App', 'Alert', 'History', 'Edit']);
 
     await studioTab(page, 'Results');
     await page.getByText(`3 row(s) of the latest run in ${RESULT_TABLE}`).waitFor();
@@ -518,13 +537,15 @@ test('the Studio shows every output, the job runs and the filtered results of a 
 });
 
 test('a quick re-run is a preview that sends only the widgets the person changed and never the result table', async () => {
-  const ui = await openUi('studio', STUDIO_STATE);
+  const ui = await openUi('implement', STUDIO_STATE);
   const { page, made } = ui;
   try {
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
+    await page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
+    await studioTab(page, 'Edit');
     const rerun = page.getByRole('button', { name: 'Preview re-run' });
     await rerun.waitFor();
-    const quick = page.locator('aside').last();
+    const quick = editPane(page);
     const ownText = (labels) => labels.map((l) => [...l.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent.trim()).join(' ').trim());
     assert.deepEqual(await quick.locator('label').evaluateAll(ownText), ['Top K', 'Schedule on']);
     assert.equal(await quick.locator('label', { hasText: 'Top K' }).locator('span').textContent(), 'whole number, at least 1');
@@ -545,9 +566,9 @@ test('a quick re-run is a preview that sends only the widgets the person changed
 test('a version that ended with a warning says why under its status, and a ready one stays quiet', async () => {
   const why = 'Decision list: no row of the latest run reached Act now or Review (1000 Monitor), so it has nobody to act on yet; '
     + "the run's output says why, such as a model that missed its acceptance check: https://workspace.example.com/jobs/77/runs/9001";
-  const warned = await openUi('studio', { ...STUDIO_STATE, history: [built({ status: 'ready_with_warnings', status_message: why })] });
+  const warned = await openUi('implement', { ...STUDIO_STATE, history: [built({ status: 'ready_with_warnings', status_message: why })] });
   try {
-    await warned.page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await warned.page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     const chip = warned.page.locator('p', { hasText: /^Warnings$/ }).first();
     await chip.waitFor();
     assert.equal(await chip.evaluate((p) => p.nextElementSibling?.textContent), why);
@@ -555,7 +576,7 @@ test('a version that ended with a warning says why under its status, and a ready
   } finally {
     await warned.close();
   }
-  const ready = await openUi('studio', { ...STUDIO_STATE, history: [built({ status_message: 'ready: preview wrote 3 row(s)' })] });
+  const ready = await openUi('implement', { ...STUDIO_STATE, history: [built({ status_message: 'ready: preview wrote 3 row(s)' })] });
   try {
     await ready.page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
     assert.equal(await ready.page.getByText('ready: preview wrote 3 row(s)').count(), 0);
@@ -569,17 +590,18 @@ test('a version whose run stopped reads as Stopped with the reason and the run, 
     updated_at: new Date().toISOString() });
   const run = { run_id: 1066484287074577, run_page_url: 'https://workspace.example.com/#job/77/run/1066484287074577',
     state: { life_cycle_state: 'TERMINATED', result_state: 'CANCELED', state_message: 'Run cancelled' } };
-  const ui = await openUi('studio', { ...STUDIO_STATE, history: [stopped, built()], implementRun: run });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [stopped, built()], implementRun: run });
   const { page } = ui;
   try {
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     const chip = page.locator('p', { hasText: /^Stopped$/ }).first();
     await chip.waitFor();
     assert.equal(await chip.evaluate((p) => p.nextElementSibling?.textContent),
       'the run building v2 ended (CANCELED: Run cancelled) while v2 was still filling. Edit submits a new version.');
     assert.equal(await page.getByRole('link', { name: 'Open the run that stopped' }).getAttribute('href'), run.run_page_url);
-    await page.locator('aside').first().getByText('Stopped', { exact: true }).waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Edit', exact: true }).isEnabled(), true);
+    await page.getByRole('navigation', { name: 'Use cases' }).getByRole('region', { name: 'Failed' }).getByText('PoC stopped', { exact: true }).waitFor();
+    await studioTab(page, 'Edit');
+    assert.equal(await editPane(page).getByRole('button', { name: 'Edit the PoC' }).isEnabled(), true);
     assert.equal(await page.getByRole('checkbox', { name: 'Schedule on' }).isEnabled(), true);
     await studioTab(page, 'History');
     await page.getByText('v2 · stopped before it finished · initial').waitFor();
@@ -588,10 +610,12 @@ test('a version whose run stopped reads as Stopped with the reason and the run, 
   } finally {
     await ui.close();
   }
-  const busy = await openUi('studio', { ...STUDIO_STATE, history: [stopped, built()],
+  const busy = await openUi('implement', { ...STUDIO_STATE, history: [stopped, built()],
     implementRun: { run_id: 1066484287074577, state: { life_cycle_state: 'RUNNING' } } });
   try {
     await busy.page.locator('p', { hasText: /^filling$/ }).first().waitFor();
+    await busy.page.getByRole('navigation', { name: 'Use cases' }).getByRole('region', { name: 'In progress' }).getByText('PoC running', { exact: true }).waitFor();
+    await studioTab(busy.page, 'Edit');
     assert.equal(await busy.page.getByRole('button', { name: 'Edit applies after this run' }).isEnabled(), false);
     assert.equal(await busy.page.getByRole('checkbox', { name: 'Schedule on' }).isEnabled(), false);
     assert.equal(await busy.page.getByText('Open the run that stopped').count(), 0);
@@ -607,14 +631,11 @@ test('a failed output offers its own retry, which submits the next version that 
     spec_version: 2, status: 'ready_with_warnings', status_message: 'Genie space: space create 403',
     asset_status: JSON.stringify({ ...assets, genie_space: { state: 'failed', error: 'space create 403', spec_version: 1 } }),
   });
-  const ui = await openUi('studio', { ...STUDIO_STATE, history: [warned] });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [warned] });
   const { page, made } = ui;
   try {
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
-    const pane = page.locator('aside').last();
-    const retries = pane.getByRole('button', { name: /^Retry the / });
-    await retries.first().waitFor();
-    assert.deepEqual((await retries.allTextContents()).map((t) => t.trim()), ['Retry the Genie space']);
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
+    await page.getByText('The Genie space failed.', { exact: false }).waitFor();
     await studioTab(page, 'Genie');
     await page.getByText('The Genie space failed on v1: space create 403').waitFor();
     await studioTab(page, 'App');
@@ -622,6 +643,11 @@ test('a failed output offers its own retry, which submits the next version that 
     assert.equal(await page.getByText(/failed on v1/).count(), 0);
     assert.equal(made.jobs.length, 0);
 
+    await page.getByRole('button', { name: 'Retry on the Edit tab' }).click();
+    const retries = editPane(page).getByRole('button', { name: /^Retry the / });
+    await retries.first().waitFor();
+    assert.deepEqual((await retries.allTextContents()).map((t) => t.trim()), ['Retry the Genie space']);
+    assert.equal(await page.getByRole('button', { name: 'Retry on the Edit tab' }).count(), 0, 'the pointer goes once the retries are on screen');
     await retries.first().click();
     await until(() => made.jobs.length === 1, 'the retry implement run');
     const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
@@ -643,11 +669,13 @@ test('a failed output offers its own retry, which submits the next version that 
 });
 
 test('a dropped source table stops the re-run with its name, and Edit opens the Data step with that table marked and its Change open', async () => {
-  const ui = await openUi('studio', { ...STUDIO_STATE, probeErrors: { '`main`.`s`.`returns`': GONE } });
+  const ui = await openUi('implement', { ...STUDIO_STATE, probeErrors: { '`main`.`s`.`returns`': GONE } });
   const { page, made } = ui;
   const missing = [{ table: 'main.s.returns', reason: 'not found' }];
   try {
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
+    await page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
+    await studioTab(page, 'Edit');
     await page.getByRole('button', { name: 'Preview re-run' }).click();
     await page.getByText(lostTablesText(missing)).waitFor();
     await page.getByText('409: the preview cannot run because these source tables are missing or not readable: main.s.returns (not found).', { exact: false }).waitFor();
@@ -655,7 +683,7 @@ test('a dropped source table stops the re-run with its name, and Edit opens the 
 
     await page.getByRole('button', { name: 'Edit the Data step' }).click();
     await onStep(page, 'Data');
-    await page.getByText(lostTablesText(missing)).waitFor();
+    await page.getByRole('dialog').getByText(lostTablesText(missing)).waitFor();
     const lostRow = page.locator('[data-table="main.s.returns"]');
     await lostRow.getByText('not found', { exact: true }).waitFor();
     assert.match(await lostRow.getAttribute('class'), /border-error\/50/);
@@ -670,11 +698,11 @@ test('a dropped source table stops the re-run with its name, and Edit opens the 
   }
 });
 
-test('the Studio Results of a version whose first run has not written its table yet say so, and a real read error still shows', async () => {
+test('the Results of a version whose first run has not written its table yet say so, a real read error still shows, and a use case with no PoC offers to start one', async () => {
   const missing = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`inspire`.`n01_u01_out` cannot be found. SQLSTATE: 42P01; line 1 pos 46';
-  const ui = await openUi('studio', { ...STUDIO_STATE, resultTableError: missing });
+  const ui = await openUi('implement', { ...STUDIO_STATE, resultTableError: missing });
   try {
-    await ui.page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await ui.page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     await studioTab(ui.page, 'Results');
     await ui.page.getByText(`No results yet. The first run creates ${RESULT_TABLE} and writes its rows there.`).waitFor();
     assert.equal(await ui.page.getByText('TABLE_OR_VIEW_NOT_FOUND', { exact: false }).count(), 0);
@@ -683,21 +711,25 @@ test('the Studio Results of a version whose first run has not written its table 
   } finally {
     await ui.close();
   }
-  const denied = await openUi('studio', { ...STUDIO_STATE, resultTableError: '[INSUFFICIENT_PERMISSIONS] User does not have SELECT on Table main.inspire.n01_u01_out' });
+  const denied = await openUi('implement', { ...STUDIO_STATE, resultTableError: '[INSUFFICIENT_PERMISSIONS] User does not have SELECT on Table main.inspire.n01_u01_out' });
   try {
-    await denied.page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await denied.page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     await studioTab(denied.page, 'Results');
     await denied.page.getByText('INSUFFICIENT_PERMISSIONS', { exact: false }).first().waitFor();
     assert.equal(await denied.page.getByText('No results yet.', { exact: false }).count(), 0);
   } finally {
     await denied.close();
   }
-  const never = await openUi('studio', { ...STUDIO_STATE, history: [] });
+  const never = await openUi('implement', { ...STUDIO_STATE, history: [] });
   try {
-    await never.page.getByText('No implementations yet.').waitFor();
-    await studioTab(never.page, 'Results');
-    await never.page.getByText('No results yet. Implement this use case to create them.').waitFor();
+    await never.page.getByText('No PoC yet.', { exact: false }).waitFor();
+    await never.page.getByRole('navigation', { name: 'Use cases' }).getByRole('region', { name: 'Not started' }).getByText(HARNESS_USE_CASE.Name).waitFor();
+    assert.equal(await never.page.getByRole('tablist', { name: 'PoC views' }).count(), 0, 'no tabs before a PoC exists');
     assert.equal(await never.page.locator('label', { hasText: 'Tier' }).count(), 0, 'no filters before anything is implemented');
+    assert.equal(never.made.sqlCalls.some((c) => /^SELECT \* FROM `main`\.`inspire`\.`n01_u01_out`/.test(String(c.sql))), false, 'no result table read');
+    await never.page.getByRole('button', { name: 'Start Use Case PoC with Genie' }).click();
+    await onStep(never.page, 'Choose');
+    assert.equal(await never.page.getByRole('region', { name: 'Executive summary' }).locator('h3').innerText(), HARNESS_USE_CASE.Name);
     assert.deepEqual(never.pageErrors, []);
   } finally {
     await never.close();
@@ -706,7 +738,7 @@ test('the Studio Results of a version whose first run has not written its table 
 
 const EDITED_AT = Date.UTC(2026, 9, 25, 5, 0, 0);
 const EDITED_REASON = 'the notebook /tmp/out/acme_implemented/Sales/N01-U01 was edited after Inspire last built it, so this version did not '
-  + 'rebuild it: rebuild it from the Studio to overwrite those edits, or keep them and change only the outputs or the schedule';
+  + 'rebuild it: rebuild it with Edit the PoC on the Implement page to overwrite those edits, or keep them and change only the outputs or the schedule';
 
 const editedVersion = () => {
   const spec = builtSpec();
@@ -719,10 +751,10 @@ const editedVersion = () => {
 };
 
 test('a version stopped by notebook edits offers a rebuild that overwrites them, submitted as the next version', async () => {
-  const ui = await openUi('studio', { ...STUDIO_STATE, history: [editedVersion(), built()] });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [editedVersion(), built()] });
   const { page, made } = ui;
   try {
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     await page.getByText(EDITED_REASON).waitFor();
     assert.equal(await page.getByText(EDITED_REASON).count(), 1, 'the reason shows once, next to its action');
     assert.equal(made.jobs.length, 0);
@@ -742,7 +774,7 @@ test('a version stopped by notebook edits offers a rebuild that overwrites them,
     await ui.close();
   }
   const assets = JSON.parse(built().asset_status);
-  const kept = await openUi('studio', { ...STUDIO_STATE,
+  const kept = await openUi('implement', { ...STUDIO_STATE,
     history: [built({ asset_status: JSON.stringify({ ...assets, notebook: { modified_at: 1, state: 'edited', edited_at: EDITED_AT } }) })] });
   try {
     await kept.page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
@@ -757,7 +789,7 @@ test('Edit after notebook edits asks on Delivery whether to overwrite them, and 
   const ui = await openUi('wizard', { ...STUDIO_STATE, history: [editedVersion(), built()], me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Data');
+    await toData(page);
     await next(page);
     await onStep(page, 'Delivery');
     const box = page.getByRole('checkbox', { name: /^Overwrite the edits made to the notebook on / });
@@ -768,7 +800,7 @@ test('Edit after notebook edits asks on Delivery whether to overwrite them, and 
     await box.check();
     await asks.waitFor({ state: 'detached' });
     await implementWhenReady(page);
-    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
     assert.equal(inserts.length, 1);
     const value = (name) => inserts[0].parameters.find((p) => p.name === name).value;
@@ -780,14 +812,151 @@ test('Edit after notebook edits asks on Delivery whether to overwrite them, and 
   }
   const fresh = await openUi('wizard', { ...STUDIO_STATE, me: { userName: OWNER, displayName: 'Owner' } });
   try {
-    await onStep(fresh.page, 'Data');
+    await toData(fresh.page);
     await next(fresh.page);
     await onStep(fresh.page, 'Delivery');
     await fresh.page.getByText('nothing changed since the last built version', { exact: false }).waitFor();
-    assert.equal(await fresh.page.getByRole('button', { name: 'Implement', exact: true }).isDisabled(), true, 'an edit with no change cannot submit');
+    assert.equal(await fresh.page.getByRole('button', { name: 'Start PoC', exact: true }).isDisabled(), true, 'an edit with no change cannot submit');
     assert.equal(await fresh.page.getByRole('checkbox', { name: /^Overwrite the edits/ }).count(), 0, 'no recorded edit, no question');
     assert.equal(await fresh.page.getByLabel('App name').inputValue(), 'churn-desk', 'an edit keeps the live App name');
   } finally {
     await fresh.close();
+  }
+});
+
+test('Notebook only skips the PoC settings, flags only this use case, starts Generate Use Cases, and the Implement page follows the notebook run', async () => {
+  const notebookPath = '/Users/owner@example.com/inspire/Acme/N01-U01';
+  const flaggedRow = { ...HARNESS_USE_CASE, generate_genie_code_instruction: 'Yes', has_genie_code: 'N' };
+  const runUrl = 'https://workspace.example.com/#job/7/run/99';
+  const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
+  const { page, made } = ui;
+  made.state.afterTrigger = () => {
+    made.state.useCase = flaggedRow;
+    made.state.jobsList = { jobs: [{ job_id: 7, created_time: 1, settings: { name: 'Inspire AI - Genie Code - 42' } }] };
+    made.state.runsByJob = { 7: { runs: [{ run_id: 99, state: { life_cycle_state: 'RUNNING' }, run_page_url: runUrl }] } };
+  };
+  try {
+    await onStep(page, 'Choose');
+    await page.getByRole('radio', { name: /^Notebook only/ }).check();
+    assert.deepEqual(await page.locator('ol li').allTextContents(), ['1. Choose', '2. Data', '3. Notebook']);
+    await next(page);
+    await onStep(page, 'Data');
+    const tables = page.getByRole('region', { name: 'Tables the notebook uses' });
+    assert.deepEqual(await tables.locator('li > span.font-mono').allTextContents(), ['main.s.orders', 'main.s.returns']);
+    await tables.locator('li', { hasText: 'main.s.orders' }).getByText('primary', { exact: true }).waitFor();
+    assert.equal(await advanced(page).count(), 0, 'Notebook only has no PoC settings');
+    assert.equal(await page.getByRole('button', { name: 'Change' }).count(), 0, 'Notebook only never swaps a table');
+    await next(page);
+    await onStep(page, 'Notebook');
+    const step = page.getByRole('region', { name: 'Notebook' });
+    await step.getByRole('heading', { name: 'Write the Genie Code notebook' }).waitFor();
+    await step.getByText('under /tmp/out', { exact: false }).waitFor();
+    assert.equal(made.jobs.length, 0);
+    await page.getByRole('button', { name: 'Generate notebook' }).click();
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
+
+    assert.equal(made.jobs.length, 1);
+    assert.equal(made.jobs[0].jobType, 'genie_regen');
+    assert.equal(made.jobs[0].jobName, 'Inspire AI - Genie Code - 42');
+    assert.equal(made.jobs[0].params['15_operation'], 'Generate Use Cases');
+    assert.deepEqual(made.flagged.map((f) => [f.sid, f.ids]), [['42', ['N01-U01']]]);
+    assert.equal(made.sqlCalls.some((c) => String(c.sql).includes('INSERT INTO')), false, 'Notebook only writes no PoC version');
+
+    const nav = page.getByRole('navigation', { name: 'Use cases' });
+    await nav.getByRole('region', { name: 'In progress' }).getByText('Notebook running', { exact: true }).waitFor();
+    const panel = page.getByRole('region', { name: 'Genie Code notebook' });
+    assert.equal(await panel.getByRole('link', { name: 'Open the notebook run' }).getAttribute('href'), runUrl);
+    assert.equal(await panel.getByRole('link', { name: 'Open the notebook', exact: true }).count(), 0, 'no notebook link before it is written');
+
+    made.state.useCase = { ...flaggedRow, generate_genie_code_instruction: 'No', has_genie_code: 'Y', notebook_path: notebookPath };
+    made.state.runsByJob = { 7: { runs: [{ run_id: 99, state: { life_cycle_state: 'TERMINATED', result_state: 'SUCCESS' }, run_page_url: runUrl }] } };
+    await nav.getByRole('region', { name: 'Ready' }).getByText('Notebook ready', { exact: true }).waitFor({ timeout: 25000 });
+    assert.equal(await panel.getByRole('link', { name: 'Open the notebook', exact: true }).getAttribute('href'),
+      `https://workspace.example.com/#workspace/Workspace${notebookPath}`);
+    await page.getByRole('button', { name: 'Start Use Case PoC with Genie' }).waitFor();
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('the Implement page groups every use case by its state, searches by name, id or domain, and starts a PoC from one with none', async () => {
+  const useCases = [
+    { ...HARNESS_USE_CASE, _domain: 'Retention' },
+    { id: 'N01-U02', Name: 'Forecast demand', use_case: 'Forecast demand', _domain: 'Supply', statement: 'Plan stock a week ahead',
+      primary_table: 'main.s.orders', tables_involved: 'main.s.orders' },
+    { id: 'N02-U01', Name: 'Score suppliers', use_case: 'Score suppliers', _domain: 'Supply', has_genie_code: 'Y',
+      notebook_path: '/Users/owner@example.com/inspire/Acme/N02-U01' },
+  ];
+  const ui = await openUi('implement', { ...STUDIO_STATE, useCases });
+  const { page } = ui;
+  const nav = page.getByRole('navigation', { name: 'Use cases' });
+  const group = (name) => nav.getByRole('region', { name });
+  const names = (name) => group(name).locator('button > div:first-child').allTextContents();
+  const search = (text) => page.getByLabel('Search use cases').fill(text);
+  try {
+    await group('Ready').getByText('PoC ready', { exact: true }).waitFor();
+    assert.deepEqual(await nav.locator('h2').allTextContents(), ['In progress (0)', 'Ready (2)', 'Failed (0)', 'Not started (1)']);
+    assert.deepEqual(await names('Ready'), ['Predict churn', 'Score suppliers']);
+    assert.deepEqual(await names('Not started'), ['Forecast demand']);
+    await group('Ready').getByRole('button', { name: /Score suppliers/ }).getByText('Notebook ready', { exact: true }).waitFor();
+    assert.equal(await group('Not started').locator('[data-implement-status]').count(), 0, 'a use case with nothing built has no label');
+    await page.getByRole('heading', { name: 'Predict churn', exact: true }).waitFor();
+
+    await search('supply');
+    await group('Ready').getByText('Predict churn').waitFor({ state: 'detached' });
+    assert.deepEqual(await names('Ready'), ['Score suppliers']);
+    assert.deepEqual(await names('Not started'), ['Forecast demand']);
+    await page.getByRole('heading', { name: 'Predict churn', exact: true }).waitFor();
+    await search('N01-U02');
+    await group('Ready').getByText('Score suppliers').waitFor({ state: 'detached' });
+    assert.deepEqual(await names('Not started'), ['Forecast demand']);
+    await search('nothing like this');
+    await nav.getByText('No use case matches "nothing like this".').waitFor();
+    await search('');
+
+    await group('Not started').getByRole('button', { name: /Forecast demand/ }).click();
+    await page.getByRole('heading', { name: 'Forecast demand', exact: true }).waitFor();
+    await page.getByText('No PoC yet.', { exact: false }).waitFor();
+    assert.equal(await page.getByRole('tablist', { name: 'PoC views' }).count(), 0);
+    await page.getByRole('button', { name: 'Start Use Case PoC with Genie' }).click();
+    await onStep(page, 'Choose');
+    assert.equal(await page.getByRole('region', { name: 'Executive summary' }).locator('h3').innerText(), 'Forecast demand');
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.locator('[data-implement-overlay]').waitFor({ state: 'detached' });
+
+    await group('Ready').getByRole('button', { name: /Score suppliers/ }).click();
+    const panel = page.getByRole('region', { name: 'Genie Code notebook' });
+    assert.equal(await panel.getByRole('link', { name: 'Open the notebook', exact: true }).getAttribute('href'),
+      'https://workspace.example.com/#workspace/Workspace/Users/owner@example.com/inspire/Acme/N02-U01');
+    await page.getByRole('button', { name: 'Start Use Case PoC with Genie' }).waitFor();
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('a card has one button, Start Use Case PoC with Genie, and a status label that is text, not a control', async () => {
+  const ui = await openUi('card');
+  const { page } = ui;
+  const card = (id) => page.locator(`[data-card="${id}"]`);
+  try {
+    await card('running').getByText('PoC running', { exact: true }).waitFor();
+    for (const id of ['not-started', 'running', 'notebook']) {
+      assert.deepEqual(await card(id).getByRole('button').allTextContents(), ['Start Use Case PoC with Genie'], id);
+      assert.equal(await card(id).getByRole('link').count(), 0, id);
+    }
+    assert.equal(await card('not-started').locator('[data-implement-status]').count(), 0, 'nothing built, no label');
+    const label = card('notebook').locator('[data-implement-status]');
+    assert.equal(await label.textContent(), 'Notebook ready');
+    assert.equal(await label.evaluate((el) => el.tagName), 'SPAN');
+    assert.equal(await card('no-session').getByRole('button').count(), 0, 'without a session and warehouse the card offers no start');
+    await card('no-session').getByText('PoC ready', { exact: true }).waitFor();
+    await card('running').getByRole('button').click();
+    await label.click();
+    assert.equal(await page.getByLabel('Clicks').textContent(), 'start:running,card:notebook', 'the button never toggles the card, and the label has no action of its own');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
   }
 });

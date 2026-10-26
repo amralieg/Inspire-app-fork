@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
 import ImplementWizard from '../../src/pages/ImplementWizard';
-import UseCaseStudio from '../../src/pages/UseCaseStudio';
+import ImplementPage from '../../src/pages/ImplementPage';
+import ImplementCardActions from '../../src/components/ImplementCardActions';
 import { makeApiFetch, makeApiPostJson } from '../../src/lib/apiClient';
-import { caseIdOf } from '../../src/lib/implementWizard';
+import { caseIdOf, implementState, notebookStatus } from '../../src/lib/implementWizard';
 import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
 
 const AUTH = { token: 'tok', databricksHost: 'https://workspace.example.com' };
+const SETTINGS = { ...HARNESS_SETTINGS, ...AUTH };
 
 export default function HarnessApp({ open, nest, discoveryType }) {
   const content = <HarnessContent open={open} discoveryType={discoveryType} />;
@@ -24,39 +26,53 @@ export default function HarnessApp({ open, nest, discoveryType }) {
 }
 
 function HarnessContent({ open, discoveryType }) {
+  if (open === 'card') return <CardHarness />;
+  return <PageHarness open={open} discoveryType={discoveryType} />;
+}
+
+function CardHarness() {
+  const [clicks, setClicks] = useState([]);
+  const push = (what) => setClicks((prev) => [...prev, what]);
+  const cards = [
+    ['not-started', implementState(null, null), true],
+    ['running', implementState({ status: 'filling' }, null), true],
+    ['notebook', implementState(null, notebookStatus({ has_genie_code: 'Y' }, null)), true],
+    ['no-session', implementState({ status: 'ready' }, null), false],
+  ];
+  return (
+    <div className="p-6 space-y-3">
+      {cards.map(([id, status, canStart]) => (
+        <div key={id} data-card={id} onClick={() => push(`card:${id}`)} className="border border-border rounded-lg py-3">
+          <ImplementCardActions status={status} onImplement={canStart ? () => push(`start:${id}`) : undefined} />
+        </div>
+      ))}
+      <output aria-label="Clicks">{clicks.join(',')}</output>
+    </div>
+  );
+}
+
+function PageHarness({ open, discoveryType }) {
+  const [implemented, setImplemented] = useState(open === 'implement' ? caseIdOf(HARNESS_USE_CASE) : null);
+  if (implemented) return <ImplementPage settings={SETTINGS} sessionId={HARNESS_SESSION_ID} focusId={implemented} />;
+  return <WizardOnly discoveryType={discoveryType} onImplemented={(data) => setImplemented(data.use_case_id)} />;
+}
+
+function WizardOnly({ discoveryType, onImplemented }) {
   const apiFetch = useMemo(() => makeApiFetch(AUTH), []);
   const apiPostJson = useMemo(() => makeApiPostJson(AUTH), []);
-  const [implementUc, setImplementUc] = useState(open === 'wizard' ? HARNESS_USE_CASE : null);
-  const [focus, setFocus] = useState(null);
-  const [studioId, setStudioId] = useState(open === 'studio' ? caseIdOf(HARNESS_USE_CASE) : null);
+  const [closed, setClosed] = useState(false);
+  if (closed) return <p>The wizard is closed.</p>;
   return (
-    <>
-      {implementUc && (
-        <ImplementWizard
-          uc={implementUc}
-          sessionId={HARNESS_SESSION_ID}
-          settings={HARNESS_SETTINGS}
-          discoveryType={discoveryType}
-          apiFetch={apiFetch}
-          apiPostJson={apiPostJson}
-          focus={focus}
-          onClose={() => { setImplementUc(null); setFocus(null); }}
-          onImplemented={(data) => { setImplementUc(null); setFocus(null); setStudioId(data.use_case_id); }}
-        />
-      )}
-      {studioId && (
-        <UseCaseStudio
-          sessionId={HARNESS_SESSION_ID}
-          settings={HARNESS_SETTINGS}
-          useCaseId={studioId}
-          useCases={[HARNESS_USE_CASE]}
-          apiFetch={apiFetch}
-          apiPostJson={apiPostJson}
-          onClose={() => setStudioId(null)}
-          onEdit={(_id, nextFocus) => { setStudioId(null); setFocus(nextFocus || null); setImplementUc(HARNESS_USE_CASE); }}
-          onOpenUseCase={setStudioId}
-        />
-      )}
-    </>
+    <ImplementWizard
+      uc={HARNESS_USE_CASE}
+      sessionId={HARNESS_SESSION_ID}
+      settings={SETTINGS}
+      discoveryType={discoveryType}
+      apiFetch={apiFetch}
+      apiPostJson={apiPostJson}
+      focus={null}
+      onClose={() => setClosed(true)}
+      onImplemented={onImplemented}
+    />
   );
 }

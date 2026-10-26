@@ -35,7 +35,7 @@ const STATUS_FILTERS = [
   { key: 'error', label: 'Error', color: 'text-error' },
 ];
 
-export default function MonitorPage({ settings, update, sessionId, runId, onComplete }) {
+export default function MonitorPage({ settings, update, sessionId, runId, onComplete, onResultsSession, onOpenImplement }) {
   const { databricksHost, token, warehouseId, inspireDatabase } = settings;
 
   // Run-level state
@@ -911,7 +911,7 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
                 <BarChart3 size={14} className="text-db-red" />
                 <span className="text-xs font-bold text-text-primary">Results — Session {sessionId}</span>
               </div>
-              <ResultsPage settings={settings} update={update} sessionId={sessionId} embedded />
+              <ResultsPage settings={settings} update={update} sessionId={sessionId} embedded onSessionChange={onResultsSession} onOpenImplement={onOpenImplement} />
             </div>
           )}
         </div>

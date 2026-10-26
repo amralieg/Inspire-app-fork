@@ -26,7 +26,7 @@ test('demo discovery parameters use v1.2.0 generation choices and the v1.3.0 dis
   });
 
   assert.equal(params['09_generation_options'], 'PDF Catalog');
-  assert.equal(params['13_generate_genie_code_for'], '5');
+  assert.equal(params['13_generate_genie_code_for'], '0');
   assert.equal(params['14_session_id'], '123456789');
   assert.equal(params['05_use_cases_quality'], 'Good');
   assert.equal(params['03_discovery_type'], 'Deep');
@@ -159,6 +159,15 @@ test('v1.3.0 use case fields are parsed and stay NULL-safe on older rows', () =>
   assert.equal(legacy.strategy_path, null);
   assert.equal(legacy.use_case_key, null);
   assert.equal(legacy.use_case, 'Old row');
+});
+
+test('a blank Genie Code count launches Discover with skeleton notebooks only, an explicit count is kept', () => {
+  for (const value of [undefined, null, '']) {
+    assert.equal(sanitizeInspireNotebookJobParams({ '00_business_name': 'Acme', '13_generate_genie_code_for': value })['13_generate_genie_code_for'], '0');
+  }
+  for (const value of ['5', 'all', '0']) {
+    assert.equal(sanitizeInspireNotebookJobParams({ '00_business_name': 'Acme', '13_generate_genie_code_for': value })['13_generate_genie_code_for'], value);
+  }
 });
 
 test('the Best of Best count widget is forwarded, kept empty by default and refused outside 0 to 100', () => {

@@ -16,7 +16,6 @@ const { stripAiDemoDisclaimerHtml, stripDisclaimerDeep } = require('./stripAiDis
 const { TEMPLATE_META } = require('./lib/demoDataService');
 const { triggerDemoDataPipeline } = require('./lib/demoDataPipeline');
 const { resolveInspireAppServicePrincipalId } = require('./lib/inspireSpGrants');
-const { createGenieJobGuard } = require('./lib/genieJobGuard');
 const {
   INSPIRE_AGENT_VERSION,
   inspireTaskCompute,
@@ -777,8 +776,9 @@ async function resolveWorkspaceNotebookObjectPath(host, token, candidatePath) {
  * @param {string} [opts.notebook_path]
  * @param {string} [opts.cluster_id]
  * @param {'discovery'|'genie_regen'|'implement'} [opts.jobType]
+ * @param {string} [opts.jobName]
  */
-async function triggerInspireNotebookJob(host, token, { params, notebook_path, cluster_id, jobType = 'discovery' }) {
+async function triggerInspireNotebookJob(host, token, { params, notebook_path, cluster_id, jobType = 'discovery', jobName: requestedJobName = '' }) {
   normalizeUseCasesQualityParams(params);
   const sanitized = sanitizeInspireNotebookJobParams(params);
   for (const k of Object.keys(params)) delete params[k];
@@ -828,7 +828,7 @@ async function triggerInspireNotebookJob(host, token, { params, notebook_path, c
 
   const businessName = params['00_business_name'] || 'Run';
   const sanitizeTag = (v) => String(v || '').replace(/[^A-Za-z0-9._-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 255);
-  const jobName = `Inspire AI - ${businessName} - ${new Date().toISOString().slice(0, 19)}`;
+  const jobName = requestedJobName || `Inspire AI - ${businessName} - ${new Date().toISOString().slice(0, 19)}`;
   const jobSessionId = crypto.randomUUID();
   const notebookFilename = resolvedPath.split('/').pop() || 'inspire_notebook';
   const inspireRunType = jobType === 'genie_regen' ? 'genie_regen' : (jobType === 'implement' ? 'implement' : 'discovery');
@@ -2654,131 +2654,6 @@ app.get('/api/inspire/feedback', requireToken, async (req, res) => {
   }
 });
 
-/**
- * Route 1: set generate_genie_code_instruction = 'Yes' for selected UC ids, then submit
- * notebook job with 15_operation = Generate Use Cases and 14_session_id = session.
- */
-const genieJobGuard = createGenieJobGuard();
-
-async function genieRunState(host, token, runId) {
-  if (!runId) return null;
-  const resp = await dbFetch(host, token, `/api/2.1/jobs/runs/get?run_id=${encodeURIComponent(runId)}`);
-  if (!resp.ok) return null;
-  const data = await resp.json();
-  return data?.state?.life_cycle_state || null;
-}
-
-async function handleInspireGenerateGenie(req, res) {
-  try {
-    const {
-      inspire_database,
-      warehouse_id,
-      session_id,
-      use_case_ids: useCaseIdsRaw,
-      cluster_id,
-      notebook_path,
-    } = req.body || {};
-
-    if (!inspire_database || !warehouse_id) {
-      return res.status(400).json({ error: 'inspire_database and warehouse_id are required.' });
-    }
-    const sidStr = String(session_id ?? '').trim();
-    if (!/^\d+$/.test(sidStr)) {
-      return res.status(400).json({ error: 'session_id must be a numeric Inspire session id.' });
-    }
-
-    const use_case_ids = Array.isArray(useCaseIdsRaw)
-      ? useCaseIdsRaw.map((x) => String(x).trim()).filter(Boolean)
-      : [];
-    if (use_case_ids.length === 0) {
-      return res.status(400).json({ error: 'use_case_ids must be a non-empty array of use case id strings.' });
-    }
-    if (use_case_ids.length > 50) {
-      return res.status(400).json({ error: 'At most 50 use cases per Generate request.' });
-    }
-
-    const safeIds = use_case_ids.filter((id) => /^[a-zA-Z0-9_.\-]+$/.test(id));
-    if (safeIds.length !== use_case_ids.length) {
-      return res.status(400).json({
-        error: 'Each use_case_id must match /^[a-zA-Z0-9_.\\-]+$/ (Inspire tracking table id / No).',
-      });
-    }
-
-    const parsedDb = splitInspireDatabase(inspire_database);
-    if (!parsedDb) {
-      return res.status(400).json({ error: 'inspire_database must be exactly catalog.schema (one dot).' });
-    }
-    const { catalog, schema } = parsedDb;
-
-    const session = await fetchInspireSessionWidgetRow(
-      req.dbHost,
-      req.dbToken,
-      warehouse_id,
-      catalog,
-      schema,
-      sidStr,
-    );
-    if (!session) {
-      return res.status(404).json({ error: `No __inspire_session row for session_id=${sidStr}.` });
-    }
-
-    const params = notebookParamsFromSessionForGenerateRun(session, sidStr);
-    if (!params['02_inspire_database']) {
-      params['02_inspire_database'] = inspire_database.trim();
-    }
-    if (!params['01_uc_metadata']) {
-      return res.status(400).json({
-        error:
-          'This session has no UC metadata (catalogs/schemas/tables or docs-only JSON path) stored on __inspire_session. Run Discover from this app first, or set metadata manually.',
-      });
-    }
-
-    const claim = await genieJobGuard.claim(sidStr, (runId) => genieRunState(req.dbHost, req.dbToken, runId));
-    if (!claim.ok) {
-      return res.status(409).json({
-        error: 'Genie instructions for this session are already being generated. Wait for that run to finish, then try again.',
-        run_id: claim.entry?.run_id || null,
-        job_run_url: claim.entry?.job_run_url || null,
-      });
-    }
-    let out;
-    try {
-      await runRoute1GenieFlagUpdates(
-        req.dbHost,
-        req.dbToken,
-        warehouse_id,
-        catalog,
-        schema,
-        sidStr,
-        safeIds,
-      );
-
-      out = await triggerInspireNotebookJob(req.dbHost, req.dbToken, {
-        params,
-        notebook_path,
-        cluster_id,
-        jobType: 'genie_regen',
-      });
-    } catch (launchErr) {
-      genieJobGuard.failed(sidStr);
-      throw launchErr;
-    }
-    genieJobGuard.launched(sidStr, out);
-
-    console.log(`   🧞 Generate Genie: session=${sidStr}, flagged=${safeIds.length}, run_id=${out.run_id}`);
-    res.json({
-      ...out,
-      session_id: sidStr,
-      flagged_use_case_ids: safeIds,
-    });
-  } catch (err) {
-    const code = err.statusCode && Number.isFinite(err.statusCode) ? err.statusCode : 500;
-    res.status(code).json({ error: err.message });
-  }
-}
-
-app.post('/api/inspire/generate-genie', requireToken, handleInspireGenerateGenie);
-app.post('/api/inspire/generate_genie', requireToken, handleInspireGenerateGenie);
 
 registerImplementRoutes(app, {
   requireToken,
@@ -2792,6 +2667,7 @@ registerImplementRoutes(app, {
   splitInspireDatabase,
   databricksJobRunUrl,
   ensureTableColumns,
+  runRoute1GenieFlagUpdates,
 });
 
 /**

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check } from 'lucide-react';
 import BodyPortal from '../components/BodyPortal';
 import {
-  IMPLEMENT_STEPS,
+  IMPLEMENT_MODES,
+  wizardSteps,
   IMPLEMENT_OUTPUTS,
   ALERT_TIER_OPTIONS,
   ALERT_OPERATORS,
@@ -149,6 +150,7 @@ export default function ImplementWizard({
 }) {
   const warehouseId = settings.warehouseId;
   const inspireDatabase = settings.inspireDatabase;
+  const [mode, setMode] = useState('poc');
   const [step, setStep] = useState(() => initialStepIndex(focus));
   const [spec, setSpec] = useState(() => defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase }));
   const [context, setContext] = useState(null);
@@ -179,7 +181,8 @@ export default function ImplementWizard({
   const [destinations, setDestinations] = useState(null);
   const [destinationsError, setDestinationsError] = useState('');
   const bodyRef = useRef(null);
-  const stepId = IMPLEMENT_STEPS[step].id;
+  const steps = wizardSteps(mode);
+  const stepId = steps[step].id;
 
   const q = useMemo(() => {
     const p = new URLSearchParams({
@@ -300,7 +303,7 @@ export default function ImplementWizard({
     .filter(([role, ref]) => ref && !confirmedRoles[role] && guessColumnRole(String(ref).split('.').pop()) !== role)
     .map(([role]) => role);
   const extras = { unconfirmedRoles, widgets: context?.widgets || [], trainsModel };
-  const ownErrors = stepErrors(stepId, spec, extras);
+  const ownErrors = stepErrors(stepId, spec, extras, mode);
 
   const primaryOriginal = primaryTableOf(ucRow);
   const primaryChosen = spec.data.tables[primaryOriginal] || primaryOriginal;
@@ -328,13 +331,17 @@ export default function ImplementWizard({
 
   const blockedBy = (id) => {
     setAttempted((prev) => ({ ...prev, [id]: true }));
-    if (!stepErrors(id, spec, extras).length) return false;
-    if (advancedErrors(id, spec, extras).length) setAdvanced((prev) => ({ ...prev, [id]: true }));
+    if (!stepErrors(id, spec, extras, mode).length) return false;
+    if (advancedErrors(id, spec, extras, mode).length) setAdvanced((prev) => ({ ...prev, [id]: true }));
     return true;
   };
 
   const goNext = async () => {
     setErrors([]);
+    if (stepId === 'choose' || mode === 'notebook') {
+      setStep(step + 1);
+      return;
+    }
     if (blockedBy('data')) return;
     setChecking('Checking you can write the result table');
     try {
@@ -364,7 +371,7 @@ export default function ImplementWizard({
           }
         }
       }
-      setStep(1);
+      setStep(2);
     } catch (e) {
       setErrors([e.message]);
     } finally {
@@ -424,6 +431,25 @@ export default function ImplementWizard({
     }
   };
 
+  const generateNotebook = async () => {
+    setErrors([]);
+    setBusy(true);
+    try {
+      const data = await apiPostJson('/api/inspire/generate-genie', {
+        inspire_database: inspireDatabase,
+        warehouse_id: warehouseId,
+        session_id: String(sessionId),
+        use_case_ids: [spec.use_case_id],
+        ...(settings.notebookPath ? { notebook_path: settings.notebookPath } : {}),
+      });
+      onImplemented({ mode: 'notebook', use_case_id: spec.use_case_id, run_id: data.run_id, job_run_url: data.job_run_url });
+    } catch (e) {
+      setErrors([e.message]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const loadValues = async (table, column) => {
     const key = `${table}.${column}`;
     if (values[key]) return;
@@ -474,7 +500,7 @@ export default function ImplementWizard({
 
   if (loading) {
     return (
-      <Overlay title={title} step={step} onClose={onClose}>
+      <Overlay title={title} steps={steps} step={step} onClose={onClose}>
         <div className="flex items-center gap-2 p-8 text-sm text-text-secondary">
           <Loader2 size={16} className="animate-spin" /> Loading the use case…
         </div>
@@ -518,9 +544,9 @@ export default function ImplementWizard({
   };
 
   return (
-    <Overlay title={title} step={step} onClose={onClose}>
+    <Overlay title={title} steps={steps} step={step} onClose={onClose}>
       <div ref={bodyRef} className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
-        {stepId === 'data' && (
+        {stepId === 'choose' && (
           <>
             <section className="bg-bg border border-border rounded-lg p-4 space-y-3" aria-label="Executive summary">
               <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
@@ -538,7 +564,71 @@ export default function ImplementWizard({
                 ))}
               </dl>
             </section>
+            <fieldset className="space-y-2">
+              <legend className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary mb-1">What to build</legend>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {IMPLEMENT_MODES.map((m) => (
+                  <label
+                    key={m.id}
+                    className={`flex items-start gap-2.5 border rounded-lg p-3 cursor-pointer ${mode === m.id ? 'border-db-red bg-db-red-50' : 'border-border hover:border-border-strong'}`}
+                  >
+                    <input type="radio" name="implement-mode" value={m.id} checked={mode === m.id} onChange={() => setMode(m.id)} className="mt-0.5" />
+                    <span className="space-y-0.5">
+                      <span className="block text-sm font-semibold text-text-primary">{m.label}{m.id === 'poc' ? ' (default)' : ''}</span>
+                      <span className="block text-[12px] text-text-secondary">{m.blurb}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {editing && (
+                <p className="text-[11px] text-text-tertiary">
+                  This use case has a PoC (v{context.latest.spec_version}). Full PoC edits it; Notebook only leaves it as it is.
+                </p>
+              )}
+            </fieldset>
+          </>
+        )}
 
+        {stepId === 'data' && mode === 'notebook' && (
+          <section className="space-y-3" aria-label="Tables the notebook uses">
+            <h3 className="text-sm font-semibold text-text-primary">Tables the notebook uses</h3>
+            <p className="text-[12px] text-text-secondary">
+              Notebook only writes the notebook over the tables this use case was discovered with. To swap, remove or filter a table, go back and choose Full PoC.
+            </p>
+            <ul className="space-y-1.5">
+              {tablesOf(ucRow).map((t) => (
+                <li key={t} className="flex items-center justify-between gap-3 border border-border rounded-md px-3 py-2 text-[12px]">
+                  <span className="font-mono text-text-primary truncate">{t}</span>
+                  {t === primaryOriginal && <span className="shrink-0 text-[10px] uppercase tracking-wide text-text-tertiary">primary</span>}
+                </li>
+              ))}
+            </ul>
+            {tablesOf(ucRow).length === 0 && (
+              <p className="text-[12px] text-text-tertiary">This use case names no tables, so the notebook works from its description alone.</p>
+            )}
+          </section>
+        )}
+
+        {stepId === 'notebook' && (
+          <section className="space-y-3 text-[12px] text-text-secondary" aria-label="Notebook">
+            <h3 className="text-sm font-semibold text-text-primary">Write the Genie Code notebook</h3>
+            <p>
+              Inspire runs Generate Use Cases for this session with only {spec.use_case_id} selected. It writes the Genie Code instruction for this use case
+              and saves it as the use case notebook{context?.generation_path ? ` under ${context.generation_path}` : ''}. Nothing else is built, and no other use case changes.
+            </p>
+            {ucRow.notebook_path && (
+              <p>
+                The current notebook, <span className="font-mono text-text-primary">{ucRow.notebook_path}</span>, is replaced.
+                If you edited it, Inspire keeps it and writes the new notebook beside it.
+              </p>
+            )}
+            {editing && <p>Your PoC (v{context.latest.spec_version}) is not changed.</p>}
+            <p>The run takes a few minutes. Follow it on the Implement page.</p>
+          </section>
+        )}
+
+        {stepId === 'data' && mode === 'poc' && (
+          <>
             <section className="space-y-2">
               <div>
                 <h3 className="text-sm font-semibold text-text-primary">Source tables</h3>
@@ -1027,11 +1117,11 @@ export default function ImplementWizard({
             type="button"
             className={`inline-flex items-center gap-1 text-xs text-text-secondary ${step === 0 ? 'invisible' : ''}`}
             disabled={step === 0 || busy}
-            onClick={() => { setErrors([]); setStep(0); }}
+            onClick={() => { setErrors([]); setStep(step - 1); }}
           >
             <ChevronLeft size={14} /> Back
           </button>
-          {stepId === 'data' ? (
+          {['choose', 'data'].includes(stepId) ? (
             <button
               type="button"
               disabled={Boolean(checking)}
@@ -1039,6 +1129,16 @@ export default function ImplementWizard({
               onClick={goNext}
             >
               {checking ? <><Loader2 size={14} className="animate-spin" /> {checking}…</> : <>Next <ChevronRight size={14} /></>}
+            </button>
+          ) : stepId === 'notebook' ? (
+            <button
+              type="button"
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-db-red disabled:opacity-50"
+              onClick={generateNotebook}
+            >
+              {busy && <Loader2 size={14} className="animate-spin" />}
+              {busy ? 'Starting…' : 'Generate notebook'}
             </button>
           ) : (
             <button
@@ -1048,7 +1148,7 @@ export default function ImplementWizard({
               onClick={submit}
             >
               {(busy || checksBusy) && <Loader2 size={14} className="animate-spin" />}
-              {busy ? 'Starting…' : checksBusy ? 'Checking access…' : 'Implement'}
+              {busy ? 'Starting…' : checksBusy ? 'Checking access…' : 'Start PoC'}
             </button>
           )}
         </div>
@@ -1080,19 +1180,19 @@ function ValuePicker({ label, values, selected, onLoad, onChange }) {
   );
 }
 
-function Overlay({ title, step, onClose, children }) {
+function Overlay({ title, steps, step, onClose, children }) {
   return (
     <BodyPortal>
       <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" data-implement-overlay="">
-        <div role="dialog" aria-modal="true" aria-label="Implement with Genie" className="bg-surface border border-border rounded-xl shadow-elevated w-full max-w-3xl max-h-full flex flex-col overflow-hidden">
+        <div role="dialog" aria-modal="true" aria-label="Start Use Case PoC with Genie" className="bg-surface border border-border rounded-xl shadow-elevated w-full max-w-3xl max-h-full flex flex-col overflow-hidden">
           <header className="flex items-start justify-between gap-4 px-6 py-4 border-b border-border">
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-text-primary">Implement with Genie</h2>
+              <h2 className="text-sm font-semibold text-text-primary">Start Use Case PoC with Genie</h2>
               <p className="text-[11px] text-text-secondary truncate">{title}</p>
             </div>
             <div className="flex items-center gap-4 shrink-0">
               <ol className="flex items-center gap-2 text-[11px]">
-                {IMPLEMENT_STEPS.map((item, i) => (
+                {steps.map((item, i) => (
                   <li
                     key={item.id}
                     aria-current={i === step ? 'step' : undefined}
@@ -1102,7 +1202,7 @@ function Overlay({ title, step, onClose, children }) {
                   </li>
                 ))}
               </ol>
-              <span className="sr-only">Step {step + 1} of {IMPLEMENT_STEPS.length}</span>
+              <span className="sr-only">Step {step + 1} of {steps.length}</span>
               <button type="button" onClick={onClose} className="text-text-tertiary hover:text-text-primary" aria-label="Close">
                 <X size={16} />
               </button>

@@ -349,7 +349,7 @@ test('destinations list every page, drop entries without a usable id, and pass e
   }
 });
 
-test('a Studio re-run is a preview of the notebook task only, so the alert task never fires on it', async () => {
+test('an Implement page re-run is a preview of the notebook task only, so the alert task never fires on it', async () => {
   const history = [{ spec_version: 2, status: 'ready', use_case_id: 'N01-U01', job_id: 77, spec_json: JSON.stringify(ALERT_SPEC),
     genie_widgets: JSON.stringify([{ name: 'top_k', type: 'text', default: '25' }]) }];
   const { app, fetches } = makeApp({ history });
@@ -692,7 +692,7 @@ test('submit refuses an output table the user cannot create, and a widget value 
   });
 });
 
-test('a Studio re-run after an outputs-only version still knows the widgets Genie built', async () => {
+test('an Implement page re-run after an outputs-only version still knows the widgets Genie built', async () => {
   const history = [
     { spec_version: 3, status: 'ready', use_case_id: 'N01-U01', job_id: 77, spec_json: JSON.stringify(SPEC), genie_widgets: null },
     { spec_version: 1, status: 'ready', use_case_id: 'N01-U01', job_id: 77, spec_json: JSON.stringify(SPEC),
@@ -708,7 +708,7 @@ test('a Studio re-run after an outputs-only version still knows the widgets Geni
   });
 });
 
-test('a Studio re-run refuses an override outside the widget\'s range and never calls run-now', async () => {
+test('an Implement page re-run refuses an override outside the widget\'s range and never calls run-now', async () => {
   const history = [{ spec_version: 2, status: 'ready', use_case_id: 'N01-U01', job_id: 77, spec_json: JSON.stringify(SPEC),
     genie_widgets: JSON.stringify([{ name: 'top_k', type: 'text', default: '25', allowed: 'whole number, at least 1' }]) }];
   await withApp({ history }, async (url, made) => {
@@ -722,7 +722,7 @@ test('a Studio re-run refuses an override outside the widget\'s range and never 
 const BUILT = (extra = {}) => ({ spec_version: 2, status: 'ready', use_case_id: 'N01-U01', job_id: 77, spec_json: JSON.stringify(SPEC),
   genie_widgets: JSON.stringify([{ name: 'top_k', type: 'text', default: '25', allowed: 'whole number, at least 1' }]), ...extra });
 
-test('a Studio re-run whose source table was dropped names the exact table and never calls run-now', async () => {
+test('an Implement page re-run whose source table was dropped names the exact table and never calls run-now', async () => {
   const gone = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`s`.`returns` cannot be found. Verify the spelling. SQLSTATE: 42P01';
   await withApp({ history: [BUILT()], useCase: TWO_TABLES, probeErrors: { '`main`.`s`.`returns`': gone } }, async (url, made) => {
     const got = await call(url, `/api/inspire/implement/rerun?${Q}`, { method: 'POST', body: { overrides: {} } });
@@ -743,7 +743,7 @@ test('a Studio re-run whose source table was dropped names the exact table and n
   });
 });
 
-test('a Studio re-run checks the swapped table, skips removed ones, and is not blocked by an unrelated probe error', async () => {
+test('an Implement page re-run checks the swapped table, skips removed ones, and is not blocked by an unrelated probe error', async () => {
   const swapped = { ...SPEC, data: { tables: { 'main.s.orders': 'main.s.orders_v2' }, removed_tables: ['main.s.returns'] } };
   const timeout = 'Statement timed out after 50 seconds on warehouse wh1';
   await withApp({ history: [BUILT({ spec_json: JSON.stringify(swapped) })], useCase: TWO_TABLES,
@@ -755,7 +755,7 @@ test('a Studio re-run checks the swapped table, skips removed ones, and is not b
   });
 });
 
-test('a Studio re-run refuses to override the result table and drops blank overrides', async () => {
+test('an Implement page re-run refuses to override the result table and drops blank overrides', async () => {
   await withApp({ history: [BUILT()] }, async (url, made) => {
     for (const name of ['result_table', 'RESULT_TABLE']) {
       const got = await call(url, `/api/inspire/implement/rerun?${Q}`, { method: 'POST', body: { overrides: { [name]: 'main.other.t' } } });
@@ -769,7 +769,7 @@ test('a Studio re-run refuses to override the result table and drops blank overr
   });
 });
 
-test('the Studio status returns the re-run widgets, the App\'s live status and the job\'s recent runs', async () => {
+test('the Implement page status returns the re-run widgets, the App\'s live status and the job\'s recent runs', async () => {
   const widgets = [{ name: 'result_table', type: 'text', default: 'main.inspire.churn_out' }, { name: 'run_profile', type: 'dropdown', default: 'full_load' },
     { name: 'top_k', type: 'text', default: '25', allowed: 'whole number, at least 1' }, { name: 'as_of_date', type: 'text', default: '' }];
   const history = [
@@ -822,7 +822,7 @@ test('the Studio status returns the re-run widgets, the App\'s live status and t
   });
 });
 
-test('the Studio results return the segments of the latest run for the display filter', async () => {
+test('the Implement page results return the segments of the latest run for the display filter', async () => {
   const segments = [{ segment_or_item: 'Electronics', rows: '12' }, { segment_or_item: 'Books', rows: '4' }];
   await withApp({ history: [BUILT()], segments }, async (url, made) => {
     const got = await call(url, `/api/inspire/implement/results?${Q}&tier=Act%20now&segment=Books`);
@@ -837,7 +837,7 @@ test('the Studio results return the segments of the latest run for the display f
   });
 });
 
-test('the Studio results of a version whose first run has not written the output table yet are empty, not a 500', async () => {
+test('the Implement page results of a version whose first run has not written the output table yet are empty, not a 500', async () => {
   const missing = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`inspire`.`churn_out` cannot be found. SQLSTATE: 42P01; line 1 pos 46';
   await withApp({ history: [BUILT()], resultTableError: missing }, async (url) => {
     const got = await call(url, `/api/inspire/implement/results?${Q}`);
@@ -846,7 +846,7 @@ test('the Studio results of a version whose first run has not written the output
   });
 });
 
-test('the Studio results of a use case with no implementation say there is nothing yet without reading any table', async () => {
+test('the Implement page results of a use case with no implementation say there is nothing yet without reading any table', async () => {
   await withApp({ history: [] }, async (url, made) => {
     const got = await call(url, `/api/inspire/implement/results?${Q}`);
     assert.equal(got.status, 200, JSON.stringify(got.data));
@@ -855,7 +855,7 @@ test('the Studio results of a use case with no implementation say there is nothi
   });
 });
 
-test('the Studio results still fail when the output table exists but cannot be read', async () => {
+test('the Implement page results still fail when the output table exists but cannot be read', async () => {
   const denied = '[INSUFFICIENT_PERMISSIONS] User does not have SELECT on Table main.inspire.churn_out';
   await withApp({ history: [BUILT()], resultTableError: denied }, async (url) => {
     const got = await call(url, `/api/inspire/implement/results?${Q}`);
@@ -863,4 +863,114 @@ test('the Studio results still fail when the output table exists but cannot be r
     assert.match(JSON.stringify(got.data), /INSUFFICIENT_PERMISSIONS/);
     assert.equal(got.data.exists, undefined);
   });
+});
+
+const NOTEBOOK_JOB = 'Inspire AI - Genie Code - 42';
+const GENERATE = { inspire_database: 'main.inspire', warehouse_id: 'wh1', session_id: '42', use_case_ids: ['N01-U01'], notebook_path: '/Shared/nb' };
+const notebookJobs = (life, result = '') => ({
+  jobsList: { jobs: [{ job_id: 31, created_time: 5, settings: { name: NOTEBOOK_JOB } }] },
+  runsByJob: { 31: { runs: [{ run_id: 310, state: { life_cycle_state: life, result_state: result }, run_page_url: 'https://w/#job/31/run/310' }] } },
+});
+
+test('a notebook-only request flags just its use case and starts the session notebook job', async () => {
+  const { app, jobs, flagged } = makeApp();
+  const srv = await listen(app);
+  try {
+    const got = await call(srv.url, '/api/inspire/generate-genie', { method: 'POST', body: GENERATE });
+    assert.equal(got.status, 200);
+    assert.deepEqual(got.data.flagged_use_case_ids, ['N01-U01']);
+    assert.deepEqual(flagged, [{ warehouseId: 'wh1', catalog: 'main', schema: 'inspire', sid: '42', ids: ['N01-U01'] }]);
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].jobName, NOTEBOOK_JOB);
+    assert.equal(jobs[0].jobType, 'genie_regen');
+    assert.equal(jobs[0].params['15_operation'], 'Generate Use Cases');
+    assert.equal(jobs[0].params['14_session_id'], '42');
+  } finally {
+    await srv.close();
+  }
+});
+
+test('a notebook run still running blocks a second request even after the App restarted', async () => {
+  const { app, jobs, flagged } = makeApp(notebookJobs('RUNNING'));
+  const srv = await listen(app);
+  try {
+    const got = await call(srv.url, '/api/inspire/generate-genie', { method: 'POST', body: { ...GENERATE, use_case_ids: ['N02-U01'] } });
+    assert.equal(got.status, 409);
+    assert.match(got.data.error, /already being written/);
+    assert.equal(got.data.run_id, 310);
+    assert.equal(got.data.job_run_url, 'https://w/#job/31/run/310');
+    assert.deepEqual(flagged, []);
+    assert.equal(jobs.length, 0);
+  } finally {
+    await srv.close();
+  }
+});
+
+test('a finished notebook run lets the next request start', async () => {
+  for (const [life, result] of [['TERMINATED', 'SUCCESS'], ['TERMINATED', 'FAILED'], ['INTERNAL_ERROR', '']]) {
+    const { app, jobs } = makeApp(notebookJobs(life, result));
+    const srv = await listen(app);
+    try {
+      const got = await call(srv.url, '/api/inspire/generate-genie', { method: 'POST', body: GENERATE });
+      assert.equal(got.status, 200, `${life}/${result}`);
+      assert.equal(jobs.length, 1);
+    } finally {
+      await srv.close();
+    }
+  }
+});
+
+test('a notebook request is refused when the jobs list cannot be read, so a running notebook is never doubled', async () => {
+  const { app, jobs, flagged } = makeApp({ jobsListStatus: 403, jobsList: { message: 'no access to jobs' } });
+  const srv = await listen(app);
+  try {
+    const got = await call(srv.url, '/api/inspire/generate-genie', { method: 'POST', body: GENERATE });
+    assert.equal(got.status, 502);
+    assert.match(got.data.error, /Listing the Genie Code notebook jobs failed \(403\)/);
+    assert.deepEqual(flagged, []);
+    assert.equal(jobs.length, 0);
+  } finally {
+    await srv.close();
+  }
+});
+
+test('history carries the session notebook run, and a jobs error beside the PoC rows instead of failing them', async () => {
+  const RAIL = 'inspire_database=main.inspire&warehouse_id=wh1&session_id=42';
+  {
+    const { app } = makeApp(notebookJobs('RUNNING'));
+    const srv = await listen(app);
+    try {
+      const got = await call(srv.url, `/api/inspire/implement/history?${RAIL}`);
+      assert.equal(got.status, 200);
+      assert.equal(got.data.notebook_run.state, 'running');
+      assert.equal(got.data.notebook_run.run_id, 310);
+      assert.equal(got.data.notebook_run_error, '');
+    } finally {
+      await srv.close();
+    }
+  }
+  {
+    const { app } = makeApp({ jobsListStatus: 500, jobsList: { message: 'jobs down' } });
+    const srv = await listen(app);
+    try {
+      const got = await call(srv.url, `/api/inspire/implement/history?${RAIL}`);
+      assert.equal(got.status, 200);
+      assert.deepEqual(got.data.latest, []);
+      assert.equal(got.data.notebook_run, null);
+      assert.match(got.data.notebook_run_error, /failed \(500\): jobs down/);
+    } finally {
+      await srv.close();
+    }
+  }
+});
+
+test('the context names the generation path the notebook is written to', async () => {
+  const { app } = makeApp();
+  const srv = await listen(app);
+  try {
+    const got = await call(srv.url, `/api/inspire/implement/context?${Q}`);
+    assert.equal(got.data.generation_path, '/tmp/out');
+  } finally {
+    await srv.close();
+  }
 });

@@ -209,16 +209,3 @@ test('starred use cases always come first in star order and the rest keep their 
   assert.equal(compareBestOfBestFirst(undefined, null), 0);
 });
 
-test('a use case card offers Open Notebook when it has a Genie instruction, otherwise Mark Ready', async () => {
-  const { genieCardActions } = await load();
-  assert.deepEqual(genieCardActions({ hasGenieInstruction: true, canMark: true, notebookHref: 'https://h/#workspace/n' }),
-    { primary: 'open-notebook', regenerate: true, openCurrentNotebook: false });
-  assert.deepEqual(genieCardActions({ hasGenieInstruction: true, canMark: false, notebookHref: '' }),
-    { primary: 'open-notebook', regenerate: false, openCurrentNotebook: false }, 'without a warehouse the card still opens the notebook but cannot mark');
-  assert.deepEqual(genieCardActions({ hasGenieInstruction: false, canMark: true, notebookHref: '' }),
-    { primary: 'mark', regenerate: false, openCurrentNotebook: false });
-  assert.deepEqual(genieCardActions({ hasGenieInstruction: false, canMark: true, notebookHref: 'https://h/#workspace/skeleton' }),
-    { primary: 'mark', regenerate: false, openCurrentNotebook: true }, 'a notebook without a Genie instruction stays reachable');
-  assert.deepEqual(genieCardActions({ hasGenieInstruction: false, canMark: false, notebookHref: '' }),
-    { primary: null, regenerate: false, openCurrentNotebook: false }, 'nothing to offer means no action row');
-});

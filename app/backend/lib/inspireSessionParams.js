@@ -1,4 +1,4 @@
-const { normalizeUseCasesQualityParams } = require('./inspireJobParams');
+const { GENIE_CODE_DEFAULT_COUNT, normalizeUseCasesQualityParams } = require('./inspireJobParams');
 
 function buildUcMetadataFromSessionRow(session) {
   const jf = String(session.json_file_path || '').trim();
@@ -54,7 +54,7 @@ function notebookParamsFromSessionForGenerateRun(session, targetSessionIdStr) {
     '10_strategic_context': String(session.strategic_context || '').trim(),
     '11_generation_path': genPath,
     '12_documents_languages': outLang,
-    '13_generate_genie_code_for': '5',
+    '13_generate_genie_code_for': GENIE_CODE_DEFAULT_COUNT,
     '14_session_id': String(targetSessionIdStr).trim(),
   };
 }

@@ -66,14 +66,6 @@ export function compareBestOfBestFirst(a, b) {
   return ra - rb;
 }
 
-export function genieCardActions({ hasGenieInstruction, canMark, notebookHref }) {
-  return {
-    primary: hasGenieInstruction ? 'open-notebook' : canMark ? 'mark' : null,
-    regenerate: !!(hasGenieInstruction && canMark),
-    openCurrentNotebook: !!(!hasGenieInstruction && notebookHref),
-  };
-}
-
 export function bestOfBestLabel(star) {
   if (!star) return '';
   const rank = star.rank ? ` #${star.rank}` : '';

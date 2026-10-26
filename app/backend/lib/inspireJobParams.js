@@ -29,6 +29,8 @@ const USE_CASES_QUALITY_DEFAULT = 'Good';
 const DISCOVERY_TYPE_VALID = ['Deep', 'Standard'];
 const DISCOVERY_TYPE_DEFAULT = 'Deep';
 
+const GENIE_CODE_DEFAULT_COUNT = '0';
+
 const STRATEGIC_CONTEXT_MAX_BYTES = 900000;
 
 const BEST_OF_BEST_MAX_COUNT = 100;
@@ -138,7 +140,7 @@ function sanitizeInspireNotebookJobParams(params) {
     if (v == null) continue;
     out[k] = String(v);
   }
-  if (!out['13_generate_genie_code_for']) out['13_generate_genie_code_for'] = '5';
+  if (!out['13_generate_genie_code_for']) out['13_generate_genie_code_for'] = GENIE_CODE_DEFAULT_COUNT;
   delete out.discover_auto_genie_top_n;
   return out;
 }
@@ -161,7 +163,7 @@ function buildDemoInspireDiscoveryParams({ inspireDatabase, sessionId, generateT
     '10_strategic_context': '',
     '11_generation_path': './../demos/',
     '12_documents_languages': 'English',
-    '13_generate_genie_code_for': '5',
+    '13_generate_genie_code_for': GENIE_CODE_DEFAULT_COUNT,
     '14_session_id': sessionId,
   };
   return sanitizeInspireNotebookJobParams(raw);
@@ -239,6 +241,7 @@ module.exports = {
   USE_CASES_QUALITY_ALIASES,
   DISCOVERY_TYPE_VALID,
   DISCOVERY_TYPE_DEFAULT,
+  GENIE_CODE_DEFAULT_COUNT,
   STRATEGIC_CONTEXT_MAX_BYTES,
   BEST_OF_BEST_MAX_COUNT,
   BEST_OF_BEST_DEFAULT_COUNT,

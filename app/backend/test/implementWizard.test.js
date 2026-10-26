@@ -142,9 +142,9 @@ test('the Delivery step accepts an alert on its own and blocks one nobody would 
   assert.deepEqual(w.sectionErrors('alert', only({ alert: false, alert_recipients: ['nope'] })), [], 'an alert that is off is never checked');
 });
 
-test('each of the two steps runs the checks of every section it shows, and only those', async () => {
+test('each Full PoC step runs the checks of every section it shows, and only those', async () => {
   const w = await load();
-  assert.deepEqual(w.IMPLEMENT_STEPS.map((s) => [s.id, s.label]), [['data', 'Data'], ['delivery', 'Delivery']]);
+  assert.deepEqual(w.IMPLEMENT_STEPS.map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['delivery', 'Delivery']]);
   const shown = w.IMPLEMENT_STEPS.flatMap((s) => s.sections);
   assert.deepEqual([...shown].sort(), ['alert', 'configure', 'data', 'schedule', 'use_case', 'use_it']);
   for (const s of w.IMPLEMENT_STEPS) assert.ok(s.advanced.every((a) => s.sections.includes(a)), s.id);
@@ -164,6 +164,7 @@ test('each of the two steps runs the checks of every section it shows, and only 
   assert.deepEqual(w.advancedErrors('data', bad), w.stepErrors('data', bad));
   assert.throws(() => w.stepErrors('use_it', bad), /unknown wizard step 'use_it'/);
   assert.throws(() => w.advancedErrors('review', bad), /unknown wizard step 'review'/);
+  assert.deepEqual(w.stepErrors('choose', bad), []);
 });
 
 test('the App name is the use case name cut at a word inside the 30-character limit, else the use case id', async () => {
@@ -615,7 +616,7 @@ test('every permission check the preflight can return has a label', async () => 
     'retrain.every_runs', 'training.sample_entities', 'training.window_days']);
 });
 
-test('the Studio shows lost tables from a refused re-run first, else only from a failed latest version that recorded them', async () => {
+test('the Implement page shows lost tables from a refused re-run first, else only from a failed latest version that recorded them', async () => {
   const w = await load();
   const lost = [{ table: 'main.s.returns', reason: 'not found' }];
   const failed = { status: 'failed', spec_version: 4, asset_status: { data: { state: 'failed', spec_version: 4, missing_tables: lost } } };
@@ -633,14 +634,119 @@ test('the Studio shows lost tables from a refused re-run first, else only from a
   assert.equal(w.lostTablesText(undefined), '');
 });
 
-test('Edit opens the wizard on the step it was asked for, and on the first step otherwise', async () => {
+test('Edit opens the wizard on the step it was asked for, and on Choose otherwise', async () => {
   const w = await load();
-  assert.equal(w.initialStepIndex({ step: 'data' }), 0);
-  assert.equal(w.initialStepIndex({ step: 'delivery' }), 1);
-  for (const section of ['use_case', 'configure']) assert.equal(w.initialStepIndex({ step: section }), 0, section);
-  for (const section of ['use_it', 'alert', 'schedule', 'review']) assert.equal(w.initialStepIndex({ step: section }), 1, section);
+  assert.equal(w.initialStepIndex({ step: 'data' }), 1);
+  assert.equal(w.initialStepIndex({ step: 'delivery' }), 2);
+  for (const section of ['use_case', 'configure']) assert.equal(w.initialStepIndex({ step: section }), 1, section);
+  for (const section of ['use_it', 'alert', 'schedule', 'review']) assert.equal(w.initialStepIndex({ step: section }), 2, section);
   assert.equal(w.initialStepIndex({ step: 'nope' }), 0);
   assert.equal(w.initialStepIndex(null), 0);
+  assert.equal(w.initialStepIndex({ step: 'choose' }), 0);
+  assert.equal(w.initialStepIndex({ step: 'notebook' }, 'notebook'), 2);
+  assert.equal(w.initialStepIndex({ step: 'review' }, 'notebook'), 2);
+  assert.equal(w.initialStepIndex({ step: 'delivery' }, 'notebook'), 0);
+});
+
+test('Full PoC is the first mode, and Notebook only swaps Delivery for a Notebook step with nothing to check', async () => {
+  const w = await load();
+  assert.deepEqual(w.IMPLEMENT_MODES.map((m) => [m.id, m.label]), [['poc', 'Full PoC'], ['notebook', 'Notebook only']]);
+  assert.equal(w.wizardSteps('poc'), w.IMPLEMENT_STEPS);
+  assert.deepEqual(w.wizardSteps('notebook').map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['notebook', 'Notebook']]);
+  assert.throws(() => w.wizardSteps('both'), /unknown implement mode 'both'/);
+  assert.throws(() => w.wizardSteps(undefined), /unknown implement mode 'undefined'/);
+  const spec = w.defaultSpecFromUseCase(UC, { warehouseId: '', inspireDatabase: 'main.inspire' });
+  const bad = { ...spec, use_case: { ...spec.use_case, decision_owner: '' } };
+  assert.ok(w.stepErrors('data', bad).length > 0, 'Full PoC checks the Data step');
+  for (const id of ['choose', 'data', 'notebook']) {
+    assert.deepEqual(w.stepErrors(id, bad, {}, 'notebook'), [], id);
+    assert.deepEqual(w.advancedErrors(id, bad, {}, 'notebook'), [], id);
+  }
+  assert.throws(() => w.stepErrors('delivery', bad, {}, 'notebook'), /unknown wizard step 'delivery'/);
+  assert.throws(() => w.stepErrors('notebook', bad), /unknown wizard step 'notebook'/);
+});
+
+const RUN = (state, extra = {}) => ({ run_id: 7, job_id: 3, state, url: 'https://w/#job/3/run/7', ...extra });
+
+test('a use case notebook reads ready, running, failed or requested from its flags and the session notebook run', async () => {
+  const w = await load();
+  for (const has of ['Y', 'Yes', 'yes', ' y ', 'TRUE']) {
+    assert.equal(w.notebookStatus({ has_genie_code: has, generate_genie_code_instruction: 'Yes' }, RUN('running')).label, 'Notebook ready', has);
+  }
+  for (const flag of ['No', 'N', '', null, undefined, 'maybe']) {
+    assert.equal(w.notebookStatus({ has_genie_code: 'N', generate_genie_code_instruction: flag }, RUN('running')), null, String(flag));
+  }
+  const asked = { has_genie_code: 'N', generate_genie_code_instruction: 'Yes' };
+  assert.deepEqual(w.notebookStatus(asked, RUN('running')), { state: 'running', label: 'Notebook running', tone: 'busy', reason: '', url: 'https://w/#job/3/run/7' });
+  const failed = w.notebookStatus(asked, RUN('failed', { result_state: 'FAILED', message: 'Cell 4 raised' }));
+  assert.equal(failed.label, 'Notebook failed');
+  assert.equal(failed.reason, 'The notebook run ended FAILED: Cell 4 raised.');
+  assert.equal(w.notebookStatus(asked, RUN('failed', { life_cycle_state: 'INTERNAL_ERROR' })).reason, 'The notebook run ended INTERNAL_ERROR.');
+  assert.match(w.notebookStatus(asked, RUN('succeeded')).reason, /finished without writing this notebook/);
+  assert.equal(w.notebookStatus(asked, RUN('succeeded')).state, 'failed');
+  const requested = w.notebookStatus(asked, null);
+  assert.equal(requested.state, 'requested');
+  assert.equal(requested.url, '');
+  assert.equal(w.notebookStatus({}, null), null);
+  assert.equal(w.notebookStatus(null, RUN('running')), null);
+});
+
+test('the PoC state outranks the notebook, and a stopped PoC run counts as failed', async () => {
+  const w = await load();
+  const ready = { state: 'ready', label: 'Notebook ready', tone: 'success' };
+  const cases = [
+    [{ status: 'ready' }, ready, 'ready', 'PoC ready'],
+    [{ status: 'ready_with_warnings' }, null, 'ready', 'PoC ready with warnings'],
+    [{ status: 'failed' }, ready, 'failed', 'PoC failed'],
+    [{ status: 'filling', stalled: { reason: 'run ended' } }, null, 'failed', 'PoC stopped'],
+    [{ status: 'previewing', stalled: null }, ready, 'in_progress', 'PoC running'],
+    [{ status: 'queued' }, null, 'in_progress', 'PoC running'],
+    [{ status: 'building_outputs' }, null, 'in_progress', 'PoC running'],
+    [{ status: 'archived_v2' }, null, 'in_progress', 'PoC archived v2'],
+    [null, ready, 'ready', 'Notebook ready'],
+    [null, { state: 'running', label: 'Notebook running', tone: 'busy' }, 'in_progress', 'Notebook running'],
+    [null, { state: 'failed', label: 'Notebook failed', tone: 'error' }, 'failed', 'Notebook failed'],
+    [null, { state: 'requested', label: 'Notebook requested', tone: 'idle' }, 'not_started', 'Notebook requested'],
+    [{ status: '' }, null, 'not_started', ''],
+    [null, null, 'not_started', ''],
+  ];
+  for (const [latest, notebook, group, label] of cases) {
+    const got = w.implementState(latest, notebook);
+    assert.deepEqual([got.group, got.label], [group, label], JSON.stringify([latest, notebook]));
+  }
+  assert.equal(w.implementState({ status: 'ready' }, ready).kind, 'poc');
+  assert.equal(w.implementState(null, ready).kind, 'notebook');
+  assert.equal(w.implementState(null, null).kind, 'none');
+});
+
+test('the Implement page groups every use case in a fixed order, keeps PoCs of unlisted use cases, and searches id, name and domain', async () => {
+  const w = await load();
+  const useCases = [
+    { id: 'N01-U01', Name: 'Predict churn', _domain: 'Retention' },
+    { id: 'N01-U02', Name: 'Basket growth', _domain: 'Sales', has_genie_code: 'Y' },
+    { id: 'N02-U01', Name: 'Stock outs', _domain: 'Supply', generate_genie_code_instruction: 'Yes', has_genie_code: 'N' },
+    { id: 'N02-U02', Name: 'Fraud flags', _domain: 'Risk' },
+    { No: '', Name: 'No id at all' },
+  ];
+  const latest = [
+    { use_case_id: 'N01-U01', status: 'filling', stalled: null },
+    { use_case_id: 'N02-U02', status: 'failed' },
+    { use_case_id: 'N09-U09', use_case_name: 'Removed from the catalog', status: 'ready' },
+  ];
+  const groups = w.implementGroups(useCases, latest, RUN('running'));
+  assert.deepEqual(groups.map((g) => g.label), ['In progress', 'Ready', 'Failed', 'Not started']);
+  assert.deepEqual(groups.map((g) => g.items.map((i) => i.id)), [['N01-U01', 'N02-U01'], ['N01-U02', 'N09-U09'], ['N02-U02'], []]);
+  assert.equal(groups[1].items[1].name, 'Removed from the catalog');
+  assert.equal(groups[0].items[1].state.label, 'Notebook running');
+  const afterRun = w.implementGroups(useCases, [], RUN('failed', { result_state: 'FAILED' }));
+  assert.deepEqual(afterRun.map((g) => g.items.map((i) => i.id)), [[], ['N01-U02'], ['N02-U01'], ['N01-U01', 'N02-U02']]);
+  const search = (q) => w.implementGroups(useCases, latest, null, q).flatMap((g) => g.items.map((i) => i.id));
+  assert.deepEqual(search('churn'), ['N01-U01']);
+  assert.deepEqual(search('  SUPPLY  '), ['N02-U01']);
+  assert.deepEqual(search('n02 fraud'), ['N02-U02']);
+  assert.deepEqual(search('fraud churn'), []);
+  assert.equal(search('').length, 5);
+  assert.deepEqual(w.implementGroups(null, undefined, null).map((g) => g.items.length), [0, 0, 0, 0]);
 });
 
 test('the Genie tab lists the questions recorded in the space, else the ones the user asked for', async () => {
@@ -691,7 +797,7 @@ test('the tier filter lists the tiers of the latest run only, with their row cou
   assert.equal(w.runProfileText(''), 'full (job default)');
 });
 
-test('the Studio gives the reason only for a warning or a failure', async () => {
+test('the Implement page gives the reason only for a warning or a failure', async () => {
   const w = await load();
   const why = 'Decision list: no row of the latest run reached Act now or Review (1000 Monitor), so it has nobody to act on yet';
   assert.equal(w.statusReason({ status: 'ready_with_warnings', status_message: ` ${why} ` }), why);
@@ -704,7 +810,7 @@ test('the Studio gives the reason only for a warning or a failure', async () => 
   }
 });
 
-test('a stalled version reads as stopped, frees the Studio actions, says why, and the History calls older active versions stopped', async () => {
+test('a stalled version reads as stopped, frees the Implement page actions, says why, and the History calls older active versions stopped', async () => {
   const w = await load();
   assert.deepEqual(w.IMPLEMENT_ACTIVE_STATUSES, backend.IMPLEMENT_ACTIVE_STATUSES);
   const latest = { spec_version: 4, status: 'filling', status_message: 'filling' };
@@ -723,4 +829,18 @@ test('a stalled version reads as stopped, frees the Studio actions, says why, an
   assert.equal(w.historyStatus(latest, latest), 'filling');
   assert.equal(w.historyStatus(latest, latest, stalled), 'stopped before it finished');
   assert.equal(w.historyStatus({ spec_version: 2, status: 'ready_with_warnings' }, latest, stalled), 'ready_with_warnings');
+});
+
+test('a notebook run counts as ended when it stops running or a newer finished run replaces it, never on the first read', async () => {
+  const w = await load();
+  const run = (id, state) => ({ run_id: id, state });
+  assert.equal(w.notebookRunEnded(run(1, 'running'), run(1, 'succeeded')), true);
+  assert.equal(w.notebookRunEnded(run(1, 'running'), run(1, 'failed')), true);
+  assert.equal(w.notebookRunEnded(run(1, 'succeeded'), run(2, 'failed')), true, 'a run that started and ended between two reads');
+  assert.equal(w.notebookRunEnded(run(1, 'running'), run(1, 'running')), false);
+  assert.equal(w.notebookRunEnded(run(1, 'succeeded'), run(2, 'running')), false);
+  assert.equal(w.notebookRunEnded(run(1, 'succeeded'), run(1, 'succeeded')), false);
+  assert.equal(w.notebookRunEnded(null, run(1, 'succeeded')), false);
+  assert.equal(w.notebookRunEnded(run(1, 'running'), null), false);
+  assert.equal(w.notebookRunEnded({ run_id: 7, state: 'succeeded' }, { run_id: '7', state: 'failed' }), false, 'ids compare as text');
 });

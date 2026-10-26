@@ -97,7 +97,7 @@ export default function ConfigForm({ onSubmit, isSubmitting, submitError, disabl
     generation_path: './../demos/',
     documents_languages: ['English'],
     session_id: '',
-    generate_genie_code_for: '5',
+    generate_genie_code_for: '0',
   });
 
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -749,14 +749,14 @@ function StepCustomize({ form, update, toggleMulti, showAdvanced, setShowAdvance
             <MiniInput
               icon={Bot}
               label="Auto-Genie scope (13_generate_genie_code_for)"
-              placeholder="5 — or all, or 0 to skip"
+              placeholder="0 — or all, or a top-N"
               value={form.generate_genie_code_for}
               onChange={(v) => update('generate_genie_code_for', v)}
             />
             <p className="text-[10px] text-slate-600 leading-relaxed">
               <span className="font-mono text-slate-500">all</span> = every use case;
               <span className="font-mono text-slate-500"> 0</span> = skip Auto-Genie;
-              positive integer = top-N by Inspire score (default <span className="font-mono">5</span>).
+              positive integer = top-N by Inspire score (default <span className="font-mono">0</span>).
             </p>
           </div>
         )}
@@ -808,11 +808,11 @@ function StepReview({ form, onEdit }) {
         {/* Advanced (only if set) */}
         {(form.generation_path !== './../demos/'
           || form.session_id
-          || String(form.generate_genie_code_for || '').trim() !== '5') && (
+          || !['', '0'].includes(String(form.generate_genie_code_for || '').trim())) && (
           <ReviewSection title="Advanced" onEdit={() => onEdit(1)}>
             {form.generation_path !== './../demos/' && <ReviewRow label="Generation Path" value={form.generation_path} mono />}
             {form.session_id && <ReviewRow label="Session ID" value={form.session_id} mono />}
-            {String(form.generate_genie_code_for || '').trim() !== '5' && (
+            {!['', '0'].includes(String(form.generate_genie_code_for || '').trim()) && (
               <ReviewRow label="Auto-Genie scope" value={form.generate_genie_code_for} mono />
             )}
           </ReviewSection>

@@ -6,6 +6,7 @@ const NAV = [
   { id: 'choose', label: 'Get Started', step: 1 },
   { id: 'monitor', label: 'Monitor', step: 2 },
   { id: 'results', label: 'Results', step: 3 },
+  { id: 'implement', label: 'Implement', step: 4 },
 ];
 
 export default function Header({
@@ -14,12 +15,14 @@ export default function Header({
   canLaunch,
   canMonitor,
   canResults,
+  canImplement,
 }) {
   const { theme, toggle } = useTheme();
   const enabled = {
     choose: true,
     monitor: canMonitor,
     results: canResults || true,
+    implement: canImplement,
   };
 
   return (

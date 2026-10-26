@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const {
+  GENIE_CODE_DEFAULT_COUNT,
   INSPIRE_AGENT_VERSION,
   INSPIRE_NOTEBOOK_WIDGET_KEYS,
 } = require('../lib/inspireJobParams');
@@ -25,6 +26,9 @@ test('bundled notebook is a valid v1.3.0 Jupyter notebook', () => {
   assert.match(source, /funnel_ledger/);
   assert.match(source, /DISCOVERY_TYPE_VALID\s*=\s*\(\s*"Deep",\s*"Standard"\s*\)/);
   assert.match(source, /DISCOVERY_TYPE_DEFAULT\s*=\s*"Deep"/);
+  assert.equal(GENIE_CODE_DEFAULT_COUNT, '0');
+  assert.match(source, new RegExp(`GENIE_CODE_DEFAULT_COUNT\\s*=\\s*"${GENIE_CODE_DEFAULT_COUNT}"`));
+  assert.match(source, /"13_generate_genie_code_for", GENIE_CODE_DEFAULT_COUNT,/);
   assert.match(source, /FEEDBACK_STATUSES\s*=\s*\(\s*"accepted",\s*"rejected",\s*"planned",\s*"implemented"\s*\)/);
   assert.equal(notebook.cells.length, 3);
 });
@@ -59,7 +63,11 @@ test('launch UI exposes v1.2.0 quality modes and Auto-Genie widget 13', () => {
     /QUALITY_OPTIONS\s*=\s*\['Good', 'High', 'Ultra High'\]/,
   );
   assert.match(launchPage, /'05_use_cases_quality':\s*'Good'/);
-  assert.match(launchPage, /'13_generate_genie_code_for':\s*'5'/);
+  assert.match(launchPage, /'13_generate_genie_code_for':\s*'0'/);
+  const configForm = fs.readFileSync(path.join(appRoot, 'frontend', 'src', 'components', 'ConfigForm.jsx'), 'utf8');
+  assert.match(configForm, /generate_genie_code_for:\s*'0'/);
+  const afterDemo = fs.readFileSync(path.join(appRoot, 'dbx_inspire_after_demo.py'), 'utf8');
+  assert.match(afterDemo, /"13_generate_genie_code_for":\s*"0"/);
   assert.match(launchPage, /'03_discovery_type':\s*'Deep'/);
   assert.match(launchPage, /'10_strategic_context':\s*''/);
   assert.match(launchPage, /Discovery Type/);

@@ -188,7 +188,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
     '10_strategic_context': '',
     '11_generation_path': './../demos/',
     '12_documents_languages': 'English',
-    '13_generate_genie_code_for': '5',
+    '13_generate_genie_code_for': '0',
     '14_session_id': '',
     '16_best_of_best_count': '',
   });
@@ -1568,13 +1568,13 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                 <Field
                   label="Auto-Genie scope"
                   icon={Bot}
-                  hint="13_generate_genie_code_for — in Discover mode, generate full Genie instructions for all, top-N (e.g. 5), or 0 to keep skeleton notebooks only."
+                  hint="13_generate_genie_code_for — in Discover mode, 0 (the default) keeps skeleton notebooks only; all or a top-N (e.g. 5) also writes their full Genie instructions."
                 >
                   <input
                     type="text"
                     value={params['13_generate_genie_code_for']}
                     onChange={(e) => updateParam('13_generate_genie_code_for', e.target.value)}
-                    placeholder="5"
+                    placeholder="0"
                     className="w-full pl-10 pr-4 py-2.5 text-sm border border-border rounded-lg bg-surface text-text-primary glow-focus transition-smooth font-mono"
                   />
                 </Field>
@@ -1646,9 +1646,9 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
             </Chip>
             <Chip icon={<Bot size={10} />}>
               Genie:{' '}
-              {String(params['13_generate_genie_code_for'] || '').trim() === '0'
+              {['', '0'].includes(String(params['13_generate_genie_code_for'] || '').trim())
                 ? 'off'
-                : params['13_generate_genie_code_for'] || '5'}
+                : params['13_generate_genie_code_for']}
             </Chip>
           </div>
         )}

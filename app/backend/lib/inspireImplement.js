@@ -45,7 +45,7 @@ const IMPLEMENT_COLUMNS = [
 ];
 const IMPLEMENT_VARIANT_COLUMNS = IMPLEMENT_COLUMNS.filter(([, t]) => t === 'VARIANT').map(([n]) => n);
 const IMPLEMENT_NOT_AVAILABLE =
-  'Implement with Genie needs the Inspire Database: set it in Settings, then try again.';
+  'Start Use Case PoC with Genie needs the Inspire Database: set it in Settings, then try again.';
 
 function badRequest(message, statusCode = 400) {
   const err = new Error(message);
@@ -511,7 +511,7 @@ function implementTableName(catalog, schema) {
 function implementTableCreateSql(table) {
   const columns = IMPLEMENT_COLUMNS.map(([name, kind]) => `\`${name}\` ${kind}`).join(', ');
   return `CREATE TABLE IF NOT EXISTS ${table} (${columns}) USING DELTA CLUSTER BY (\`session_id\`, \`use_case_id\`) `
-    + "COMMENT 'Implement with Genie: one row per wizard spec version. The Inspire App inserts the spec and the id of the run "
+    + "COMMENT 'Start Use Case PoC with Genie: one row per wizard spec version. The Inspire App inserts the spec and the id of the run "
     + "that builds it; the Inspire agent writes every other column.'";
 }
 

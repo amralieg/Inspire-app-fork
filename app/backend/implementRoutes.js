@@ -1,6 +1,8 @@
 const { isMissingTableError } = require('./lib/inspireFeedback');
 const { stepsStatement } = require('./lib/sqlInputs');
 const I = require('./lib/inspireImplement');
+const { createGenieJobGuard } = require('./lib/genieJobGuard');
+const { genieNotebookJobName, latestGenieNotebookRun } = require('./lib/genieNotebookJob');
 
 function sendError(res, err) {
   const code = err && Number.isFinite(err.statusCode) ? err.statusCode : 500;
@@ -93,10 +95,12 @@ function registerImplementRoutes(app, deps) {
     splitInspireDatabase,
     databricksJobRunUrl,
     ensureTableColumns,
+    runRoute1GenieFlagUpdates,
   } = deps;
 
   const sqlRows = (host, token, warehouseId, statement) =>
     rowsOf(executeSql, sqlResultToObjects, host, token, warehouseId, statement);
+  const fetchJsonFor = (req) => (path) => jsonOf(dbFetch, req.dbHost, req.dbToken, path);
 
   async function loadMe(req) {
     const got = await jsonOf(dbFetch, req.dbHost, req.dbToken, '/api/2.0/preview/scim/v2/Me');
@@ -204,6 +208,139 @@ function registerImplementRoutes(app, deps) {
     return count;
   }
 
+  /**
+   * Route 1: set generate_genie_code_instruction = 'Yes' for selected UC ids, then submit
+   * notebook job with 15_operation = Generate Use Cases and 14_session_id = session.
+   */
+  const genieJobGuard = createGenieJobGuard();
+
+  async function genieRunState(host, token, runId) {
+    if (!runId) return null;
+    const got = await jsonOf(dbFetch, host, token, `/api/2.1/jobs/runs/get?run_id=${encodeURIComponent(runId)}`);
+    return got.ok ? got.data?.state?.life_cycle_state || null : null;
+  }
+
+  async function handleInspireGenerateGenie(req, res) {
+    try {
+      const {
+        inspire_database,
+        warehouse_id,
+        session_id,
+        use_case_ids: useCaseIdsRaw,
+        cluster_id,
+        notebook_path,
+      } = req.body || {};
+
+      if (!inspire_database || !warehouse_id) {
+        return res.status(400).json({ error: 'inspire_database and warehouse_id are required.' });
+      }
+      const sidStr = String(session_id ?? '').trim();
+      if (!/^\d+$/.test(sidStr)) {
+        return res.status(400).json({ error: 'session_id must be a numeric Inspire session id.' });
+      }
+
+      const use_case_ids = Array.isArray(useCaseIdsRaw)
+        ? useCaseIdsRaw.map((x) => String(x).trim()).filter(Boolean)
+        : [];
+      if (use_case_ids.length === 0) {
+        return res.status(400).json({ error: 'use_case_ids must be a non-empty array of use case id strings.' });
+      }
+      if (use_case_ids.length > 50) {
+        return res.status(400).json({ error: 'At most 50 use cases per Generate request.' });
+      }
+
+      const safeIds = use_case_ids.filter((id) => /^[a-zA-Z0-9_.\-]+$/.test(id));
+      if (safeIds.length !== use_case_ids.length) {
+        return res.status(400).json({
+          error: 'Each use_case_id must match /^[a-zA-Z0-9_.\\-]+$/ (Inspire tracking table id / No).',
+        });
+      }
+
+      const parsedDb = splitInspireDatabase(inspire_database);
+      if (!parsedDb) {
+        return res.status(400).json({ error: 'inspire_database must be exactly catalog.schema (one dot).' });
+      }
+      const { catalog, schema } = parsedDb;
+
+      const session = await fetchInspireSessionWidgetRow(
+        req.dbHost,
+        req.dbToken,
+        warehouse_id,
+        catalog,
+        schema,
+        sidStr,
+      );
+      if (!session) {
+        return res.status(404).json({ error: `No __inspire_session row for session_id=${sidStr}.` });
+      }
+
+      const params = notebookParamsFromSessionForGenerateRun(session, sidStr);
+      if (!params['02_inspire_database']) {
+        params['02_inspire_database'] = inspire_database.trim();
+      }
+      if (!params['01_uc_metadata']) {
+        return res.status(400).json({
+          error:
+            'This session has no UC metadata (catalogs/schemas/tables or docs-only JSON path) stored on __inspire_session. Run Discover from this app first, or set metadata manually.',
+        });
+      }
+
+      const lastRun = await latestGenieNotebookRun(fetchJsonFor(req), sidStr);
+      if (lastRun?.state === 'running') {
+        return res.status(409).json({
+          error: 'A Genie Code notebook for this session is already being written. Wait for that run to finish, then try again.',
+          run_id: lastRun.run_id,
+          job_run_url: lastRun.url || databricksJobRunUrl(req.dbHost, lastRun.job_id, lastRun.run_id),
+        });
+      }
+      const claim = await genieJobGuard.claim(sidStr, (runId) => genieRunState(req.dbHost, req.dbToken, runId));
+      if (!claim.ok) {
+        return res.status(409).json({
+          error: 'Genie instructions for this session are already being generated. Wait for that run to finish, then try again.',
+          run_id: claim.entry?.run_id || null,
+          job_run_url: claim.entry?.job_run_url || null,
+        });
+      }
+      let out;
+      try {
+        await runRoute1GenieFlagUpdates(
+          req.dbHost,
+          req.dbToken,
+          warehouse_id,
+          catalog,
+          schema,
+          sidStr,
+          safeIds,
+        );
+
+        out = await triggerInspireNotebookJob(req.dbHost, req.dbToken, {
+          params,
+          notebook_path,
+          cluster_id,
+          jobType: 'genie_regen',
+          jobName: genieNotebookJobName(sidStr),
+        });
+      } catch (launchErr) {
+        genieJobGuard.failed(sidStr);
+        throw launchErr;
+      }
+      genieJobGuard.launched(sidStr, out);
+
+      console.log(`   🧞 Generate Genie: session=${sidStr}, flagged=${safeIds.length}, run_id=${out.run_id}`);
+      res.json({
+        ...out,
+        session_id: sidStr,
+        flagged_use_case_ids: safeIds,
+      });
+    } catch (err) {
+      const code = err.statusCode && Number.isFinite(err.statusCode) ? err.statusCode : 500;
+      res.status(code).json({ error: err.message });
+    }
+  }
+
+  app.post('/api/inspire/generate-genie', requireToken, handleInspireGenerateGenie);
+  app.post('/api/inspire/generate_genie', requireToken, handleInspireGenerateGenie);
+
   app.get('/api/inspire/implement/context', requireToken, async (req, res) => {
     try {
       const sid = sessionIdOf(req);
@@ -227,6 +364,7 @@ function registerImplementRoutes(app, deps) {
         use_case: useCase,
         discovery_type: session.discovery_type || 'Standard',
         business_name: session.business_name || '',
+        generation_path: session.generation_path || '',
         me: { username: requesterOf(req, me) },
         history,
         latest,
@@ -259,8 +397,11 @@ function registerImplementRoutes(app, deps) {
         if (!latestByUc[row.use_case_id]) latestByUc[row.use_case_id] = row;
       }
       const latest = Object.values(latestByUc);
-      await Promise.all(latest.map(async (row) => { row.stalled = await stalledOf(req, row); }));
-      res.json({ history, latest });
+      const [notebook] = await Promise.all([
+        latestGenieNotebookRun(fetchJsonFor(req), sid).then((run) => ({ run, error: '' }), (err) => ({ run: null, error: err.message })),
+        ...latest.map(async (row) => { row.stalled = await stalledOf(req, row); }),
+      ]);
+      res.json({ history, latest, notebook_run: notebook.run, notebook_run_error: notebook.error });
     } catch (err) {
       sendError(res, err);
     }
@@ -706,4 +847,4 @@ function registerImplementRoutes(app, deps) {
   });
 }
 
-module.exports = { registerImplementRoutes };
+module.exports = { jsonOf, registerImplementRoutes };
