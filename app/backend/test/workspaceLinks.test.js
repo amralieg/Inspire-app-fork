@@ -16,6 +16,20 @@ test('a notebook link opens the workspace path on the host, adding /Workspace an
   assert.equal(workspaceNotebookUrl('https://w.example.com', null), '');
 });
 
+test('a PoC saved under /Shared warns that everyone can edit it, and no other folder does', async () => {
+  const { sharedFolderWarning, generationFolder } = await load();
+  const said = sharedFolderWarning('/Workspace/Shared/demos/acme');
+  assert.match(said, /^Inspire saves this PoC under \/Workspace\/Shared\/demos\/acme_implemented\. Everyone in the workspace can edit, republish and delete/);
+  assert.match(said, /their own access\. To keep it to yourself, run Discover again with a generation path under your own user folder\.$/);
+  assert.match(sharedFolderWarning('/Shared/demos/acme/'), /under \/Workspace\/Shared\/demos\/acme_implemented\./);
+  assert.match(sharedFolderWarning(generationFolder({ generationPath: 'out', notebookPath: '/Shared/inspire-ai/dbx_inspire_ai_agent', businessName: 'Acme' })),
+    /under \/Workspace\/Shared\/inspire-ai\/out\/acme_implemented/, 'a relative path resolved beside the agent notebook under /Shared also warns');
+  for (const quiet of ['/Workspace/Users/a@x/out/acme', '/Users/a@x/out', '/Volumes/c/s/v/out', '/Workspace/SharedTeam/out', '/Shared/../Users/a@x/out',
+    './../demos/acme', '', null, undefined]) {
+    assert.equal(sharedFolderWarning(quiet), '', String(quiet));
+  }
+});
+
 test('a session folder resolves a relative generation path from the agent notebook folder and adds the business folder', async () => {
   const { generationFolder } = await load();
   const nb = '/Shared/inspire-ai/dbx_inspire_ai_agent';

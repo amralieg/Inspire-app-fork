@@ -339,9 +339,32 @@ test('a new App that could not get access is disabled up front with the reason, 
     const warn = page.locator('span.text-warning-fg', { hasText: `${OWNER} may not be able to read the result table` });
     await warn.waitFor();
     assert.equal(await warn.count(), 1, 'the warning shows on the main view, once');
+    assert.match(await warn.textContent(), new RegExp(`${OWNER} needs CAN USE on .* to open the dashboard, because they query with their own access`));
+    assert.equal(await page.getByRole('note', { name: 'Where Inspire saves the PoC' }).count(), 0, 'a session outside /Shared shows no folder warning');
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     assert.equal(submittedSpec(made).outputs.app, false);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('a session that saves under /Shared says on Delivery that everyone can edit the PoC, without blocking it', async () => {
+  const session = { business_name: 'Acme', discovery_type: 'Deep', catalogs: 'main', schemas_str: 's', tables_str: 'main.s.orders',
+    generation_path: '/Shared/demos', inspire_database_name: 'main.inspire' };
+  const ui = await openUi('wizard', { session });
+  const { page } = ui;
+  try {
+    await toData(page);
+    await next(page);
+    await onStep(page, 'Delivery');
+    const note = page.getByRole('note', { name: 'Where Inspire saves the PoC' });
+    await note.waitFor();
+    assert.match(await note.textContent(), /^Inspire saves this PoC under \/Workspace\/Shared\/demos\/acme_implemented\. Everyone in the workspace can edit/);
+    assert.equal(await note.evaluate((el) => el.className.includes('text-warning-fg')), true);
+    await implementWhenReady(page);
+    await page.getByRole('heading', { name: 'Implement', exact: true }).waitFor();
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();

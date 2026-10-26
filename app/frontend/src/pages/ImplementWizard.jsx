@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check } from 'lucide-react';
 import BodyPortal from '../components/BodyPortal';
-import { generationFolder } from '../lib/workspaceLinks';
+import { generationFolder, sharedFolderWarning } from '../lib/workspaceLinks';
 import {
   IMPLEMENT_MODES,
   wizardSteps,
@@ -172,6 +172,7 @@ export default function ImplementWizard({
   const notebookFolder = generationFolder({
     generationPath: context?.generation_path, notebookPath: settings.notebookPath, businessName: context?.business_name,
   });
+  const folderWarning = sharedFolderWarning(notebookFolder);
   const [notice, setNotice] = useState(() => lostTablesText(focus?.missingTables));
   const lostReason = (table) => (focus?.missingTables || []).find((m) => String(m.table).toLowerCase() === table.toLowerCase())?.reason;
   const [changing, setChanging] = useState({});
@@ -947,6 +948,8 @@ export default function ImplementWizard({
                 </span>
               </label>
             )}
+
+            {folderWarning && <p role="note" aria-label="Where Inspire saves the PoC" className="text-[11px] text-warning-fg">{folderWarning}</p>}
 
             {generalChecks.some(([, v]) => !v.ok || v.warn) && (
               <section className="space-y-1" aria-label="Access checks">
