@@ -159,6 +159,36 @@ test('a session without UC metadata is refused before a spec row is written', as
   });
 });
 
+test('the Implement page progress shows only the steps of the latest version', async () => {
+  const step = (name, at) => ({ step_id: name, stage_name: 'Implement Use Cases', step_name: name, sub_step_name: 'N01-U01',
+    status: 'ended_success', message: name, last_updated: at, result_json: JSON.stringify({ use_case_id: 'N01-U01' }) });
+  const v1Steps = [step('v1 plan', '2026-10-26T06:10:35.000Z'), step('v1 build', '2026-10-26T06:33:29.000Z')];
+  const v2Created = '2026-10-26T08:48:17.961Z';
+  const history = [
+    { spec_version: 2, status: 'queued', spec_json: SPEC, use_case_id: 'N01-U01', created_at: v2Created, updated_at: new Date().toISOString() },
+    { spec_version: 1, status: 'failed', spec_json: SPEC, use_case_id: 'N01-U01', created_at: '2026-10-26T06:05:00.000Z' },
+  ];
+  const names = (got) => got.data.steps.map((s) => s.step_name);
+  await withApp({ history, steps: v1Steps }, async (url, made) => {
+    const got = await call(url, `/api/inspire/implement/status?${Q}`);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.deepEqual(names(got), [], 'a queued v2 shows none of the v1 steps');
+    const stepCall = made.sqlCalls.find((c) => c.sql.includes('__inspire_step'));
+    assert.deepEqual(stepCall.parameters, [{ name: 'since', value: v2Created, type: 'STRING' }]);
+  });
+  await withApp({ history, steps: [...v1Steps, step('v2 plan', '2026-10-26T08:52:00.000Z')] }, async (url) => {
+    assert.deepEqual(names(await call(url, `/api/inspire/implement/status?${Q}`)), ['v2 plan']);
+  });
+  await withApp({ history: [{ ...history[1], created_at: null }], steps: v1Steps }, async (url) => {
+    assert.deepEqual(names(await call(url, `/api/inspire/implement/status?${Q}`)), ['v1 plan', 'v1 build'],
+      'a version row without created_at keeps every step of the use case');
+  });
+  await withApp({ history, steps: v1Steps }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/status?${Q}&since=2026-10-26T06:20:00Z`);
+    assert.deepEqual(names(got), ['v1 build'], 'an explicit since still wins');
+  });
+});
+
 test('a version whose run ended while it was still active shows as stalled, and a new version may replace it', async () => {
   const history = [{ spec_version: 1, status: 'filling', spec_json: SPEC, use_case_id: 'N01-U01', implement_run_id: '1066484287074577',
     updated_at: new Date().toISOString() }];

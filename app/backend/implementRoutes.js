@@ -715,7 +715,7 @@ function registerImplementRoutes(app, deps) {
       const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
       const history = await loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId);
       const stepTable = `\`${catalog}\`.\`${schema}\`.\`__inspire_step\``;
-      const stepStmt = stepsStatement(stepTable, sid, q(req, 'since') || '');
+      const stepStmt = stepsStatement(stepTable, sid, q(req, 'since') || (history[0] && history[0].created_at) || '');
       let steps = [];
       try {
         steps = I.filterImplementSteps(await sqlRows(req.dbHost, req.dbToken, warehouseId, stepStmt), useCaseId);
