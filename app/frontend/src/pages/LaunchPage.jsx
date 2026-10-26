@@ -1226,7 +1226,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
                     >
                       <CheckCircle2 size={14} className="text-success-fg shrink-0" />
                       <p className="text-[10px] text-success-fg font-semibold uppercase tracking-wider flex-1">Metadata Selected</p>
-                      <span className="text-[10px] text-success-fg/70 font-mono">
+                      <span className="text-[10px] text-success-fg font-mono">
                         {params['01_uc_metadata'].split(',').length} item{params['01_uc_metadata'].split(',').length > 1 ? 's' : ''}
                       </span>
                       <ChevronDown size={12} className={`text-success-fg transition-transform duration-200 ${metadataPreviewExpanded ? 'rotate-180' : ''}`} />

@@ -59,7 +59,7 @@ export default function PocProgress({ stages, summary, chip, reason, toneClass }
             >
               <Icon size={12} className={look.spin ? 'motion-safe:animate-spin' : ''} aria-hidden />
               <span>{stage.label}</span>
-              {stage.elapsed && <span className="tabular-nums opacity-80">{stage.elapsed}</span>}
+              {stage.elapsed && <span className="tabular-nums">{stage.elapsed}</span>}
               <span className="sr-only">: {look.words}</span>
             </li>
           );

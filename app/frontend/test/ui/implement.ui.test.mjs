@@ -630,7 +630,13 @@ test('the Progress tab keeps Genie\'s messages in a fixed box that scrolls as th
   const first = Array.from({ length: 24 }, (_, i) => genieLogLine(i, said(i)));
   first.push(genieLogLine(30, JSON.stringify({ status: 'built', summary: 'Built the dashboard and checked every tile.', files: ['x.py'] })));
   const building = built({ status: 'building_outputs', status_message: 'building outputs', implement_run_id: '1066484287074577', updated_at: new Date().toISOString() });
-  const ui = await openUi('implement', { ...STUDIO_STATE, history: [building], liveLog: first.join('\n'),
+  const stepRow = (phase, status, time) => ({
+    stage_name: 'Implement Use Cases', step_id: phase.length, step_name: `Inspire is working on ${phase.toLowerCase()}`, sub_step_name: 'Completed: n01-u01',
+    status, last_updated: `2026-10-26T${time}.000Z`, result_json: JSON.stringify({ use_case_id: 'N01-U01', phase }),
+  });
+  const steps = [stepRow('Plan', 'ended_success', '10:01:00'), stepRow('Instruction', 'started', '10:01:05'),
+    stepRow('Instruction', 'ended_success', '10:03:50'), stepRow('Genie build', 'started', '10:04:05')];
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [building], liveLog: first.join('\n'), steps,
     implementRun: { run_id: 1066484287074577, state: { life_cycle_state: 'RUNNING' } } });
   const { page, made } = ui;
   const box = page.getByRole('log', { name: "Genie's messages" });
@@ -641,6 +647,7 @@ test('the Progress tab keeps Genie\'s messages in a fixed box that scrolls as th
   try {
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     await box.getByText('Built the dashboard and checked every tile.').waitFor();
+    await page.locator('[data-stage-state="done"]', { hasText: '2m 45s' }).waitFor();
     const text = await box.innerText();
     assert.ok(text.includes(said(23)), 'messages already in the log show at once');
     for (const raw of ['[GENIE', '[build]', 'Genie: ', '{"status"', '"summary"', 'x.py']) assert.ok(!text.includes(raw), `the box never shows ${raw}`);

@@ -167,7 +167,7 @@ export default function GenerateDataPage({ settings, onBack, onLaunched }) {
               <CheckCircle2 size={16} />
               Pipeline started
             </div>
-            <ol className="text-xs opacity-90 list-decimal list-inside space-y-0.5 mt-1">
+            <ol className="text-xs list-decimal list-inside space-y-0.5 mt-1">
               <li>Generate 5 Delta tables with UC table/column comments</li>
               <li>
                 Run Inspire discovery →{' '}

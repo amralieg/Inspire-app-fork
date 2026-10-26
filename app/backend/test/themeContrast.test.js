@@ -196,3 +196,30 @@ test('status text uses the theme-aware shades everywhere, never the bright fill 
   assert.deepEqual(bare, []);
   assert.doesNotMatch(fs.readFileSync(path.join(SRC, 'components/ImplementStatusBadge.jsx'), 'utf8'), /\btext-db-red\b(?!-)/);
 });
+
+test('text never fades through opacity or a color alpha; only inactive or decorative elements may', () => {
+  const FADE = /(?<![\w:/-])opacity-[1-9]\d?(?![\w-])|(?<![\w:/-])text-(?!\[)[a-z][\w-]*\/\d+/;
+  assert.ok(FADE.test('<span className="tabular-nums opacity-80">{stage.elapsed}</span>'));
+  assert.ok(FADE.test('<span className="text-[10px] text-success-fg/70 font-mono">'));
+  assert.ok(FADE.test('<ol className="text-xs opacity-90 list-decimal">'));
+  assert.ok(!FADE.test('opacity-0 group-hover:opacity-100 disabled:opacity-50 hover:text-db-red-fg bg-db-red/10 border-error/20 text-[11px]'));
+  const ALLOWED = [
+    ['pages/ImplementWizard.jsx', "removed ? 'opacity-60'"],
+    ['components/Header.jsx', ": 'opacity-50'"],
+    ['pages/LandingPage.jsx', 'animate-ping'],
+    ['pages/ResultsPage.jsx', 'text-db-red-fg opacity-80 group-hover:opacity-100'],
+  ];
+  const used = new Set();
+  const hits = [];
+  for (const file of liveModules()) {
+    const rel = path.relative(SRC, file);
+    fs.readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+      if (!FADE.test(line)) return;
+      const allowed = ALLOWED.find(([f, snippet]) => f === rel && line.includes(snippet));
+      if (allowed) used.add(allowed);
+      else hits.push(`${rel}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(hits, []);
+  assert.deepEqual(ALLOWED.filter((a) => !used.has(a)), [], 'every allowed fade still exists');
+});
