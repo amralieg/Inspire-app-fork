@@ -7,8 +7,8 @@ import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implem
 
 const AUTH = { token: 'tok', databricksHost: 'https://workspace.example.com' };
 
-export default function HarnessApp({ open, nest }) {
-  const content = <HarnessContent open={open} />;
+export default function HarnessApp({ open, nest, discoveryType }) {
+  const content = <HarnessContent open={open} discoveryType={discoveryType} />;
   if (!nest) return content;
   return (
     <>
@@ -23,7 +23,7 @@ export default function HarnessApp({ open, nest }) {
   );
 }
 
-function HarnessContent({ open }) {
+function HarnessContent({ open, discoveryType }) {
   const apiFetch = useMemo(() => makeApiFetch(AUTH), []);
   const apiPostJson = useMemo(() => makeApiPostJson(AUTH), []);
   const [implementUc, setImplementUc] = useState(open === 'wizard' ? HARNESS_USE_CASE : null);
@@ -36,7 +36,7 @@ function HarnessContent({ open }) {
           uc={implementUc}
           sessionId={HARNESS_SESSION_ID}
           settings={HARNESS_SETTINGS}
-          discoveryType="Standard"
+          discoveryType={discoveryType}
           apiFetch={apiFetch}
           apiPostJson={apiPostJson}
           focus={focus}

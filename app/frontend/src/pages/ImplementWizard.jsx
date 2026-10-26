@@ -17,6 +17,9 @@ import {
   filterValues,
   setFilterValues,
   readinessScope,
+  readinessText,
+  scopeNarrowing,
+  emptyScopeError,
   planLines,
   editedNotebook,
   tableOfRef as refTable,
@@ -345,13 +348,19 @@ export default function ImplementWizard({
         const scope = readinessScope(spec, ucRow);
         if (scope.table) {
           setChecking('Checking the data');
-          setReadiness(await apiPostJson(`/api/inspire/implement/readiness?${q}`, {
+          const counted = await apiPostJson(`/api/inspire/implement/readiness?${q}`, {
             table: scope.table,
             discovery_type: discoveryType,
             columns: scope.columns,
             filters: scope.filters,
             window: scope.window,
-          }));
+          });
+          setReadiness({ ...counted, scope });
+          if (!counted.skipped && counted.row_count === 0) {
+            setErrors([emptyScopeError(scope)]);
+            if (scopeNarrowing(scope).length) setAdvanced((prev) => ({ ...prev, data: true }));
+            return;
+          }
         }
       }
       setStep(1);
@@ -730,8 +739,8 @@ export default function ImplementWizard({
 
         {stepId === 'delivery' && (
           <>
-            {readiness && !readiness.skipped && (
-              <p className="text-[11px] text-text-secondary">Inspire found {readiness.row_count} rows to work with.</p>
+            {readinessText(readiness, readiness?.scope) && (
+              <p className="text-[11px] text-text-secondary">{readinessText(readiness, readiness.scope)}</p>
             )}
             <section className="space-y-2">
               <div>

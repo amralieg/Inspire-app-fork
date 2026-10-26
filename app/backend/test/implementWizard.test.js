@@ -346,9 +346,41 @@ test('the live check reads only the primary table, after its swap', async () => 
     columns: ['customer_id', 'order_date'],
     filters: [{ table: 'main.s.orders_v2', column: 'channel', op: 'not in', values: ['test'] }],
     window: { column: 'order_date', start: '2026-01-01', end: '2026-06-30' },
+    uncounted: ['the filters on main.s.web'],
   });
   const elsewhere = { ...spec, data: { ...spec.data, column_roles: { event_date: 'main.s.web.visit_date' } } };
   assert.deepEqual(w.readinessScope(elsewhere, ROW).window, {});
+  assert.deepEqual(w.readinessScope(elsewhere, ROW).uncounted, ['the date window on main.s.web', 'the filters on main.s.web']);
+  const unmapped = { ...spec, data: { ...spec.data, column_roles: {}, filters: [] } };
+  assert.deepEqual(w.readinessScope(unmapped, ROW).uncounted, ['the date window, which has no event date column']);
+  const open = { ...spec, data: { ...spec.data, column_roles: { event_date: 'main.s.web.visit_date' }, filters: [], window: { start: '', end: '' } } };
+  assert.deepEqual(w.readinessScope(open, ROW).uncounted, [], 'an empty window is not left out of anything');
+});
+
+test('the row count says what it left out, and an empty scope names what to widen', async () => {
+  const w = await load();
+  const scope = (over) => ({ table: 'main.s.orders', columns: [], filters: [], window: {}, uncounted: [], ...over });
+  assert.equal(w.readinessText({ skipped: true, row_count: null }, scope()), '');
+  assert.equal(w.readinessText(null, scope()), '');
+  assert.equal(w.readinessText({ skipped: false, row_count: 2879789 }, scope()),
+    'Inspire found 2,879,789 rows to work with in main.s.orders.');
+  assert.equal(w.readinessText({ skipped: false, row_count: 2879789 }, scope({ uncounted: ['the date window on main.s.dates'] })),
+    'Inspire found 2,879,789 rows to work with in main.s.orders. This count leaves out the date window on main.s.dates; the preview run applies it.');
+  assert.equal(w.readinessText({ skipped: false, row_count: 5 }, scope({ uncounted: ['the date window on main.s.dates', 'the filters on main.s.web'] })),
+    'Inspire found 5 rows to work with in main.s.orders. This count leaves out the date window on main.s.dates and the filters on main.s.web; the preview run applies them.');
+
+  const window = { column: 'order_date', start: '2026-10-26', end: '2026-10-28' };
+  const filters = [{ table: 'main.s.orders', column: 'channel', op: 'in', values: ['web'] }];
+  assert.deepEqual(w.scopeNarrowing(scope()), []);
+  assert.deepEqual(w.scopeNarrowing(scope({ window: { column: 'order_date', start: '', end: '' } })), [], 'a mapped column with no dates narrows nothing');
+  assert.deepEqual(w.scopeNarrowing(scope({ window, filters })), ['window', 'filters']);
+  assert.equal(w.emptyScopeError(scope()), 'No rows to work with: main.s.orders is empty. Change it to a table with rows.');
+  assert.equal(w.emptyScopeError(scope({ window })),
+    'No rows to work with: main.s.orders has no rows inside the date window you picked. Widen or clear it under Advanced settings.');
+  assert.equal(w.emptyScopeError(scope({ filters })),
+    'No rows to work with: main.s.orders has no rows that pass the filters you picked. Widen or clear them under Advanced settings.');
+  assert.equal(w.emptyScopeError(scope({ window, filters })),
+    'No rows to work with: main.s.orders has no rows inside the date window that pass the filters you picked. Widen or clear them under Advanced settings.');
 });
 
 test('plan lines say what the edit builds, refreshes, deletes and keeps', async () => {

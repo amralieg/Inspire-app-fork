@@ -145,12 +145,46 @@ export function readinessScope(spec, uc) {
   const own = (ref) => sameTable(tableOfRef(ref), table);
   const roles = spec.data.column_roles || {};
   const dateRef = roles.event_date && own(roles.event_date) ? roles.event_date : '';
+  const { start, end } = spec.data.window || {};
+  const uncounted = [];
+  if ((start || end) && !dateRef) {
+    uncounted.push(roles.event_date ? `the date window on ${tableOfRef(roles.event_date)}` : 'the date window, which has no event date column');
+  }
+  const elsewhere = (spec.data.filters || []).filter((f) => !sameTable(f.table, table)).map((f) => f.table);
+  for (const other of [...new Set(elsewhere)]) uncounted.push(`the filters on ${other}`);
   return {
     table,
     columns: Object.values(roles).filter((ref) => ref && own(ref)).map((ref) => String(ref).split('.').pop()),
     filters: (spec.data.filters || []).filter((f) => sameTable(f.table, table)),
     window: dateRef ? { column: dateRef.split('.').pop(), ...spec.data.window } : {},
+    uncounted,
   };
+}
+
+export function readinessText(readiness, scope) {
+  if (!readiness || readiness.skipped) return '';
+  const found = `Inspire found ${(Number(readiness.row_count) || 0).toLocaleString('en-US')} rows to work with in ${scope.table}.`;
+  const left = scope.uncounted || [];
+  if (!left.length) return found;
+  return `${found} This count leaves out ${left.join(' and ')}; the preview run applies ${left.length === 1 ? 'it' : 'them'}.`;
+}
+
+export function scopeNarrowing(scope) {
+  const parts = [];
+  if (scope.window?.column && (scope.window.start || scope.window.end)) parts.push('window');
+  if ((scope.filters || []).length) parts.push('filters');
+  return parts;
+}
+
+export function emptyScopeError(scope) {
+  const parts = scopeNarrowing(scope);
+  if (!parts.length) return `No rows to work with: ${scope.table} is empty. Change it to a table with rows.`;
+  const where = {
+    window: 'inside the date window you picked',
+    filters: 'that pass the filters you picked',
+    'window,filters': 'inside the date window that pass the filters you picked',
+  }[parts.join(',')];
+  return `No rows to work with: ${scope.table} has no rows ${where}. Widen or clear ${parts.join() === 'window' ? 'it' : 'them'} under Advanced settings.`;
 }
 
 export function planLines(summary) {

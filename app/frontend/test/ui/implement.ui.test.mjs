@@ -297,6 +297,40 @@ test('a new App that could not get access is disabled up front with the reason, 
   }
 });
 
+test('Next stops when the data to work with has no rows and says what to widen, and the count says what it leaves out', async () => {
+  const columns = [{ column_name: 'order_id', data_type: 'STRING', ordinal_position: 1 }, { column_name: 'order_date', data_type: 'DATE', ordinal_position: 2 }];
+  const ui = await openUi('wizard&discovery=Deep', { columns, readinessRows: [{ row_count: '0' }], me: { userName: OWNER, displayName: 'Owner' } });
+  const { page, made } = ui;
+  const eventDate = () => page.getByLabel('event date');
+  try {
+    await onStep(page, 'Data');
+    await advanced(page).click();
+    await eventDate().locator('option[value="main.s.returns.order_date"]').waitFor({ state: 'attached' });
+    await eventDate().selectOption('main.s.orders.order_date');
+    await page.getByLabel('Window start').fill('2026-10-26');
+    await page.getByLabel('Window end').fill('2026-10-28');
+    await next(page);
+    await page.locator('[role="alert"]').waitFor();
+    assert.deepEqual(await footerErrors(page),
+      ['No rows to work with: main.s.orders has no rows inside the date window you picked. Widen or clear it under Advanced settings.']);
+    assert.equal(await page.locator('[aria-current="step"]').innerText(), '1. Data', 'the wizard stays on Data');
+    assert.equal(await advanced(page).getAttribute('aria-expanded'), 'true');
+    const counted = made.sqlCalls.filter((c) => String(c.sql).startsWith('SELECT COUNT(*) AS row_count'));
+    assert.equal(counted.length, 1);
+    assert.ok(counted[0].sql.includes('`order_date` >= CAST(:wstart AS DATE)'), counted[0].sql);
+
+    made.state.readinessRows = [{ row_count: '1200' }];
+    await eventDate().selectOption('main.s.returns.order_date');
+    await next(page);
+    await onStep(page, 'Delivery');
+    await page.getByText('Inspire found 1,200 rows to work with in main.s.orders. This count leaves out the date window on main.s.returns; the preview run applies it.').waitFor();
+    assert.equal(made.jobs.length, 0);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('what blocks a step shows in the footer, opens Advanced on the field to fix, and clears as it is fixed', async () => {
   const ui = await openUi('wizard', { useCase: { ...HARNESS_USE_CASE, statement: '', sponsor: '' }, me: { userName: '', displayName: '' } });
   const { page, made } = ui;

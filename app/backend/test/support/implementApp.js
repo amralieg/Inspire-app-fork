@@ -64,6 +64,7 @@ function makeApp(overrides = {}) {
       if (sql.includes('information_schema.columns') && sql.includes('WITH o AS')) return { rows: state.swapRows || [] };
       if (sql.includes('information_schema.columns')) return { rows: state.columns };
       if (sql.includes('__inspire_step')) return { rows: [] };
+      if (sql.startsWith('SELECT COUNT(*) AS row_count')) return { rows: state.readinessRows || [{ row_count: '1200' }] };
       for (const [table, message] of Object.entries(state.probeErrors || {})) {
         if (sql === `SELECT * FROM ${table} LIMIT 0`) throw new Error(message);
       }
