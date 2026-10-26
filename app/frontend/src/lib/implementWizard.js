@@ -289,11 +289,16 @@ function withoutOneVersionKeys(spec) {
   return Object.fromEntries(Object.entries(spec || {}).filter(([key]) => !ONE_VERSION_KEYS.includes(key)));
 }
 
-export function specFromLatest(latest, fallback) {
+function idAppNameOf(id) {
+  return slugOf(id).replace(/_/g, '-').slice(0, 30);
+}
+
+export function specFromLatest(latest, fallback, assets = {}) {
   const parsed = latest && latest.spec_json && typeof latest.spec_json === 'object' ? latest.spec_json : null;
   if (!parsed) return fallback;
   const outputs = { ...fallback.outputs, ...(parsed.outputs || {}) };
-  if (!outputs.app || !outputs.app_name) outputs.app_name = fallback.outputs.app_name;
+  const idDefault = !assets?.app && outputs.app_name === idAppNameOf(fallback.use_case_id);
+  if (!outputs.app || !outputs.app_name || idDefault) outputs.app_name = fallback.outputs.app_name;
   return {
     ...fallback,
     ...withoutOneVersionKeys(parsed),

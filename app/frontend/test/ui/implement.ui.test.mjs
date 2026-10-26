@@ -230,6 +230,24 @@ test('Edit keeps the card name even when the saved version carries the tracking-
   }
 });
 
+test('Edit of a failed version the old wizard saved under the use case id names the App from the use case, since no App was built', async () => {
+  const oldWizard = { ...builtSpec(), outputs: { ...builtSpec().outputs, app_name: 'n01-u01' } };
+  const failed = built({
+    status: 'failed', spec_json: JSON.stringify(oldWizard), result_rows: null, asset_status: null,
+    dashboard_id: null, dashboard_url: null, genie_space_id: null, genie_space_url: null, app_name: null, app_url: null, alert_id: null, alert_url: null,
+  });
+  const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' }, history: [failed] });
+  try {
+    await onStep(ui.page, 'Data');
+    await next(ui.page);
+    await onStep(ui.page, 'Delivery');
+    assert.equal(await ui.page.getByLabel('App name').inputValue(), 'predict-churn', 'the App is named after the use case, not its id');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('the wizard and the Studio cover the screen from any scroll position, above the App header, inside an animated page', async () => {
   for (const open of ['wizard', 'studio']) {
     const ui = await openUi(`${open}&nest=1`, open === 'studio' ? STUDIO_STATE : { me: { userName: OWNER, displayName: 'Owner' } });

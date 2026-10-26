@@ -229,7 +229,7 @@ export default function ImplementWizard({
           inspireDatabase,
           owner: data.me?.username,
         });
-        const next = specFromLatest(data.latest, fallback);
+        const next = specFromLatest(data.latest, fallback, data.assets);
         if (!next.config.warehouse_id) next.config.warehouse_id = warehouseId;
         setSpec(next);
         if (data.latest) setConfirmedRoles(Object.fromEntries(Object.keys(next.data.column_roles || {}).map((role) => [role, true])));

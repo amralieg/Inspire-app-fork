@@ -245,16 +245,24 @@ test('Keep it fresh maps Off, Daily and Weekly onto the schedule, and shows Cust
   assert.throws(() => w.withFreshness(spec, 'custom'), /unknown freshness 'custom'/);
 });
 
-test('an edit offers the default App name when the version it edits has no App, and keeps the live App name otherwise', async () => {
+test('an edit offers the use case App name in place of the old id default unless an App was built under it, and keeps a typed name', async () => {
   const w = await load();
   const fallback = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
   const stored = backend.validateImplementSpec(fallback).spec;
+  const saved = (outputs) => ({ spec_version: 2, spec_json: { ...stored, outputs: { ...stored.outputs, ...outputs } } });
   assert.equal(stored.outputs.app_name, '', 'the backend stores no App name when the App is off');
   const noApp = w.specFromLatest({ spec_version: 2, spec_json: stored }, fallback);
   assert.equal(noApp.outputs.app_name, 'predict-churn');
-  const legacy = w.specFromLatest({ spec_version: 2, spec_json: { ...stored, outputs: { ...stored.outputs, app_name: 'n01-u01' } } }, fallback);
+  const legacy = w.specFromLatest(saved({ app_name: 'n01-u01' }), fallback);
   assert.equal(legacy.outputs.app_name, 'predict-churn', 'a name kept from an App that was never built is replaced');
-  const live = w.specFromLatest({ spec_version: 3, spec_json: { ...stored, outputs: { ...stored.outputs, app: true, app_name: 'n01-u01-churn' } } }, fallback);
+  const tickedNeverBuilt = w.specFromLatest(saved({ app: true, app_name: 'n01-u01' }), fallback, {});
+  assert.equal(tickedNeverBuilt.outputs.app_name, 'predict-churn', 'the old wizard ticked the App under the id default, and the run failed before building it');
+  assert.equal(tickedNeverBuilt.outputs.app, true, 'the App stays ticked; only its name changes');
+  const builtUnderId = w.specFromLatest(saved({ app: true, app_name: 'n01-u01' }), fallback, { app: 'n01-u01' });
+  assert.equal(builtUnderId.outputs.app_name, 'n01-u01', 'renaming a built App would build a second one');
+  const typed = w.specFromLatest(saved({ app: true, app_name: 'churn-desk' }), fallback, {});
+  assert.equal(typed.outputs.app_name, 'churn-desk', 'a name the user typed is theirs');
+  const live = w.specFromLatest({ spec_version: 3, spec_json: { ...stored, outputs: { ...stored.outputs, app: true, app_name: 'n01-u01-churn' } } }, fallback, { app: 'n01-u01-churn' });
   assert.equal(live.outputs.app_name, 'n01-u01-churn', 'renaming a live App would build a second one');
   assert.equal(live.outputs.app, true);
 });
