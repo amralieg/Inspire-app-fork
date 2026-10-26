@@ -3,6 +3,7 @@ import { fieldOf, isBlankField } from './useCaseFields.js';
 export const STRATEGY_NOT_ALIGNED = 'Not aligned';
 export const STRATEGY_BUILTIN_NO_MATCH = 'General Improvement';
 export const STRATEGY_PATH_SEPARATOR = ' > ';
+export const NOT_ALIGNED_FILTER = '__not_aligned__';
 export const FEEDBACK_STATUSES = ['accepted', 'planned', 'implemented', 'rejected'];
 export const FEEDBACK_LABELS = { accepted: 'Accepted', planned: 'Planned', implemented: 'Implemented', rejected: 'Rejected' };
 
@@ -122,6 +123,12 @@ export function v130View(uc) {
 export function strategyPathPrefixes(path) {
   const parts = String(path || '').split(STRATEGY_PATH_SEPARATOR).map((p) => p.trim()).filter(Boolean);
   return parts.map((_, i) => parts.slice(0, i + 1).join(STRATEGY_PATH_SEPARATOR));
+}
+
+export function matchesStrategyFilter(info, filter) {
+  if (!filter || filter === 'all') return true;
+  if (filter === NOT_ALIGNED_FILTER) return !!info?.notAligned;
+  return (info?.paths || []).some((p) => p === filter || p.startsWith(filter + STRATEGY_PATH_SEPARATOR));
 }
 
 export function strategyFilterOptions(infos, coverageEntries) {

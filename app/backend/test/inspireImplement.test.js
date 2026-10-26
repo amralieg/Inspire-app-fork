@@ -202,10 +202,10 @@ test('the App records the run it started, and fails a version whose run never st
   for (const runId of [undefined, null, '', 'run-9', '1'.repeat(20)]) {
     assert.deepEqual(implementRunStartedStatement('t', { ...key, runId, message: 'm' }).parameters[0], { name: 'run', type: 'BIGINT' }, String(runId));
   }
-  const failed = implementStartFailedStatement('t', { ...key, message: 'the Implement run could not start: RESOURCE_EXHAUSTED' });
+  const failed = implementStartFailedStatement('t', { ...key, message: 'the PoC/MVP run could not start: RESOURCE_EXHAUSTED' });
   assert.equal(failed.sql, "UPDATE t SET status = 'failed', status_message = :message, updated_at = current_timestamp() "
     + "WHERE session_id = :sid AND use_case_id = :uc AND spec_version = :v AND status = 'queued'");
-  assert.deepEqual(failed.parameters, [{ name: 'message', value: 'the Implement run could not start: RESOURCE_EXHAUSTED', type: 'STRING' }, ...keyParams]);
+  assert.deepEqual(failed.parameters, [{ name: 'message', value: 'the PoC/MVP run could not start: RESOURCE_EXHAUSTED', type: 'STRING' }, ...keyParams]);
 });
 
 test('a version is stalled when its run ended, or when its run cannot be read and it has not moved for longer than a run may hold its lock', () => {
@@ -422,6 +422,61 @@ test('live log paths stay inside the inspire volume and lines keep the use-case 
     { stage_name: IMPLEMENT_OPERATION, step_name: 'preview', result_json: '{"use_case_id":"N01-U01"}' },
   ], 'N01-U01');
   assert.equal(steps.length, 2);
+});
+
+const logLine = (time, body, level = 'INFO') => `2026-01-02 ${time} - DatabricksInspire - ${level} - ${body} [in /home/spark-x/.ipykernel/1/command-2:43424]`;
+
+test('the Genie feed carries Genie\'s own words, folds commands and edits, and never shows the JSON', () => {
+  const legacy = (summary, stop = '') => `{"status":"built","summary":"${summary}","stop_reason":"${stop}","widgets":[],"profiles":{"training":{"description":""}}}`;
+  const text = [
+    logLine('10:00:00', '[GENIE N01-U01] [build] Genie: older run'),
+    logLine('10:05:01', '[IMPLEMENT-NOTEBOOK] N01-U01: wrote /Workspace/Shared/demo/N01-U01 - predict_lapse'),
+    logLine('10:05:02', `[GENIE N01-U01] [build] Genie: ${legacy('I\u2019m inspecting the notebook instructions first.')}`),
+    logLine('10:05:03', '[GENIE N01-U01] [build] Genie ran: /bin/sh -lc "cat SKILL.md" (exit 0)'),
+    logLine('10:05:04', '[GENIE N01-U01] [build] Genie ran: /bin/sh -lc "python check.py" (exit 1)'),
+    logLine('10:05:05', '[GENIE N01-U01] [build] Genie edited: /tmp/w/fill_1/implementation.py'),
+    logLine('10:05:06', '[GENIE N01-U01] [build] Genie edited: /tmp/w/fill_1/implementation.py, /tmp/w/fill_1/notebook.py'),
+    logLine('10:05:07', '[GENIE N01-U02] [build] Genie: another use case'),
+    logLine('10:05:08', '[GENIE N01-U01] [build] Genie: {"status":"built","summary":"The notebook is uploaded; I\\u2019m running the prev'),
+    logLine('10:05:09', '[GENIE N01-U01] [build] Genie ran: /bin/sh -lc "databricks jobs get-run 1" (exit 0)'),
+    logLine('10:05:10', `[GENIE N01-U01] [build] Genie: ${legacy('Preview completed via the stop rule.', 'History covers 0 closed outcome windows; at least 2 are needed.')}`),
+    logLine('10:05:10', '[GENIE N01-U01] [build] Genie turn completed (input tokens 10, output tokens 2)'),
+    logLine('10:05:11', '[IMPLEMENT N01-U01]   [0s] job run 111: RUNNING'),
+    logLine('10:06:11', '[IMPLEMENT N01-U01]   [60s] job run 111: TERMINATED / SUCCESS'),
+    logLine('10:06:20', '[IMPLEMENT-FAILED] N01-U01 spec 1: the preview run did not write usable rows: no rows', 'ERROR'),
+    logLine('10:06:21', '[IMPLEMENT-FAILED] N01-U010 spec 1: not this one', 'ERROR'),
+  ].join('\n');
+  const feed = I.genieFeed(text, 'N01-U01', '2026-01-02T10:05:00.250Z');
+  assert.deepEqual(feed.map(({ at, kind, text: words }) => [at.slice(11, 19), kind, words]), [
+    ['10:05:01', 'note', 'Wrote the notebook N01-U01 - predict_lapse'],
+    ['10:05:02', 'message', 'I\u2019m inspecting the notebook instructions first.'],
+    ['10:05:03', 'activity', undefined],
+    ['10:05:08', 'message', 'The notebook is uploaded; I\u2019m running the prev'],
+    ['10:05:09', 'activity', undefined],
+    ['10:05:10', 'stopped', 'History covers 0 closed outcome windows; at least 2 are needed.'],
+    ['10:05:10', 'turn_done', undefined],
+    ['10:05:11', 'run', undefined],
+    ['10:06:20', 'failed', 'the preview run did not write usable rows: no rows'],
+  ]);
+  assert.deepEqual(feed[2], { at: '2026-01-02T10:05:03Z', phase: 'build', kind: 'activity', commands: 2, failed: 1,
+    files: ['implementation.py', 'notebook.py'], until: '2026-01-02T10:05:06Z' });
+  assert.deepEqual(feed[7], { at: '2026-01-02T10:05:11Z', kind: 'run', check: false, seconds: 60, run_id: '111',
+    state: 'TERMINATED', result: 'SUCCESS', until: '2026-01-02T10:06:11Z' });
+  assert.ok(feed.every((item) => !String(item.text || '').includes('{') && !String(item.text || '').includes('[in /home')));
+  assert.equal(I.genieFeed(text, 'N01-U01').length, 10);
+  assert.deepEqual(I.genieFeed('', 'N01-U01'), []);
+  assert.deepEqual(I.genieFeed(text, ''), []);
+});
+
+test('a Genie message is its words, a stop is its reason, and a cut-off JSON message still reads', () => {
+  assert.deepEqual(I.genieMessage('I am  checking\nthe notebook'), { kind: 'message', text: 'I am checking the notebook' });
+  assert.deepEqual(I.genieMessage('Stopped: History covers 0 windows'), { kind: 'stopped', text: 'History covers 0 windows' });
+  assert.deepEqual(I.genieMessage('Stopped:'), { kind: 'stopped', text: 'Genie gave no reason' });
+  assert.deepEqual(I.genieMessage('{"status":"stopped","summary":"done","stop_reason":""}'), { kind: 'stopped', text: 'Genie gave no reason' });
+  assert.deepEqual(I.genieMessage('{"status":"failed","summary":"could not run","stop_reason":"x"}'), { kind: 'message', text: 'could not run' });
+  assert.deepEqual(I.genieMessage('{"status":"built","summary":"line \\"one\\" \\u2019ok'), { kind: 'message', text: 'line "one" \u2019ok' });
+  assert.deepEqual(I.genieMessage('{"status":"built","summary":"cut at \\u20'), { kind: 'message', text: 'cut at' });
+  assert.deepEqual(I.genieMessage('{"status":"built","summ'), { kind: 'message', text: '' });
 });
 
 const grant = (level, privilege, principal, mine) => ({ level, privilege, principal, mine: mine ? 'true' : 'false', me: 'amr@x' });

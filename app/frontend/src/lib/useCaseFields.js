@@ -263,6 +263,10 @@ export function favoriteKeyOf(uc) {
   return `fp:${h}`;
 }
 
+export function favoriteCount(map) {
+  return Object.keys(map || {}).filter((k) => map[k]).length;
+}
+
 export function loadFavoritesMap(storage = globalThis.localStorage) {
   try {
     const rawFp = storage.getItem(FAVORITES_STORAGE_KEY);

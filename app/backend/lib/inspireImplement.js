@@ -45,7 +45,7 @@ const IMPLEMENT_COLUMNS = [
 ];
 const IMPLEMENT_VARIANT_COLUMNS = IMPLEMENT_COLUMNS.filter(([, t]) => t === 'VARIANT').map(([n]) => n);
 const IMPLEMENT_NOT_AVAILABLE =
-  'Start Use Case PoC with Genie needs the Inspire Database: set it in Settings, then try again.';
+  'Start Use Case PoC/MVP with Genie needs the Inspire Database: set it in Settings, then try again.';
 
 function badRequest(message, statusCode = 400) {
   const err = new Error(message);
@@ -511,7 +511,7 @@ function implementTableName(catalog, schema) {
 function implementTableCreateSql(table) {
   const columns = IMPLEMENT_COLUMNS.map(([name, kind]) => `\`${name}\` ${kind}`).join(', ');
   return `CREATE TABLE IF NOT EXISTS ${table} (${columns}) USING DELTA CLUSTER BY (\`session_id\`, \`use_case_id\`) `
-    + "COMMENT 'Start Use Case PoC with Genie: one row per wizard spec version. The Inspire App inserts the spec and the id of the run "
+    + "COMMENT 'Start Use Case PoC/MVP with Genie: one row per wizard spec version. The Inspire App inserts the spec and the id of the run "
     + "that builds it; the Inspire agent writes every other column.'";
 }
 
@@ -1036,6 +1036,113 @@ function useCaseLogLines(text, useCaseId) {
     || (line.includes(id) && /\[IMPLEMENT-[A-Z -]+\]/.test(line)));
 }
 
+const GENIE_FEED_LIMIT = 300;
+const LOG_LINE_RE = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) - \S+ - ([A-Z]+) - ([\s\S]*)$/;
+const LOG_SOURCE_RE = /\s*\[in [^\]]*:\d+\]\s*$/;
+const RUN_STATE_RE = /^(alert check )?\[(\d+)s\] job run (\d+): ([A-Z_]+)(?: \/ ([A-Z_]+))?/;
+
+function jsonStringField(text, name) {
+  const match = new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`).exec(text);
+  if (!match) return '';
+  const body = match[1].replace(/\\(u[0-9a-fA-F]{0,3})?$/, '');
+  try {
+    return JSON.parse(`"${body}"`);
+  } catch {
+    return body;
+  }
+}
+
+function genieMessage(text) {
+  const raw = str(text).trim();
+  const clean = (value) => str(value).replace(/\s+/g, ' ').trim();
+  if (!raw.startsWith('{')) {
+    const stop = /^Stopped:\s*([\s\S]*)$/.exec(raw);
+    return stop ? { kind: 'stopped', text: clean(stop[1]) || 'Genie gave no reason' } : { kind: 'message', text: clean(raw) };
+  }
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = null;
+  }
+  const field = (name) => clean(parsed && typeof parsed === 'object' ? parsed[name] : jsonStringField(raw, name));
+  const status = field('status');
+  const reason = field('stop_reason');
+  if (status === 'stopped' || (status === 'built' && reason)) return { kind: 'stopped', text: reason || 'Genie gave no reason' };
+  return { kind: 'message', text: field('summary') };
+}
+
+function baseName(path) {
+  return str(path).trim().split('/').filter(Boolean).pop() || '';
+}
+
+function genieFeedItem(body, id) {
+  const genie = /^\[GENIE ([^\]]+)\] (?:\[([^\]]+)\] )?([\s\S]*)$/.exec(body);
+  if (genie) {
+    if (genie[1] !== id) return null;
+    const phase = genie[2] || '';
+    const rest = genie[3];
+    if (rest.startsWith('Genie: ')) {
+      const message = genieMessage(rest.slice(7));
+      return message.text ? { phase, ...message } : null;
+    }
+    if (rest.startsWith('Genie ran: ')) {
+      const exit = (/\(exit (-?\d+|None)\)$/.exec(rest) || [])[1];
+      return { phase, kind: 'activity', commands: 1, failed: exit && exit !== '0' && exit !== 'None' ? 1 : 0, files: [] };
+    }
+    if (rest.startsWith('Genie edited: ')) {
+      const files = rest.slice(14).split(', ').map(baseName).filter(Boolean);
+      return { phase, kind: 'activity', commands: 0, failed: 0, files };
+    }
+    if (rest.startsWith('Genie error: ')) return { phase, kind: 'error', text: rest.slice(13).replace(/\s+/g, ' ').trim() };
+    if (rest.startsWith('Genie turn completed')) return { phase, kind: 'turn_done' };
+    return null;
+  }
+  const implement = /^\[IMPLEMENT ([^\]]+)\]\s+([\s\S]*)$/.exec(body);
+  if (implement) {
+    if (implement[1] !== id) return null;
+    const run = RUN_STATE_RE.exec(implement[2]);
+    if (run) {
+      return { kind: 'run', check: Boolean(run[1]), seconds: Number(run[2]), run_id: run[3], state: run[4], result: run[5] || '' };
+    }
+    return { kind: 'note', text: implement[2].trim() };
+  }
+  const failed = /^\[IMPLEMENT-FAILED\] (\S+) spec \d+: ([\s\S]*)$/.exec(body);
+  if (failed) return failed[1] === id ? { kind: 'failed', text: failed[2].trim() } : null;
+  const notebook = /^\[IMPLEMENT-NOTEBOOK\] (\S+): wrote (.+)$/.exec(body);
+  if (notebook) return notebook[1] === id ? { kind: 'note', text: `Wrote the notebook ${baseName(notebook[2])}` } : null;
+  const other = /^\[IMPLEMENT-[A-Z -]+\] ([\s\S]*)$/.exec(body);
+  if (!other) return null;
+  return { kind: 'note', text: other[1].replace(new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: `), '').trim() };
+}
+
+function genieFeed(text, useCaseId, since = '') {
+  const id = str(useCaseId);
+  const sinceMs = Date.parse(str(since));
+  const floor = Number.isFinite(sinceMs) ? Math.floor(sinceMs / 1000) * 1000 : 0;
+  const items = [];
+  for (const line of useCaseLogLines(text, id)) {
+    const parts = LOG_LINE_RE.exec(line.replace(/\r$/, ''));
+    if (!parts) continue;
+    const at = `${parts[1]}T${parts[2]}Z`;
+    if (floor && Date.parse(at) < floor) continue;
+    const item = genieFeedItem(parts[4].replace(LOG_SOURCE_RE, ''), id);
+    if (!item) continue;
+    const last = items[items.length - 1];
+    if (item.kind === 'activity' && last && last.kind === 'activity' && last.phase === item.phase) {
+      last.commands += item.commands;
+      last.failed += item.failed;
+      last.files = [...new Set([...last.files, ...item.files])];
+      last.until = at;
+    } else if (item.kind === 'run' && last && last.kind === 'run' && last.run_id === item.run_id) {
+      Object.assign(last, item, { until: at });
+    } else {
+      items.push({ at, ...item });
+    }
+  }
+  return items.slice(-GENIE_FEED_LIMIT);
+}
+
 function filterImplementSteps(rows, useCaseId) {
   const id = str(useCaseId);
   return (rows || []).filter((row) => {
@@ -1477,6 +1584,8 @@ module.exports = {
   IMPLEMENT_SPEC_WIDGETS,
   liveLogPath,
   useCaseLogLines,
+  genieFeed,
+  genieMessage,
   filterImplementSteps,
   groupWidgets,
   IMPLEMENT_INSPIRE_WIDGETS,

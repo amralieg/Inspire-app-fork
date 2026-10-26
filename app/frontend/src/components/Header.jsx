@@ -6,7 +6,7 @@ const NAV = [
   { id: 'choose', label: 'Get Started', step: 1 },
   { id: 'monitor', label: 'Monitor', step: 2 },
   { id: 'results', label: 'Results', step: 3 },
-  { id: 'implement', label: 'Implement', step: 4 },
+  { id: 'implement', label: 'Build', step: 4 },
 ];
 
 export default function Header({

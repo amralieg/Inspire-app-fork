@@ -39,27 +39,37 @@ import DomainSunburst from '../components/DomainSunburst';
 import PriorityHeatmap from '../components/PriorityHeatmap';
 import Celebration from '../components/Celebration';
 import { SkeletonCard, SkeletonStats } from '../components/SkeletonLoader';
-import { DataAccessBadge, FeedbackPanel, FoundationsPanel, StrategyCoveragePanel } from '../components/ResultsInsights';
+import { DataAccessBadge, FeedbackPanel, FoundationsPanel, SidebarFilterPanel, StrategyCoveragePanel } from '../components/ResultsInsights';
 import UseCaseCard from '../components/UseCaseCard';
-import UseCaseDetailBody from '../components/UseCaseDetailBody';
-import UseCaseCatalog from '../components/catalog/UseCaseCatalog';
-import { STRATEGY_NOT_ALIGNED, knownPriorities, latestFeedbackMap, strategyFilterOptions } from '../lib/v130UseCase';
-import { catalogRows, emptyFacetState, setFacetValues } from '../lib/useCaseFacets';
+import {
+  NOT_ALIGNED_FILTER,
+  compareBestOfBestFirst,
+  knownPriorities,
+  latestFeedbackMap,
+  matchesStrategyFilter,
+  priorityMatches,
+  strategyFilterOptions,
+} from '../lib/v130UseCase';
 import {
   FAVORITES_STORAGE_KEY,
+  PRIORITY_ORDER,
+  beneficiaryFromUc,
   computeHighPriorityCount,
   displayCleanText,
   expandWorkspaceListCandidates,
   findUcForNotebookFilename,
   inspireScoreFromUc,
   loadFavoritesMap,
+  favoriteCount,
   favoriteKeyOf,
   fieldOf,
+  hasGenieInstruction,
   hasShippedGenieCode,
+  sponsorFromUc,
+  trackingIdOf,
 } from '../lib/useCaseFields';
-import { visibleArtifactFiles } from '../lib/artifactFiles';
+import { fileExtension, quickAccessFiles, visibleArtifactFiles } from '../lib/artifactFiles';
 import { generationFolder, workspaceWebUiHashPath } from '../lib/workspaceLinks';
-import ImplementCardActions from '../components/ImplementCardActions';
 import ImplementWizard from './ImplementWizard';
 import { implementState, notebookRunEnded, notebookStatus, versionActive } from '../lib/implementWizard';
 import { buildUseCaseList } from '../lib/useCaseList';
@@ -159,7 +169,23 @@ export default function ResultsPage({
   /** Re-run artifact list when session or resolved generation folder changes (not blocked by empty prior list). */
   const lastArtifactsLoadKeyRef = useRef('');
 
-  const [catalogState, setCatalogState] = useState(emptyFacetState);
+  // Filters & sort
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterDomain, setFilterDomain] = useState('all');
+  const [filterSubdomain, setFilterSubdomain] = useState('all');
+  const [filterPriority, setFilterPriority] = useState('all');
+  const [filterType, setFilterType] = useState('all');
+  const [filterTechnique, setFilterTechnique] = useState('all');
+  const [filterQuality, setFilterQuality] = useState('all');
+  const [filterBeneficiary, setFilterBeneficiary] = useState('all');
+  const [filterSponsor, setFilterSponsor] = useState('all');
+  /** `all` | `yes` | `no` — filter by presence of Genie instruction on the use case. */
+  const [filterHasGenie, setFilterHasGenie] = useState('all');
+  const [filterStrategy, setFilterStrategy] = useState('all');
+  const [filterBizPriority, setFilterBizPriority] = useState('all');
+  const [sortBy, setSortBy] = useState('inspire');
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [showBestOfBestOnly, setShowBestOfBestOnly] = useState(false);
 
   // Favorites — browser localStorage, keyed by content fingerprint (works across sessions)
   const [favorites, setFavorites] = useState(loadFavoritesMap);
@@ -175,7 +201,6 @@ export default function ResultsPage({
       return next;
     });
   }, []);
-  const toggleFavoriteRow = useCallback((row) => toggleFavorite(row.uc), [toggleFavorite]);
 
   const [feedbackState, setFeedbackState] = useState({ available: null, latest: [], message: '' });
   const [feedbackRefresh, setFeedbackRefresh] = useState(0);
@@ -198,6 +223,15 @@ export default function ResultsPage({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [expandedCells, setExpandedCells] = useState({}); // { "row-col": true }
 
+  // Subdomain expansion state
+  const [expandedDomains, setExpandedDomains] = useState({});
+  const [domainPanelOpen, setDomainPanelOpen] = useState(false);
+  const [beneficiaryPanelOpen, setBeneficiaryPanelOpen] = useState(false);
+  const [sponsorPanelOpen, setSponsorPanelOpen] = useState(false);
+  const [strategyPanelOpen, setStrategyPanelOpen] = useState(false);
+  const [bizPriorityPanelOpen, setBizPriorityPanelOpen] = useState(false);
+  // Only one card expanded at a time
+  const [expandedUseCase, setExpandedUseCase] = useState(null);
   const [implementUc, setImplementUc] = useState(null);
   const [implementFocus, setImplementFocus] = useState(null);
   const [implementView, setImplementView] = useState({ latest: [], notebook_run: null });
@@ -391,7 +425,8 @@ export default function ResultsPage({
     setPreviewFile(null);
     setPreviewData(null);
     setArtifactsExpanded(false);
-    setCatalogState(emptyFacetState());
+    setFilterStrategy('all');
+    setFilterBizPriority('all');
     lastArtifactsLoadKeyRef.current = '';
     try {
       const q = new URLSearchParams({
@@ -447,14 +482,144 @@ export default function ResultsPage({
     return tableRegistry[id] || id;
   }, [tableRegistry]);
 
-  const domains = [...new Set(allUseCases.map((uc) => uc?._domain).filter(Boolean))];
-  const techniqueCount = new Set(allUseCases.map((uc) => fieldOf(uc, 'Analytics Technique', 'analytics_technique')).filter(Boolean)).size;
+  // ── Filter & sort ──
+  let filteredUseCases = [];
+  try {
+    filteredUseCases = allUseCases
+      .filter((uc) => {
+        if (!uc || typeof uc !== 'object') return false;
+        if (filterDomain !== 'all' && uc._domain !== filterDomain) return false;
+        if (filterSubdomain !== 'all' && String(uc.Subdomain || '') !== filterSubdomain) return false;
+        if (filterPriority !== 'all' && uc.Priority !== filterPriority)
+          return false;
+        if (filterType !== 'all' && uc.type !== filterType) return false;
+        if (filterTechnique !== 'all' && String(fieldOf(uc, 'Analytics Technique', 'analytics_technique') || '') !== filterTechnique) return false;
+        if (filterQuality !== 'all' && String(uc.Quality || '') !== filterQuality) return false;
+        if (filterBeneficiary !== 'all' && beneficiaryFromUc(uc) !== filterBeneficiary) return false;
+        if (filterSponsor !== 'all' && sponsorFromUc(uc) !== filterSponsor) return false;
+        if (filterStrategy !== 'all' && !matchesStrategyFilter(uc._v130, filterStrategy)) return false;
+        if (filterBizPriority !== 'all' && !priorityMatches(uc._v130?.priorityText, bizPriorities).includes(filterBizPriority)) return false;
+        if (filterHasGenie === 'yes' && !hasGenieInstruction(uc)) return false;
+        if (filterHasGenie === 'no' && hasGenieInstruction(uc)) return false;
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          return (
+            String(uc.Name || '').toLowerCase().includes(q) ||
+            String(uc.Statement || '').toLowerCase().includes(q) ||
+            String(uc.Solution || '').toLowerCase().includes(q) ||
+            beneficiaryFromUc(uc).toLowerCase().includes(q) ||
+            sponsorFromUc(uc).toLowerCase().includes(q)
+          );
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const starred = compareBestOfBestFirst(a._v130, b._v130);
+        if (starred !== 0) return starred;
+        const sa = inspireScoreFromUc(a);
+        const sb = inspireScoreFromUc(b);
+        const scoreFirst = () => {
+          const va = sa ?? -Infinity;
+          const vb = sb ?? -Infinity;
+          if (vb !== va) return vb - va;
+          return 0;
+        };
+        if (sortBy === 'inspire') {
+          const c = scoreFirst();
+          if (c !== 0) return c;
+          return String(a.Name || '').localeCompare(String(b.Name || ''));
+        }
+        if (sortBy === 'domain') {
+          const d = String(a._domain || '').localeCompare(String(b._domain || ''));
+          if (d !== 0) return d;
+          const cDom = scoreFirst();
+          if (cDom !== 0) return cDom;
+          return String(a.Name || '').localeCompare(String(b.Name || ''));
+        }
+        if (sortBy === 'name') {
+          const n = String(a.Name || '').localeCompare(String(b.Name || ''));
+          if (n !== 0) return n;
+          const cNm = scoreFirst();
+          if (cNm !== 0) return cNm;
+          return 0;
+        }
+        // priority — tier after score so list stays score-ranked when scores exist
+        if (sortBy === 'priority') {
+          const c = scoreFirst();
+          if (c !== 0) return c;
+          const ia = PRIORITY_ORDER.indexOf(a.Priority);
+          const ib = PRIORITY_ORDER.indexOf(b.Priority);
+          return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        }
+        return scoreFirst();
+      });
+  } catch (err) {
+    console.error('Error filtering/sorting use cases:', err);
+    filteredUseCases = allUseCases;
+  }
+
+  if (showBestOfBestOnly) {
+    filteredUseCases = filteredUseCases.filter((uc) => uc?._v130?.bestOfBest);
+  }
+  const starredCount = allUseCases.filter((uc) => uc?._v130?.bestOfBest).length;
+
+  // Apply favorites filter
+  if (showFavoritesOnly) {
+    filteredUseCases = filteredUseCases.filter((uc) => {
+      const k = favoriteKeyOf(uc);
+      return k && favorites[k];
+    });
+  }
+
+  const domains = [
+    ...new Set(allUseCases.map((uc) => uc?._domain).filter(Boolean)),
+  ];
+  const priorities = [
+    ...new Set(allUseCases.map((uc) => uc?.Priority).filter(Boolean)),
+  ];
+  const types = [
+    ...new Set(allUseCases.map((uc) => uc?.type).filter(Boolean)),
+  ];
+  const techniques = [
+    ...new Set(allUseCases.map((uc) => fieldOf(uc, 'Analytics Technique', 'analytics_technique')).filter(Boolean)),
+  ];
+  const qualities = [
+    ...new Set(allUseCases.map((uc) => uc?.Quality).filter(Boolean)),
+  ];
+
+  const beneficiaries = [
+    ...new Set(allUseCases.map(beneficiaryFromUc).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b));
+  const sponsors = [
+    ...new Set(allUseCases.map(sponsorFromUc).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b));
+
+  const beneficiaryCounts = {};
+  for (const uc of allUseCases) {
+    const b = beneficiaryFromUc(uc);
+    if (b) beneficiaryCounts[b] = (beneficiaryCounts[b] || 0) + 1;
+  }
+  const sponsorCounts = {};
+  for (const uc of allUseCases) {
+    const s = sponsorFromUc(uc);
+    if (s) sponsorCounts[s] = (sponsorCounts[s] || 0) + 1;
+  }
+
   const v130Session = !!(results && (results.discovery_type || results.strategy_coverage));
-  const strategyEntries = results?.strategy_coverage?.entries;
-  const strategyOrder = useMemo(
-    () => strategyFilterOptions(allUseCases.map((uc) => uc?._v130), strategyEntries).options.map((o) => o.value),
-    [allUseCases, strategyEntries],
-  );
+  const strategyFilter = strategyFilterOptions(allUseCases.map((uc) => uc?._v130), results?.strategy_coverage?.entries);
+  const strategyOptions = strategyFilter.notAligned > 0
+    ? [...strategyFilter.options, { value: NOT_ALIGNED_FILTER, label: 'Not aligned', count: strategyFilter.notAligned, depth: 0 }]
+    : strategyFilter.options;
+  const bizPriorityCounts = {};
+  let bizPriorityUseCases = 0;
+  for (const uc of allUseCases) {
+    const matched = priorityMatches(uc?._v130?.priorityText, bizPriorities);
+    if (matched.length) bizPriorityUseCases += 1;
+    for (const bp of matched) bizPriorityCounts[bp] = (bizPriorityCounts[bp] || 0) + 1;
+  }
+  const bizPriorityOptions = bizPriorities
+    .filter((bp) => bizPriorityCounts[bp])
+    .map((bp) => ({ value: bp, label: bp, count: bizPriorityCounts[bp] }));
   const foundationsList = results?.foundations;
   const foundationsById = useMemo(
     () => new Map((Array.isArray(foundationsList) ? foundationsList : []).map((f) => [String(f.id), f])),
@@ -468,6 +633,17 @@ export default function ResultsPage({
   }
   const feedbackLatest = useMemo(() => latestFeedbackMap(feedbackState.latest), [feedbackState.latest]);
 
+  // Compute subdomain counts by domain
+  const subdomainsByDomain = {};
+  for (const uc of allUseCases) {
+    const d = uc?._domain || 'Unknown';
+    const sd = String(uc?.Subdomain || '');
+    if (!sd) continue;
+    if (!subdomainsByDomain[d]) subdomainsByDomain[d] = {};
+    subdomainsByDomain[d][sd] = (subdomainsByDomain[d][sd] || 0) + 1;
+  }
+
+  const techniqueCount = techniques.length;
   const uniqueSubdomainCount = new Set(allUseCases.map((uc) => String(uc?.Subdomain || '').trim()).filter(Boolean)).size;
 
   let _scoreSum = 0;
@@ -481,15 +657,37 @@ export default function ResultsPage({
   }
   const avgInspireScore = _scoreN > 0 ? _scoreSum / _scoreN : null;
 
-  const notebookRun = implementView.notebook_run;
-  const rows = useMemo(() => catalogRows(allUseCases, {
-    statusOf: (uc, id) => (id ? implementState(implementLatestById[id] || null, notebookStatus(uc, notebookRun)) : null),
-    feedbackLatest,
-    favorites,
-    bizPriorities,
-    foundationsById,
-    resolveTable,
-  }), [allUseCases, implementLatestById, notebookRun, feedbackLatest, favorites, bizPriorities, foundationsById, resolveTable]);
+  // Compute domain counts for sidebar
+  const domainCounts = {};
+  for (const uc of allUseCases) {
+    const d = uc?._domain || 'Unknown';
+    domainCounts[d] = (domainCounts[d] || 0) + 1;
+  }
+
+  const hasActiveFilters =
+    searchQuery ||
+    filterDomain !== 'all' ||
+    filterSubdomain !== 'all' ||
+    filterPriority !== 'all' ||
+    filterType !== 'all' ||
+    filterTechnique !== 'all' ||
+    filterQuality !== 'all' ||
+    filterBeneficiary !== 'all' ||
+    filterSponsor !== 'all' ||
+    filterStrategy !== 'all' ||
+    filterBizPriority !== 'all' ||
+    filterHasGenie !== 'all' ||
+    showBestOfBestOnly;
+
+  const clearAllFilters = () => {
+    setSearchQuery(''); setFilterDomain('all'); setFilterSubdomain('all');
+    setFilterPriority('all'); setFilterType('all'); setFilterTechnique('all');
+    setFilterQuality('all');
+    setFilterBeneficiary('all'); setFilterSponsor('all');
+    setFilterStrategy('all'); setFilterBizPriority('all');
+    setFilterHasGenie('all');
+    setShowBestOfBestOnly(false);
+  };
 
   // Load generation artifacts — tries multiple path variations
   const artifactHeaders = useCallback(() => {
@@ -801,6 +999,7 @@ export default function ResultsPage({
                   setResults(null);
                   setUsecases(null);
                   setError('');
+                  setExpandedUseCase(null);
                   setSelectedSessionId(null);
                   setSessionsLoaded(false);
                   setIsProgressive(false);
@@ -814,7 +1013,7 @@ export default function ResultsPage({
           </div>
         </div>
       )}
-      {embedded && allUseCases.length > 0 && (
+      {embedded && filteredUseCases.length > 0 && (
         <div className="flex items-center gap-2 mb-4">
           <BarChart3 size={18} className="text-db-red-fg shrink-0" strokeWidth={1.75} aria-hidden />
           <span className="text-sm font-bold text-text-primary">
@@ -1362,7 +1561,7 @@ export default function ResultsPage({
 
           {/* Quick Access — always visible, PDF/Excel/CSV files from artifacts */}
           {(() => {
-            const previewableFiles = [];
+            const artifactFiles = [];
             const collect = (files) => {
               if (!files) return;
               for (const f of files) {
@@ -1370,12 +1569,12 @@ export default function ResultsPage({
                   const sub = artifactTree[f.path];
                   if (sub?.files) collect(sub.files);
                 } else {
-                  const ext = (f.name || '').toLowerCase().split('.').pop();
-                  if (['pdf', 'csv', 'xlsx', 'xls'].includes(ext)) previewableFiles.push(f);
+                  artifactFiles.push(f);
                 }
               }
             };
             collect(artifactsRootFiles);
+            const previewableFiles = quickAccessFiles(artifactFiles);
             if (previewableFiles.length === 0) return null;
 
             const EXT_STYLES = {
@@ -1395,7 +1594,7 @@ export default function ResultsPage({
                 </div>
                 <div className="flex gap-2 overflow-x-auto scrollbar-hide">
                   {previewableFiles.map((f) => {
-                    const ext = (f.name || '').toLowerCase().split('.').pop();
+                    const ext = fileExtension(f);
                     const style = EXT_STYLES[ext] || EXT_STYLES.csv;
                     const isActive = previewFile === f.path;
                     return (
@@ -1605,8 +1804,8 @@ export default function ResultsPage({
               <div className="grid grid-cols-1 lg:grid-cols-3 items-start gap-3 mb-4">
                 <StrategyCoveragePanel
                   coverage={results.strategy_coverage}
-                  onSelectPath={(path) => setCatalogState((s) => setFacetValues(s, 'strategy', [path]))}
-                  onSelectNotAligned={() => setCatalogState((s) => setFacetValues(s, 'strategy', [STRATEGY_NOT_ALIGNED]))}
+                  onSelectPath={(path) => setFilterStrategy(path)}
+                  onSelectNotAligned={() => setFilterStrategy(NOT_ALIGNED_FILTER)}
                 />
                 <FoundationsPanel foundations={results.foundations} deliveryOrder={results.delivery_order} nameById={useCaseNameById} />
                 <FeedbackPanel results={results} feedback={feedbackState} />
@@ -1614,47 +1813,478 @@ export default function ResultsPage({
             </>
           )}
 
-          {allUseCases.length > 0 && (
-            <UseCaseCatalog
-              rows={rows}
-              business={feedbackBusiness}
-              state={catalogState}
-              onStateChange={setCatalogState}
-              strategyOrder={strategyOrder}
-              bizPriorityOrder={bizPriorities}
-              embedded={embedded}
-              onToggleFavorite={toggleFavoriteRow}
-              onOpenImplement={onOpenImplement && selectedSessionId ? (row) => onOpenImplement(String(selectedSessionId), row.id) : undefined}
-              renderCard={(row, { expanded, onToggle }) => (
-                <UseCaseCard
-                  key={row.key}
-                  uc={row.uc}
-                  index={row.index}
-                  expanded={expanded}
-                  onToggle={onToggle}
-                  isFavorite={row.favorite}
-                  onToggleFavorite={() => toggleFavorite(row.uc)}
-                  v130={row.uc._v130}
-                  feedbackCurrent={feedbackCurrentFor(row.uc)}
-                  implementStatus={row.status}
-                  onImplement={canImplement ? () => startImplement(row.uc) : undefined}
-                  {...detailPropsFor(row.uc)}
+          {/* ═══ Two-Column: sticky sidebar rail; use-case list scrolls independently in the right column ═══ */}
+          <div className="flex items-stretch gap-5 min-h-0">
+            {/* ── Left Sidebar: stays fixed in viewport while the card list scrolls (sticky + max height) ── */}
+            <div
+              className={`sticky z-10 flex w-56 shrink-0 flex-col gap-3 self-start overflow-y-auto overscroll-y-contain pr-1 [-webkit-overflow-scrolling:touch] min-h-0 ${
+                embedded
+                  ? 'top-4 max-h-[min(32rem,72vh)]'
+                  : 'top-20 max-h-[calc(100dvh-5rem)]'
+              }`}
+            >
+              <div className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setDomainPanelOpen((o) => !o)}
+                  className="flex w-full shrink-0 items-start gap-2 border-b border-border bg-gradient-to-b from-db-red-50 to-surface px-3 py-3 text-left transition-smooth hover:from-db-red-50/80"
+                >
+                  <ChevronRight
+                    size={14}
+                    className={`mt-0.5 shrink-0 text-text-tertiary transition-transform duration-200 ${domainPanelOpen ? 'rotate-90' : ''}`}
+                  />
+                  <Layers size={14} className="mt-0.5 shrink-0 text-db-red-fg" />
+                  <div className="min-w-0 flex-1">
+                    <span className="text-xs font-bold text-text-primary">Domains</span>
+                    <p className="text-[10px] text-text-tertiary mt-0.5">
+                      {domains.length} domain{domains.length !== 1 ? 's' : ''} &middot; {allUseCases.length} use cases
+                    </p>
+                    {!domainPanelOpen && (filterDomain !== 'all' || filterSubdomain !== 'all') && (
+                      <p
+                        className="mt-1 truncate text-[10px] font-medium text-db-red-fg"
+                        title={filterSubdomain !== 'all' ? `${filterDomain} › ${filterSubdomain}` : filterDomain}
+                      >
+                        Filter:{' '}
+                        {filterSubdomain !== 'all'
+                          ? `${filterDomain} › ${filterSubdomain}`
+                          : filterDomain}
+                      </p>
+                    )}
+                  </div>
+                </button>
+
+                {/* Domain list — shown when panel expanded */}
+                {domainPanelOpen && (
+                <div className="p-1.5 space-y-0.5">
+                  {/* All domains */}
+                  <button
+                    onClick={() => setFilterDomain('all')}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-smooth ${
+                      filterDomain === 'all'
+                        ? 'bg-db-red-50 border border-db-red/20'
+                        : 'hover:bg-bg-subtle border border-transparent'
+                    }`}
+                  >
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                      filterDomain === 'all' ? 'bg-db-red/10' : 'bg-bg-subtle'
+                    }`}>
+                      <Layers size={10} className={filterDomain === 'all' ? 'text-db-red-fg' : 'text-text-tertiary'} />
+                    </div>
+                    <span className={`text-[11px] font-semibold flex-1 ${
+                      filterDomain === 'all' ? 'text-db-red-fg' : 'text-text-primary'
+                    }`}>
+                      All Domains
+                    </span>
+                    <span className={`text-[10px] font-mono tabular-nums ${filterDomain === 'all' ? 'text-db-red-fg' : 'text-text-tertiary'}`}>
+                      {allUseCases.length}
+                    </span>
+                  </button>
+
+                  {/* Individual domains with expandable subdomains */}
+                  {domains.map((d) => {
+                    const count = domainCounts[d] || 0;
+                    const active = filterDomain === d;
+                    const highPriCount = allUseCases.filter(
+                      (uc) => uc._domain === d && ['Ultra High', 'Very High', 'High'].includes(String(uc?.Priority || ''))
+                    ).length;
+                    const subs = subdomainsByDomain[d] || {};
+                    const hasSubs = Object.keys(subs).length > 0;
+                    const isExpanded = !!expandedDomains[d];
+
+                    return (
+                      <div key={d}>
+                        <div className="flex items-center">
+                          {hasSubs && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setExpandedDomains(prev => ({ ...prev, [d]: !prev[d] })); }}
+                              className="p-0.5 mr-0.5 rounded hover:bg-bg-subtle transition-smooth"
+                            >
+                              <ChevronRight size={10} className={`text-text-tertiary transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => { setFilterDomain(active ? 'all' : d); setFilterSubdomain('all'); }}
+                            className={`flex-1 flex items-start gap-2 px-2 py-2 rounded-lg text-left transition-smooth ${
+                              active
+                                ? 'bg-db-red-50 border border-db-red/20'
+                                : 'hover:bg-bg-subtle border border-transparent'
+                            }`}
+                          >
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                              active ? 'bg-db-red/10' : 'bg-bg-subtle'
+                            }`}>
+                              <Building2 size={10} className={active ? 'text-db-red-fg' : 'text-text-tertiary'} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className={`text-[11px] font-semibold block truncate ${
+                                active ? 'text-db-red-fg' : 'text-text-primary'
+                              }`}>
+                                {d}
+                              </span>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-[9px] text-text-tertiary font-mono tabular-nums">{count} use case{count !== 1 ? 's' : ''}</span>
+                                {highPriCount > 0 && (
+                                  <span className="text-[9px] text-db-red-fg font-medium">{highPriCount} high pri</span>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        </div>
+                        {/* Subdomain list */}
+                        {isExpanded && hasSubs && (
+                          <div className="ml-7 mt-0.5 space-y-0.5">
+                            {Object.entries(subs).map(([sd, sdCount]) => {
+                              const sdActive = filterSubdomain === sd && filterDomain === d;
+                              return (
+                                <button
+                                  key={sd}
+                                  onClick={() => {
+                                    setFilterDomain(d);
+                                    setFilterSubdomain(sdActive ? 'all' : sd);
+                                  }}
+                                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-smooth ${
+                                    sdActive
+                                      ? 'bg-db-red-50/70 text-db-red-fg'
+                                      : 'text-text-secondary hover:bg-bg-subtle'
+                                  }`}
+                                >
+                                  <span className={`text-[10px] font-medium truncate flex-1 ${sdActive ? 'text-db-red-fg' : ''}`}>{sd}</span>
+                                  <span className={`text-[9px] font-mono ${sdActive ? 'text-db-red-fg' : 'text-text-tertiary'}`}>{sdCount}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                )}
+              </div>
+
+              {strategyFilter.withData > 0 && (
+                <SidebarFilterPanel
+                  title="Strategy"
+                  subtitle={`${strategyFilter.withData - strategyFilter.notAligned} aligned \u00b7 ${strategyFilter.notAligned} not aligned`}
+                  icon={Compass}
+                  open={strategyPanelOpen}
+                  onToggle={() => setStrategyPanelOpen((o) => !o)}
+                  allLabel="All use cases"
+                  allCount={allUseCases.length}
+                  options={strategyOptions}
+                  value={filterStrategy}
+                  onChange={setFilterStrategy}
                 />
               )}
-              renderDetail={(row) => (
-                <UseCaseDetailBody
-                  key={row.key}
-                  uc={row.uc}
-                  v130={row.uc._v130}
-                  feedbackCurrent={feedbackCurrentFor(row.uc)}
-                  {...detailPropsFor(row.uc)}
+
+              {bizPriorityOptions.length > 0 && (
+                <SidebarFilterPanel
+                  title="Business priorities"
+                  subtitle={`${bizPriorityOptions.length} of ${bizPriorities.length} priorities in use`}
+                  icon={Flag}
+                  open={bizPriorityPanelOpen}
+                  onToggle={() => setBizPriorityPanelOpen((o) => !o)}
+                  allLabel="All priorities"
+                  allCount={bizPriorityUseCases}
+                  options={bizPriorityOptions}
+                  value={filterBizPriority}
+                  onChange={setFilterBizPriority}
                 />
               )}
-              renderActions={canImplement ? (row) => (
-                <ImplementCardActions className="" showStatus={false} onImplement={() => startImplement(row.uc)} />
-              ) : undefined}
-            />
-          )}
+
+              {beneficiaries.length > 0 && (
+                <SidebarFilterPanel
+                  title="Beneficiaries"
+                  subtitle={`${beneficiaries.length} role${beneficiaries.length !== 1 ? 's' : ''} \u00b7 who benefits`}
+                  icon={Users}
+                  open={beneficiaryPanelOpen}
+                  onToggle={() => setBeneficiaryPanelOpen((o) => !o)}
+                  allLabel="All beneficiaries"
+                  allCount={allUseCases.filter((uc) => beneficiaryFromUc(uc)).length}
+                  options={beneficiaries.map((b) => ({ value: b, label: b, count: beneficiaryCounts[b] || 0 }))}
+                  value={filterBeneficiary}
+                  onChange={setFilterBeneficiary}
+                />
+              )}
+
+              {sponsors.length > 0 && (
+                <SidebarFilterPanel
+                  title="Sponsors"
+                  subtitle={`${sponsors.length} sponsor${sponsors.length !== 1 ? 's' : ''} \u00b7 executive / owner`}
+                  icon={Crown}
+                  open={sponsorPanelOpen}
+                  onToggle={() => setSponsorPanelOpen((o) => !o)}
+                  allLabel="All sponsors"
+                  allCount={allUseCases.filter((uc) => sponsorFromUc(uc)).length}
+                  options={sponsors.map((sp) => ({ value: sp, label: sp, count: sponsorCounts[sp] || 0 }))}
+                  value={filterSponsor}
+                  onChange={setFilterSponsor}
+                />
+              )}
+            </div>
+
+            {/* ── Right Panel: filters stay put; use case cards scroll in a bounded pane ── */}
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
+              {/* Filter toolbar */}
+              <div className="mb-4 shrink-0 bg-surface border border-border/70 rounded-xl shadow-elevated overflow-hidden">
+                <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
+                  {/* Search */}
+                  <div className="relative flex-1">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search use cases..."
+                      className="w-full pl-9 pr-3 py-1.5 text-xs border border-border rounded-lg bg-bg text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-db-red/30 focus:ring-1 focus:ring-db-red/20 transition-smooth"
+                    />
+                  </div>
+
+                  {/* Favorites toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setShowFavoritesOnly(p => !p)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-smooth ${
+                      showFavoritesOnly
+                        ? 'bg-db-red-50 text-db-red-fg border-db-red/20'
+                        : 'bg-bg text-text-secondary border-border hover:border-border-strong'
+                    }`}
+                    title={showFavoritesOnly ? 'Show all use cases' : 'Show favorites only'}
+                  >
+                    <Heart size={13} className={showFavoritesOnly ? 'fill-current' : ''} />
+                    {favoriteCount(favorites) > 0 && (
+                      <span className="text-[10px]">{favoriteCount(favorites)}</span>
+                    )}
+                  </button>
+
+                  {starredCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowBestOfBestOnly(!showBestOfBestOnly)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-smooth ${
+                        showBestOfBestOnly
+                          ? 'bg-warning-bg text-warning-fg border-warning/35'
+                          : 'bg-bg text-text-secondary border-border hover:border-border-strong'
+                      }`}
+                      title={showBestOfBestOnly ? 'Show all use cases' : 'Show Best of Best use cases only'}
+                      aria-pressed={showBestOfBestOnly}
+                    >
+                      <Star size={13} className={showBestOfBestOnly ? 'fill-current' : ''} />
+                      Best of Best
+                      <span className="text-[10px]">{starredCount}</span>
+                    </button>
+                  )}
+
+                  {/* Priority pills */}
+                  {priorities.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      {PRIORITY_ORDER.filter((p) => priorities.includes(p)).map((p) => {
+                        const active = filterPriority === p;
+                        const cnt = allUseCases.filter((uc) => uc.Priority === p).length;
+                        return (
+                          <button
+                            key={p}
+                            onClick={() => setFilterPriority(active ? 'all' : p)}
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-smooth border ${
+                              active
+                                ? 'border-db-red/30 bg-db-red-50 text-db-red-fg'
+                                : 'border-transparent text-text-secondary hover:bg-bg-subtle'
+                            }`}
+                          >
+                            {p.replace('Ultra ', 'U-').replace('Very ', 'V-')}
+                            <span className={`font-mono ${active ? 'text-db-red-fg' : 'text-text-tertiary'}`}>{cnt}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Type filter */}
+                  {types.length > 0 && (
+                    <select
+                      value={filterType}
+                      onChange={(e) => setFilterType(e.target.value)}
+                      className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth"
+                    >
+                      <option value="all">All Types</option>
+                      {types.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  {/* Technique filter */}
+                  {techniques.length > 0 && (
+                    <select
+                      value={filterTechnique}
+                      onChange={(e) => setFilterTechnique(e.target.value)}
+                      className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth"
+                    >
+                      <option value="all">All Techniques</option>
+                      {techniques.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  {/* Quality filter */}
+                  {qualities.length > 0 && (
+                    <select
+                      value={filterQuality}
+                      onChange={(e) => setFilterQuality(e.target.value)}
+                      className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth"
+                    >
+                      <option value="all">All Quality</option>
+                      {qualities.map((q) => (
+                        <option key={q} value={q}>{q}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  {/* Genie instruction (has / no) */}
+                  <select
+                    value={filterHasGenie}
+                    onChange={(e) => setFilterHasGenie(e.target.value)}
+                    title="Filter by whether a Genie instruction exists on the use case"
+                    className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth min-w-[10.5rem]"
+                  >
+                    <option value="all">Genie instruction: Any</option>
+                    <option value="yes">Has Genie: Yes</option>
+                    <option value="no">Has Genie: No</option>
+                  </select>
+
+                  {/* Sort */}
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth"
+                  >
+                    <option value="inspire">Sort: Inspire score (high → low)</option>
+                    <option value="priority">Sort: Priority tier</option>
+                    <option value="domain">Sort: Domain</option>
+                    <option value="name">Sort: Name</option>
+                  </select>
+
+                  {hasActiveFilters && (
+                    <button
+                      onClick={clearAllFilters}
+                      className="text-[11px] text-db-red-fg hover:underline font-medium shrink-0"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                {/* Active filter chips */}
+                {hasActiveFilters && (
+                  <div className="px-4 py-2 bg-db-red-50/50 border-t border-border flex items-center gap-2 flex-wrap">
+                    <Filter size={12} className="text-db-red-fg shrink-0" />
+                    <span className="text-[11px] text-text-secondary">
+                      <span className="font-semibold text-text-primary tabular-nums">{filteredUseCases.length}</span> of{' '}
+                      <span className="font-semibold text-text-primary tabular-nums">{allUseCases.length}</span> use cases
+                    </span>
+                    {filterDomain !== 'all' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red-fg text-[10px] font-medium border border-db-red/20">
+                        {filterDomain}
+                        <button onClick={() => { setFilterDomain('all'); setFilterSubdomain('all'); }} className="hover:text-db-red-fg">&times;</button>
+                      </span>
+                    )}
+                    {filterSubdomain !== 'all' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red-fg text-[10px] font-medium border border-db-red/20">
+                        Sub: {filterSubdomain}
+                        <button onClick={() => setFilterSubdomain('all')} className="hover:text-db-red-fg">&times;</button>
+                      </span>
+                    )}
+                    {filterPriority !== 'all' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red-fg text-[10px] font-medium border border-db-red/20">
+                        {filterPriority}
+                        <button onClick={() => setFilterPriority('all')} className="hover:text-db-red-fg">&times;</button>
+                      </span>
+                    )}
+                    {filterType !== 'all' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red-fg text-[10px] font-medium border border-db-red/20">
+                        {filterType}
+                        <button onClick={() => setFilterType('all')} className="hover:text-db-red-fg">&times;</button>
+                      </span>
+                    )}
+                    {filterTechnique !== 'all' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red-fg text-[10px] font-medium border border-db-red/20">
+                        {filterTechnique}
+                        <button onClick={() => setFilterTechnique('all')} className="hover:text-db-red-fg">&times;</button>
+                      </span>
+                    )}
+                    {filterQuality !== 'all' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red-fg text-[10px] font-medium border border-db-red/20">
+                        Q: {filterQuality}
+                        <button onClick={() => setFilterQuality('all')} className="hover:text-db-red-fg">&times;</button>
+                      </span>
+                    )}
+                    {filterHasGenie !== 'all' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red-fg text-[10px] font-medium border border-db-red/20">
+                        Genie: {filterHasGenie === 'yes' ? 'Yes' : 'No'}
+                        <button type="button" onClick={() => setFilterHasGenie('all')} className="hover:text-db-red-fg">&times;</button>
+                      </span>
+                    )}
+                    {searchQuery && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red-fg text-[10px] font-medium border border-db-red/20">
+                        "{searchQuery}"
+                        <button onClick={() => setSearchQuery('')} className="hover:text-db-red-fg">&times;</button>
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Use case cards — only this region scrolls; sidebar + filter bar stay visible */}
+              <div
+                className={`overflow-y-auto overscroll-y-contain scroll-smooth pr-0.5 [-webkit-overflow-scrolling:touch] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong/70 [&::-webkit-scrollbar-track]:bg-transparent ${
+                  embedded
+                    ? 'h-[min(28rem,60vh)]'
+                    : 'h-[min(calc(100dvh-12rem),56rem)]'
+                }`}
+                role="region"
+                aria-label="Use case list"
+              >
+                {filteredUseCases.length > 0 ? (
+                  <div className="space-y-3 pb-2">
+                    {filteredUseCases.map((uc, idx) => {
+                      const favKey = favoriteKeyOf(uc);
+                      const tid = trackingIdOf(uc);
+                      return (
+                      <UseCaseCard
+                        key={tid ? `genie-uc-${tid}` : favKey || String(uc.No ?? idx)}
+                        uc={uc}
+                        index={idx}
+                        expanded={expandedUseCase === (uc.No || idx)}
+                        onToggle={() =>
+                          setExpandedUseCase(expandedUseCase === (uc.No || idx) ? null : uc.No || idx)
+                        }
+                        isFavorite={!!(favKey && favorites[favKey])}
+                        onToggleFavorite={() => toggleFavorite(uc)}
+                        v130={uc._v130}
+                        feedbackCurrent={feedbackCurrentFor(uc)}
+                        implementStatus={tid ? implementState(implementLatestById[tid] || null, notebookStatus(uc, implementView.notebook_run)) : null}
+                        onImplement={canImplement ? () => startImplement(uc) : undefined}
+                        {...detailPropsFor(uc)}
+                      />
+                      );
+                    })}
+                  </div>
+                ) : allUseCases.length > 0 ? (
+                  <div className="bg-surface border border-border/70 rounded-xl p-10 text-center shadow-elevated">
+                    <Search size={20} className="text-text-tertiary mx-auto mb-3" />
+                    <p className="text-sm text-text-secondary">No use cases match your filters.</p>
+                    <button
+                      onClick={clearAllFilters}
+                      className="text-xs text-db-red-fg hover:underline mt-2 font-medium"
+                    >
+                      Clear all filters
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </>
       )}
 

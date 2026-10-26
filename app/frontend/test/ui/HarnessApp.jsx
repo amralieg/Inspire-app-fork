@@ -32,7 +32,7 @@ export default function HarnessApp({ open, nest, discoveryType }) {
 
 function HarnessContent({ open, discoveryType }) {
   if (open === 'card') return <CardHarness />;
-  if (open === 'catalog') return <CatalogHarness />;
+  if (open === 'results') return <ResultsHarness />;
   if (open === 'landing') {
     return (
       <ThemeProvider>
@@ -71,7 +71,7 @@ function CardHarness() {
   );
 }
 
-function CatalogHarness() {
+function ResultsHarness() {
   const [opened, setOpened] = useState('');
   return (
     <div className={RESULTS_FRAME}>

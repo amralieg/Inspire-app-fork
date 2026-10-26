@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, ExternalLink, FileText, RefreshCw, Pencil, RotateCcw, Search, Sparkles } from 'lucide-react';
 import {
   statusChip, statusReason, nextSpecFrom, retryableOutputs, rebuildableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
-  runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded,
+  runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded, START_POC_LABEL,
 } from '../lib/implementWizard';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
 import { buildUseCaseList } from '../lib/useCaseList';
@@ -14,6 +14,9 @@ import UseCaseDrawer from '../components/UseCaseDrawer';
 import UseCaseDetailBody from '../components/UseCaseDetailBody';
 import { catalogRow } from '../lib/useCaseFacets';
 import { CONTROL_REFRESH_MS, removeChanges } from '../lib/implementControl';
+import { pocStages, pocProgressSummary, feedArrivals } from '../lib/pocProgress';
+import PocProgress from '../components/PocProgress';
+import GenieFeed from '../components/GenieFeed';
 
 const TABS = ['Progress', 'Dashboard', 'Genie', 'App', 'Alert', 'History', 'Edit'];
 const TAB_OUTPUT = { Dashboard: 'dashboard', Genie: 'genie_space', App: 'app', Alert: 'alert' };
@@ -108,9 +111,9 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
     <div className="max-w-7xl mx-auto px-6 py-6 space-y-4" data-implement-page="">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-text-primary">Implement</h1>
+          <h1 className="text-xl font-bold text-text-primary">Build</h1>
           <p className="text-[12px] text-text-secondary">
-            Every use case of this session: what has a PoC or a Genie Code notebook, what is running, and what has not started.
+            Every use case of this session: what has a PoC/MVP or a Genie Code notebook, what is running, and what has not started.
           </p>
         </div>
         <label className="relative">
@@ -232,9 +235,12 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const [liveError, setLiveError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
 
+  const [arrivals, setArrivals] = useState(null);
+
   const loadStatus = useCallback(async () => {
     const data = await apiFetch(`/api/inspire/implement/status?${qBase}&use_case_id=${encodeURIComponent(useCaseId)}`);
     setStatus(data);
+    setArrivals((prev) => feedArrivals(prev, data.feed, Date.now()));
   }, [apiFetch, qBase, useCaseId]);
 
   const loadLive = useCallback(async () => {
@@ -271,6 +277,14 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const reason = missing.length || edited ? '' : statusReason(latest, stalled);
   const genie = genieQuestions(latest);
   const genieAsset = latest?.asset_status?.genie_space || {};
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  const stages = useMemo(() => pocStages(status?.steps, latest, { now, stalled }), [status?.steps, latest, now, stalled]);
+  const progress = pocProgressSummary(stages, latest, { now, stalled });
 
   const rerun = async () => {
     setRerunBusy(true);
@@ -371,7 +385,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
               onClick={() => onEdit(null)}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid hover:bg-db-red-solid-hover shadow-sm shadow-db-red/20"
             >
-              <Sparkles size={13} /> Start Use Case PoC with Genie
+              <Sparkles size={13} /> {START_POC_LABEL}
             </button>
           )}
         </div>
@@ -389,7 +403,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
       )}
       {!hasPoc && (
         <p className="px-5 py-4 text-[12px] text-text-tertiary">
-          No PoC yet. Start Use Case PoC with Genie builds one, or writes only the Genie Code notebook when you choose Notebook only.
+          No PoC/MVP yet. {START_POC_LABEL} builds one, or writes only the Genie Code notebook when you choose Notebook only.
         </p>
       )}
       {hasPoc && (
@@ -407,7 +421,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
             onToggleSchedule={toggleSchedule}
             onRefresh={loadLive}
           />
-          <div role="tablist" aria-label="PoC views" className="flex flex-wrap gap-1 px-4 pt-3 border-b border-border">
+          <div role="tablist" aria-label="PoC/MVP views" className="flex flex-wrap gap-1 px-4 pt-3 border-b border-border">
             {TABS.map((name) => (
               <button
                 key={name}
@@ -458,23 +472,14 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
               </div>
             )}
             {tab === 'Progress' && (
-              <div className="space-y-2">
-                <p className={`text-xs font-semibold ${toneClass(chip.tone)}`}>{chip.label}</p>
-                {reason && <p className={`text-[12px] ${toneClass(chip.tone)}`}>{reason}</p>}
+              <div className="space-y-3">
+                <PocProgress stages={stages} summary={progress} chip={chip} reason={reason} toneClass={toneClass} />
                 {stalled?.run_url && (
                   <a className="text-[12px] text-db-red-fg inline-flex items-center gap-1" href={stalled.run_url} target="_blank" rel="noreferrer">
                     Open the run that stopped <ExternalLink size={12} />
                   </a>
                 )}
-                {(status?.steps || []).map((s) => (
-                  <div key={`${s.step_id}-${s.step_name}`} className="border border-border rounded-md px-3 py-2 text-[12px]">
-                    <div className="font-medium">{s.step_name} {s.sub_step_name ? `/ ${s.sub_step_name}` : ''}</div>
-                    <div className="text-text-secondary">{s.status} — {s.message}</div>
-                  </div>
-                ))}
-                {(status?.log_lines || []).slice(-40).map((line, i) => (
-                  <pre key={i} className="text-[10px] font-mono text-text-secondary whitespace-pre-wrap">{line}</pre>
-                ))}
+                <GenieFeed feed={status ? status.feed || [] : null} arrivals={arrivals} active={progress.active} working={progress.headline} />
               </div>
             )}
             {TAB_OUTPUT[tab] && retryBanner(TAB_OUTPUT[tab])}
@@ -558,14 +563,14 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
               </div>
             )}
             {tab === 'Edit' && (
-              <section aria-label="Edit the PoC" className="max-w-sm space-y-3">
+              <section aria-label="Edit the PoC/MVP" className="max-w-sm space-y-3">
                 <button
                   type="button"
                   disabled={active}
                   onClick={() => onEdit(null)}
                   className="w-full inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold border border-border disabled:opacity-50"
                 >
-                  <Pencil size={12} /> {active ? 'Edit applies after this run' : 'Edit the PoC'}
+                  <Pencil size={12} /> {active ? 'Edit applies after this run' : 'Edit the PoC/MVP'}
                 </button>
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary mb-1">Quick re-run</div>

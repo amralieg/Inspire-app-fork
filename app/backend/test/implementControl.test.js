@@ -55,7 +55,7 @@ test('the control tower acts only on ids this PoC recorded, and on a build only 
   const removed = { ...BUILT, spec_version: 3, dashboard_id: null, asset_status: { dashboard: { state: 'deleted' } } };
   assert.equal(C.controlTargets([removed, BUILT]).dashboard, undefined, 'a deleted dashboard is never acted on again');
   assert.throws(() => C.controlTarget('dashboard', {}), (e) => e.statusCode === 409 && /no Dashboard that Inspire built/.test(e.message));
-  assert.throws(() => C.controlTarget('build', {}), (e) => e.statusCode === 409 && /no version of this PoC is building now/.test(e.message));
+  assert.throws(() => C.controlTarget('build', {}), (e) => e.statusCode === 409 && /no version of this PoC\/MVP is building now/.test(e.message));
   assert.equal(C.controlTarget('job', { job: '77' }), '77');
   assert.throws(() => C.controlTarget('__proto__', { job: '77' }), (e) => e.statusCode === 409, 'an inherited key is never a target');
 });
@@ -86,10 +86,10 @@ test('a job is this PoC\'s only when its tags say implement, this session and, w
   const legacy = { settings: { tags: { dbx_inspire_ai_run_type: 'implement', dbx_inspire_ai_session_id: '42' } } };
   assert.equal(C.jobOwnerProblem(ok(legacy), CTX), '', 'a job built before the use case id tag still counts');
   const tagged = (tags) => ok({ settings: { tags: { ...POC_JOB.settings.tags, ...tags } } });
-  assert.equal(C.jobOwnerProblem(tagged({ dbx_inspire_ai_run_type: 'discovery' }), CTX), 'the job is not an Inspire PoC job');
+  assert.equal(C.jobOwnerProblem(tagged({ dbx_inspire_ai_run_type: 'discovery' }), CTX), 'the job is not an Inspire PoC/MVP job');
   assert.equal(C.jobOwnerProblem(tagged({ dbx_inspire_ai_session_id: '43' }), CTX), 'the job belongs to another Inspire session');
   assert.equal(C.jobOwnerProblem(tagged({ dbx_inspire_ai_usecase_id: 'N01-U02' }), CTX), 'the job belongs to another use case');
-  assert.equal(C.jobOwnerProblem(ok({ settings: {} }), CTX), 'the job is not an Inspire PoC job');
+  assert.equal(C.jobOwnerProblem(ok({ settings: {} }), CTX), 'the job is not an Inspire PoC/MVP job');
   assert.equal(C.jobOwnerProblem(missing('Job 77 does not exist.'), CTX), 'Inspire cannot read this job: Job 77 does not exist.');
 });
 
@@ -129,7 +129,7 @@ test('live status reads every asset in one pass and says plainly what is gone or
   const gone = C.liveStatus(targets, { app: missing(), job: ok({ settings: { tags: {} } }), runs: { ok: false, status: 403, data: { message: 'no' } },
     dashboard: missing(), published: missing(), genie_space: missing(), alert: { ok: false, status: 403, data: { message: 'PERMISSION_DENIED' } } }, CTX);
   assert.deepEqual(gone.app, { ok: false, error: 'the App no longer exists' });
-  assert.deepEqual(gone.job, { ok: false, error: 'the job is not an Inspire PoC job' });
+  assert.deepEqual(gone.job, { ok: false, error: 'the job is not an Inspire PoC/MVP job' });
   assert.deepEqual(gone.dashboard, { ok: false, error: 'the dashboard no longer exists' });
   assert.deepEqual(gone.genie_space, { ok: false, error: 'the Genie space no longer exists' });
   assert.deepEqual(gone.alert, { ok: false, error: 'Inspire cannot read the alert: PERMISSION_DENIED' });
@@ -233,8 +233,8 @@ test('another team\'s App, a job of another session, and an App or the job mid-b
       { asset: 'app', action: 'start' }, 409, 'spec v3 is still building_outputs; start the App after it finishes, or stop the build first'],
     [{ history: [{ ...BUILT, spec_version: 3, status: 'previewing', implement_run_id: '901' }, BUILT] },
       { asset: 'job', action: 'cancel' }, 409, 'spec v3 is still previewing; stop the running job after it finishes, or stop the build first'],
-    [{ history: [BUILT] }, { asset: 'build', action: 'cancel' }, 409, 'no version of this PoC is building now'],
-    [{ history: [] }, { asset: 'dashboard', action: 'unpublish' }, 409, 'this PoC has no Dashboard that Inspire built'],
+    [{ history: [BUILT] }, { asset: 'build', action: 'cancel' }, 409, 'no version of this PoC/MVP is building now'],
+    [{ history: [] }, { asset: 'dashboard', action: 'unpublish' }, 409, 'this PoC/MVP has no Dashboard that Inspire built'],
     [{ history: [BUILT] }, { asset: 'genie_space', action: 'stop' }, 400, null],
   ];
   for (const [overrides, body, status, error] of cases) {

@@ -4,6 +4,9 @@ import {
   RotateCcw, StopCircle, Timer, Cpu, Trash2, FileText
 } from 'lucide-react';
 import DatabricksLogo from './DatabricksLogo';
+import { formatDuration as formatSpan } from '../lib/formatWhen';
+
+const formatDuration = (ms) => formatSpan(ms, '—');
 
 const STATE_CONFIG = {
   PENDING: { color: 'text-db-gold', bg: 'bg-db-gold/10', border: 'border-db-gold/30', icon: Clock, label: 'Pending' },
@@ -34,17 +37,6 @@ function isTerminal(state) {
   return ls === 'TERMINATED' || ls === 'INTERNAL_ERROR' || ls === 'SKIPPED';
 }
 
-function formatDuration(ms) {
-  if (!ms) return '—';
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remSec = seconds % 60;
-  if (minutes < 60) return `${minutes}m ${remSec}s`;
-  const hours = Math.floor(minutes / 60);
-  const remMin = minutes % 60;
-  return `${hours}h ${remMin}m`;
-}
 
 export default function RunStatus({ runId, onNewRun, apiFetch }) {
   const [status, setStatus] = useState(null);

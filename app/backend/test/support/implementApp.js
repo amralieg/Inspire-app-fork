@@ -124,7 +124,7 @@ function makeApp(overrides = {}) {
       }
       if (path.startsWith('/api/2.1/jobs/get')) return json(state.job || { job_id: 77 }, state.jobStatus || 200);
       if (path.includes('/serving-endpoints')) return json({ endpoints: [{ name: 'databricks-meta-llama-3-3-70b-instruct' }] });
-      if (path.includes('/fs/files')) return json('raw', 404);
+      if (path.includes('/fs/files')) return state.liveLog === undefined ? json('raw', 404) : json(state.liveLog);
       return json({ message: 'not mocked ' + path }, 500);
     },
     fetchInspireSessionWidgetRow: async () => state.session,

@@ -2,6 +2,80 @@ import { useState } from 'react';
 import { ChevronRight, Compass, Eye, Layers, Lock, MessageSquareText } from 'lucide-react';
 import { STRATEGY_PATH_SEPARATOR, dataAccessSummary, excludedFeedbackText, feedbackLabel, formatBaseline } from '../lib/v130UseCase';
 
+export function SidebarFilterPanel({ title, subtitle, icon, open, onToggle, allLabel, allCount, options, value, onChange }) {
+  const Icon = icon;
+  const selected = options.find((o) => o.value === value);
+  const allActive = value === 'all';
+  return (
+    <div className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full shrink-0 items-start gap-2 border-b border-border bg-gradient-to-b from-db-red-50 to-surface px-3 py-3 text-left transition-smooth hover:from-db-red-50/80"
+      >
+        <ChevronRight
+          size={14}
+          className={`mt-0.5 shrink-0 text-text-tertiary transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+        />
+        <Icon size={14} className="mt-0.5 shrink-0 text-db-red-fg" />
+        <div className="min-w-0 flex-1">
+          <span className="text-xs font-bold text-text-primary">{title}</span>
+          <p className="text-[10px] text-text-tertiary mt-0.5">{subtitle}</p>
+          {!open && !allActive && (
+            <p className="mt-1 truncate text-[10px] font-medium text-db-red-fg" title={selected?.title || selected?.label || value}>
+              Filter: {selected?.label || value}
+            </p>
+          )}
+        </div>
+      </button>
+      {open && (
+        <div className="p-1.5 space-y-0.5">
+          <button
+            type="button"
+            onClick={() => onChange('all')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-smooth ${
+              allActive ? 'bg-db-red-50 border border-db-red/20' : 'hover:bg-bg-subtle border border-transparent'
+            }`}
+          >
+            <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${allActive ? 'bg-db-red/10' : 'bg-bg-subtle'}`}>
+              <Icon size={10} className={allActive ? 'text-db-red-fg' : 'text-text-tertiary'} />
+            </div>
+            <span className={`text-[11px] font-semibold flex-1 truncate ${allActive ? 'text-db-red-fg' : 'text-text-primary'}`}>
+              {allLabel}
+            </span>
+            <span className={`text-[10px] font-mono shrink-0 ${allActive ? 'text-db-red-fg' : 'text-text-tertiary'}`}>{allCount}</span>
+          </button>
+          {options.map((o) => {
+            const active = value === o.value;
+            return (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => onChange(active ? 'all' : o.value)}
+                title={o.title || o.label}
+                style={o.depth ? { paddingLeft: `${0.75 + o.depth * 0.75}rem` } : undefined}
+                className={`w-full flex items-start gap-2 px-3 py-2 rounded-lg text-left transition-smooth ${
+                  active ? 'bg-db-red-50 border border-db-red/20' : 'hover:bg-bg-subtle border border-transparent'
+                }`}
+              >
+                <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${active ? 'bg-db-red/10' : 'bg-bg-subtle'}`}>
+                  <Icon size={10} className={active ? 'text-db-red-fg' : 'text-text-tertiary'} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className={`text-[11px] font-semibold block truncate ${active ? 'text-db-red-fg' : 'text-text-primary'}`}>{o.label}</span>
+                  <span className="text-[9px] text-text-tertiary font-mono mt-0.5 block">
+                    {o.count} use case{o.count !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InsightCard({ icon, title, summary, children }) {
   const Icon = icon;
   const [open, setOpen] = useState(false);

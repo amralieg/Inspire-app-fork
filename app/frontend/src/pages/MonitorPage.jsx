@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import ResultsPage from './ResultsPage';
 import { countEntries, parseStrategicContext, treeDepth } from '../lib/strategyContext';
+import { formatDuration } from '../lib/formatWhen';
 
 // Run lifecycle phases
 const PHASE_PENDING = 'PENDING';
@@ -1204,13 +1205,3 @@ function RunSetupSummary({ widgetValues }) {
   );
 }
 
-function formatDuration(ms) {
-  const totalSec = Math.round(ms / 1000);
-  if (totalSec < 60) return `${totalSec}s`;
-  const min = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  if (min < 60) return `${min}m ${sec}s`;
-  const hr = Math.floor(min / 60);
-  const rm = min % 60;
-  return `${hr}h ${rm}m`;
-}

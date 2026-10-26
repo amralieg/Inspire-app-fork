@@ -29,7 +29,6 @@ import {
   tableOfRef as refTable,
   columnOfRef as refColumn,
   VALUE_LIMIT,
-  guessColumnRole,
   defaultAlertRecipients,
   withDecisionOwner,
   cronInWords,
@@ -49,6 +48,7 @@ import {
   PREFLIGHT_LABELS,
   PROFILE_FIELDS,
   APP_NAME_RE,
+  START_POC_LABEL,
 } from '../lib/implementWizard';
 
 const ICONS = { dashboard: LayoutDashboard, genie_space: Sparkles, app: AppWindow, alert: Bell };
@@ -162,7 +162,6 @@ export default function ImplementWizard({
   const [checking, setChecking] = useState('');
   const [advanced, setAdvanced] = useState({ data: false, delivery: false });
   const [columnsByTable, setColumnsByTable] = useState({});
-  const [confirmedRoles, setConfirmedRoles] = useState({});
   const [preflight, setPreflight] = useState(null);
   const [preflightError, setPreflightError] = useState('');
   const [checksBusy, setChecksBusy] = useState(false);
@@ -241,7 +240,6 @@ export default function ImplementWizard({
         const next = specFromLatest(data.latest, fallback, data.assets);
         if (!next.config.warehouse_id) next.config.warehouse_id = warehouseId;
         setSpec(next);
-        if (data.latest) setConfirmedRoles(Object.fromEntries(Object.keys(next.data.column_roles || {}).map((role) => [role, true])));
         const lost = (focus?.missingTables || []).map((m) => tablesOf(row)
           .find((t) => [t, next.data.tables[t]].some((n) => String(n || '').toLowerCase() === String(m.table).toLowerCase())))
           .filter(Boolean);
@@ -276,22 +274,10 @@ export default function ImplementWizard({
     try {
       const data = await apiFetch(`/api/inspire/implement/columns?${q}&table=${encodeURIComponent(table)}`);
       setColumnsByTable((prev) => ({ ...prev, [table]: data.columns || [] }));
-      if (editing) return;
-      setSpec((prev) => {
-        const roles = { ...prev.data.column_roles };
-        for (const col of data.columns || []) {
-          const guess = guessColumnRole(col.column_name);
-          if (guess === 'label' && !trainsModel) continue;
-          if (guess && !Object.values(roles).some((v) => String(v).endsWith(`.${col.column_name}`))) {
-            if (!roles[guess]) roles[guess] = `${table}.${col.column_name}`;
-          }
-        }
-        return { ...prev, data: { ...prev.data, column_roles: roles } };
-      });
     } catch (e) {
       setErrors([e.message]);
     }
-  }, [apiFetch, q, columnsByTable, trainsModel, editing]);
+  }, [apiFetch, q, columnsByTable]);
 
   useEffect(() => {
     if (!context) return;
@@ -305,10 +291,7 @@ export default function ImplementWizard({
   const groups = context?.widget_groups || NO_WIDGET_GROUPS;
   const segmentRef = spec.data.column_roles.segment || '';
   const exclusionRefs = (spec.data.filters || []).filter((f) => f.op === 'not in').map((f) => `${f.table}.${f.column}`);
-  const unconfirmedRoles = Object.entries(spec.data.column_roles)
-    .filter(([role, ref]) => ref && !confirmedRoles[role] && guessColumnRole(String(ref).split('.').pop()) !== role)
-    .map(([role]) => role);
-  const extras = { unconfirmedRoles, widgets: context?.widgets || [], trainsModel };
+  const extras = { columnsByTable, widgets: context?.widgets || [], trainsModel };
   const ownErrors = stepErrors(stepId, spec, extras, mode);
 
   const primaryOriginal = primaryTableOf(ucRow);
@@ -589,7 +572,7 @@ export default function ImplementWizard({
               </div>
               {editing && (
                 <p className="text-[11px] text-text-tertiary">
-                  This use case has a PoC (v{context.latest.spec_version}). Full PoC edits it; Notebook only leaves it as it is.
+                  This use case has a PoC/MVP (v{context.latest.spec_version}). Full PoC/MVP edits it; Notebook only leaves it as it is.
                 </p>
               )}
             </fieldset>
@@ -600,7 +583,7 @@ export default function ImplementWizard({
           <section className="space-y-3" aria-label="Tables the notebook uses">
             <h3 className="text-sm font-semibold text-text-primary">Tables the notebook uses</h3>
             <p className="text-[12px] text-text-secondary">
-              Notebook only writes the notebook over the tables this use case was discovered with. To swap, remove or filter a table, go back and choose Full PoC.
+              Notebook only writes the notebook over the tables this use case was discovered with. To swap, remove or filter a table, go back and choose Full PoC/MVP.
             </p>
             <ul className="space-y-1.5">
               {tablesOf(ucRow).map((t) => (
@@ -629,8 +612,8 @@ export default function ImplementWizard({
                 If you edited it, Inspire keeps it and writes the new notebook beside it.
               </p>
             )}
-            {editing && <p>Your PoC (v{context.latest.spec_version}) is not changed.</p>}
-            <p>The run takes a few minutes. Follow it on the Implement page.</p>
+            {editing && <p>Your PoC/MVP (v{context.latest.spec_version}) is not changed.</p>}
+            <p>The run takes a few minutes. Follow it on the Build page.</p>
           </section>
         )}
 
@@ -714,18 +697,19 @@ export default function ImplementWizard({
                   />
                 </Field>
               ))}
+              <p className="text-[11px] text-text-secondary">
+                Column roles: Inspire&apos;s choice uses the columns the use case&apos;s Genie Code instruction names. Pick a column
+                only to override it.
+              </p>
               <div className="grid grid-cols-2 gap-2">
                 {COLUMN_ROLES.filter((role) => trainsModel || role !== 'label').map((role) => (
                   <Field key={role} label={role.replace('_', ' ')}>
                     <select
                       className={inputCls}
                       value={spec.data.column_roles[role] || ''}
-                      onChange={(e) => {
-                        patch('data.column_roles', { ...spec.data.column_roles, [role]: e.target.value });
-                        setConfirmedRoles((prev) => ({ ...prev, [role]: true }));
-                      }}
+                      onChange={(e) => patch('data.column_roles', { ...spec.data.column_roles, [role]: e.target.value })}
                     >
-                      <option value="">Not mapped</option>
+                      <option value="">Inspire&apos;s choice</option>
                       {sourceTables.flatMap((table) => (columnsByTable[table] || []).map((c) => (
                         <option key={`${table}.${c.column_name}`} value={`${table}.${c.column_name}`}>
                           {table}.{c.column_name}
@@ -950,7 +934,7 @@ export default function ImplementWizard({
               </label>
             )}
 
-            {folderWarning && <p role="note" aria-label="Where Inspire saves the PoC" className="text-[11px] text-warning-fg">{folderWarning}</p>}
+            {folderWarning && <p role="note" aria-label="Where Inspire saves the PoC/MVP" className="text-[11px] text-warning-fg">{folderWarning}</p>}
 
             {generalChecks.some(([, v]) => !v.ok || v.warn) && (
               <section className="space-y-1" aria-label="Access checks">
@@ -1157,7 +1141,7 @@ export default function ImplementWizard({
               onClick={submit}
             >
               {(busy || checksBusy) && <Loader2 size={14} className="animate-spin" />}
-              {busy ? 'Starting…' : checksBusy ? 'Checking access…' : 'Start PoC'}
+              {busy ? 'Starting…' : checksBusy ? 'Checking access…' : 'Start PoC/MVP'}
             </button>
           )}
         </div>
@@ -1195,11 +1179,11 @@ function Overlay({ title, uc, steps, step, onClose, children }) {
   return (
     <BodyPortal>
       <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" data-implement-overlay="">
-        <div role="dialog" aria-modal="true" aria-label={title ? `Start Use Case PoC with Genie: ${title}` : 'Start Use Case PoC with Genie'} className="bg-surface border border-border rounded-xl shadow-elevated w-full max-w-3xl max-h-full flex flex-col overflow-hidden">
+        <div role="dialog" aria-modal="true" aria-label={title ? `${START_POC_LABEL}: ${title}` : START_POC_LABEL} className="bg-surface border border-border rounded-xl shadow-elevated w-full max-w-3xl max-h-full flex flex-col overflow-hidden">
           <header className="px-6 pt-4 pb-3 border-b border-border space-y-3" data-wizard-header="">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-db-red-fg">Start Use Case PoC with Genie</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-db-red-fg">{START_POC_LABEL}</p>
                 <h2 className="mt-1 text-lg font-semibold leading-snug text-text-primary break-words">{title}</h2>
                 {facts.length > 0 && (
                   <ul aria-label="About this use case" className="mt-2 flex flex-wrap gap-1.5">

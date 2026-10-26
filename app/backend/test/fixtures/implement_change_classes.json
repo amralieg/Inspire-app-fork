@@ -2692,5 +2692,207 @@
     "dbx_inspire_ai_spec_version",
     "dbx_inspire_ai_notebook",
     "dbx_inspire_ai_launcher_source"
-  ]
+  ],
+  "role_rules": {
+    "key_name_suffixes": [
+      "_id",
+      "_key",
+      "_sk",
+      "_pk",
+      "_fk",
+      "_nk",
+      "_code",
+      "_no",
+      "_num",
+      "_number",
+      "_ref",
+      "_uuid",
+      "_guid"
+    ],
+    "key_name_prefixes": [
+      "id_",
+      "fk_",
+      "sk_",
+      "pk_"
+    ],
+    "generic_key_names": [
+      "code",
+      "fk",
+      "guid",
+      "id",
+      "key",
+      "nk",
+      "no",
+      "num",
+      "number",
+      "pk",
+      "record_id",
+      "ref",
+      "row_id",
+      "rowid",
+      "sk",
+      "uuid"
+    ],
+    "concat_key_suffixes": [
+      "id",
+      "key",
+      "sk",
+      "code",
+      "num",
+      "number"
+    ],
+    "text_name_tokens": [
+      "text",
+      "comment",
+      "review",
+      "description",
+      "desc",
+      "note",
+      "feedback",
+      "transcript",
+      "body",
+      "message",
+      "title",
+      "subject",
+      "content",
+      "reason",
+      "summary",
+      "narrative",
+      "remark"
+    ],
+    "person_name_tokens": [
+      "name",
+      "email",
+      "phone",
+      "address"
+    ],
+    "cases": [
+      {
+        "role": "entity_id",
+        "column": "ws_sold_date_sk",
+        "type": "INT",
+        "date_key": true,
+        "fits": false
+      },
+      {
+        "role": "entity_id",
+        "column": "c_customer_sk",
+        "type": "INT",
+        "date_key": false,
+        "fits": true
+      },
+      {
+        "role": "entity_id",
+        "column": "ws_net_paid",
+        "type": "DECIMAL(7,2)",
+        "date_key": false,
+        "fits": false
+      },
+      {
+        "role": "entity_id",
+        "column": "order_date",
+        "type": "DATE",
+        "date_key": false,
+        "fits": false
+      },
+      {
+        "role": "event_date",
+        "column": "c_last_review_date",
+        "type": "INT",
+        "date_key": false,
+        "fits": false
+      },
+      {
+        "role": "event_date",
+        "column": "ws_sold_date_sk",
+        "type": "INT",
+        "date_key": true,
+        "fits": true
+      },
+      {
+        "role": "event_date",
+        "column": "d_date",
+        "type": "DATE",
+        "date_key": false,
+        "fits": true
+      },
+      {
+        "role": "event_date",
+        "column": "event_ts",
+        "type": "TIMESTAMP",
+        "date_key": false,
+        "fits": true
+      },
+      {
+        "role": "measure",
+        "column": "ws_quantity",
+        "type": "INT",
+        "date_key": false,
+        "fits": true
+      },
+      {
+        "role": "measure",
+        "column": "ss_net_paid",
+        "type": "DECIMAL(7,2)",
+        "date_key": false,
+        "fits": true
+      },
+      {
+        "role": "measure",
+        "column": "c_customer_sk",
+        "type": "INT",
+        "date_key": false,
+        "fits": false
+      },
+      {
+        "role": "measure",
+        "column": "c_first_name",
+        "type": "STRING",
+        "date_key": false,
+        "fits": false
+      },
+      {
+        "role": "label",
+        "column": "c_first_name",
+        "type": "STRING",
+        "date_key": false,
+        "fits": false
+      },
+      {
+        "role": "label",
+        "column": "review_text",
+        "type": "STRING",
+        "date_key": false,
+        "fits": false
+      },
+      {
+        "role": "label",
+        "column": "churned",
+        "type": "BOOLEAN",
+        "date_key": false,
+        "fits": true
+      },
+      {
+        "role": "label",
+        "column": "churn_flag",
+        "type": "STRING",
+        "date_key": false,
+        "fits": true
+      },
+      {
+        "role": "segment",
+        "column": "c_preferred_cust_flag",
+        "type": "STRING",
+        "date_key": false,
+        "fits": true
+      },
+      {
+        "role": "segment",
+        "column": "d_date",
+        "type": "DATE",
+        "date_key": false,
+        "fits": false
+      }
+    ]
+  }
 }

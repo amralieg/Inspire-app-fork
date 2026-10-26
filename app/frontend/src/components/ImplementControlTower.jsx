@@ -16,7 +16,7 @@ function RemoveDialog({ row, useCaseId, busy, onCancel, onConfirm }) {
         <div role="dialog" aria-modal="true" aria-label={`Remove the ${row.label}`} className="bg-surface border border-border rounded-xl shadow-elevated w-full max-w-md p-5 space-y-3">
           <h3 className="text-sm font-semibold text-text-primary">Remove the {row.label}</h3>
           <p className="text-[12px] text-text-secondary">
-            Inspire deletes the {row.label} <span className="font-medium text-text-primary">{row.name}</span> in a new version of this PoC and keeps the other outputs.
+            Inspire deletes the {row.label} <span className="font-medium text-text-primary">{row.name}</span> in a new version of this PoC/MVP and keeps the other outputs.
             You can add it back from the Edit tab.
           </p>
           <label className="block text-[12px] text-text-secondary">
@@ -69,7 +69,7 @@ export default function ImplementControlTower({ live, liveError, latest, useCase
         </button>
       </header>
       {liveError && <p className="px-3 py-2 text-[12px] text-error-fg">Inspire cannot read the live status: {liveError}</p>}
-      {live && rows.length === 0 && <p className="px-3 py-2 text-[12px] text-text-tertiary">This PoC has no job or outputs yet.</p>}
+      {live && rows.length === 0 && <p className="px-3 py-2 text-[12px] text-text-tertiary">This PoC/MVP has no job or outputs yet.</p>}
       <ul className="divide-y divide-border">
         {rows.map((row) => (
           <li key={row.id} data-control={row.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[12px]">

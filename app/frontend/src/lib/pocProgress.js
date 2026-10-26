@@ -1,0 +1,210 @@
+import { IMPLEMENT_OUTPUTS, IMPLEMENT_ACTIVE_STATUSES } from './implementWizard.js';
+import { formatDuration } from './formatWhen.js';
+
+export const POC_BUILD_STAGES = [
+  { id: 'Plan', label: 'Plan', working: 'Inspire is planning the build' },
+  { id: 'Instruction', label: 'Instruction', working: 'Inspire is writing the Genie Code instruction' },
+  { id: 'Genie Code', label: 'Start Genie Code', working: 'Inspire is starting Genie Code' },
+  { id: 'Genie build', label: 'Genie builds the notebook', working: 'Genie is building the notebook' },
+  { id: 'Preview run', label: 'Preview run', working: 'Inspire is running the notebook on a preview' },
+];
+
+const FINISH_STAGE = { id: 'Done', label: 'Done', working: 'Inspire is scheduling and sharing the PoC/MVP', phases: ['Schedule', 'Sharing', 'Done'] };
+
+const STEP_STATES = { started: 'running', ended_success: 'done', ended_warning: 'warning', ended_error: 'error' };
+const RUN_STARTING_STATES = ['PENDING', 'QUEUED', 'BLOCKED'];
+
+function stepPhase(row) {
+  let payload = row?.result_json;
+  if (typeof payload === 'string' && payload) {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      payload = {};
+    }
+  }
+  const phase = payload && typeof payload === 'object' ? String(payload.phase || '') : '';
+  if (phase) return phase;
+  const named = /^Inspire is working on (.+)$/i.exec(String(row?.step_name || ''));
+  return named ? named[1] : '';
+}
+
+function timeOf(value) {
+  const ms = Date.parse(String(value || '').replace(' ', 'T'));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+export function pocStages(steps, latest, { now = Date.now(), stalled = null } = {}) {
+  const outputs = latest?.spec_json?.outputs || {};
+  const plan = [
+    ...POC_BUILD_STAGES,
+    ...IMPLEMENT_OUTPUTS.filter((o) => outputs[o.id]).map((o) => ({ id: o.label, label: o.label, working: `Genie is building the ${o.label.toLowerCase()}` })),
+    FINISH_STAGE,
+  ];
+  const stages = plan.map((stage) => ({ ...stage, state: 'waiting', started: null, ended: null }));
+  const indexOf = (phase) => stages.findIndex((s) => s.id.toLowerCase() === phase.toLowerCase()
+    || (s.phases || []).some((p) => p.toLowerCase() === phase.toLowerCase()));
+  const rank = { running: 0, done: 1, warning: 2, error: 3 };
+  const seenAt = new Map();
+  for (const row of steps || []) {
+    const index = indexOf(stepPhase(row));
+    if (index < 0) continue;
+    const stage = stages[index];
+    const state = STEP_STATES[String(row.status || '')];
+    if (!state) continue;
+    const at = timeOf(row.last_updated);
+    if (stage.started === null || (at !== null && at < stage.started)) stage.started = at;
+    if (state !== 'running' && (stage.ended === null || (at !== null && at >= stage.ended))) stage.ended = at;
+    const before = seenAt.has(index) ? seenAt.get(index) : undefined;
+    const newer = before === undefined || at === null || before === null || at > before;
+    const tie = at !== null && at === before && rank[state] >= rank[stage.state];
+    if (newer || tie) {
+      stage.state = state;
+      seenAt.set(index, at);
+    }
+  }
+  const status = String(latest?.status || '');
+  const finished = ['ready', 'ready_with_warnings'].includes(status);
+  const failed = status === 'failed';
+  const active = IMPLEMENT_ACTIVE_STATUSES.includes(status);
+  const last = stages.reduce((found, s, i) => (s.state !== 'waiting' ? i : found), -1);
+  stages.forEach((s, i) => { if (s.state === 'waiting' && i < last) s.state = 'skipped'; });
+  const finish = stages[stages.length - 1];
+  if (finished) {
+    if (finish.state === 'waiting' || finish.state === 'running') finish.state = status === 'ready' ? 'done' : 'warning';
+    stages.forEach((s) => { if (s.state === 'waiting') s.state = 'skipped'; });
+  }
+  if (failed) {
+    if (!stages.some((s) => s.state === 'error')) {
+      const broken = stages.find((s) => s.state === 'running') || stages.find((s) => s.state === 'waiting');
+      if (broken) broken.state = 'error';
+    }
+    stages.forEach((s) => { if (s.state === 'running') s.state = 'error'; if (s.state === 'waiting') s.state = 'not_reached'; });
+  }
+  if (active && stalled) {
+    stages.forEach((s) => { if (s.state === 'running') s.state = 'error'; if (s.state === 'waiting') s.state = 'not_reached'; });
+  } else if (active && !stages.some((s) => s.state === 'running')) {
+    const next = stages.find((s) => s.state === 'waiting');
+    if (next) {
+      next.state = 'next';
+      next.started = stages.reduce((t, s) => (s.ended !== null && s.ended > (t ?? -Infinity) ? s.ended : t), null) ?? timeOf(latest?.created_at);
+    }
+  }
+  for (const s of stages) {
+    const end = ['running', 'next'].includes(s.state) ? now : s.ended;
+    s.elapsed = s.started !== null && end !== null && end >= s.started ? formatDuration(end - s.started) : '';
+  }
+  return stages;
+}
+
+export function pocProgressSummary(stages, latest, { now = Date.now(), stalled = null } = {}) {
+  const counted = stages.filter((s) => s.state !== 'skipped');
+  const settled = counted.filter((s) => ['done', 'warning'].includes(s.state)).length;
+  const current = stages.find((s) => ['running', 'next'].includes(s.state)) || null;
+  const created = timeOf(latest?.created_at);
+  const ended = stages.reduce((t, s) => (s.ended !== null && s.ended > (t ?? -Infinity) ? s.ended : t), null);
+  const status = String(latest?.status || '');
+  const active = IMPLEMENT_ACTIVE_STATUSES.includes(status) && !stalled;
+  const span = created === null ? '' : formatDuration((active ? now : ended ?? now) - created);
+  let headline = '';
+  if (active && status === 'queued' && !current?.started) headline = 'Waiting for the build job to start';
+  else if (active && current) headline = `${current.working}…`;
+  else if (active) headline = 'Inspire is working…';
+  return {
+    active,
+    current,
+    percent: counted.length ? Math.round((settled / counted.length) * 100) : 0,
+    headline,
+    span: span ? `${active ? 'Running for' : 'Took'} ${span}` : '',
+  };
+}
+
+function plural(count, word) {
+  return `${count} ${word}${count === 1 ? '' : 's'}`;
+}
+
+export function feedLine(item) {
+  const kind = String(item?.kind || '');
+  const text = String(item?.text || '');
+  if (kind === 'message') return { who: 'genie', tone: 'plain', text };
+  if (kind === 'stopped') return { who: 'genie', tone: 'warning', text: `Stopped: ${text}` };
+  if (kind === 'error') return { who: 'genie', tone: 'error', text: `Genie hit an error: ${text}` };
+  if (kind === 'turn_done') return { who: 'genie', tone: 'quiet', text: 'Genie finished its turn' };
+  if (kind === 'activity') {
+    const commands = Number(item.commands) || 0;
+    const failed = Number(item.failed) || 0;
+    const files = Array.isArray(item.files) ? item.files : [];
+    const parts = [];
+    if (commands) parts.push(`Ran ${plural(commands, 'command')}${failed ? ` (${failed} failed)` : ''}`);
+    if (files.length) parts.push(`${parts.length ? 'edited' : 'Edited'} ${files.join(', ')}`);
+    return { who: 'genie', tone: 'quiet', text: parts.join(' · ') };
+  }
+  if (kind === 'run') {
+    const what = item.check ? 'The alert check run' : 'The preview run';
+    const state = String(item.state || '');
+    const result = String(item.result || '');
+    const after = Number(item.seconds) > 0 ? ` (${formatDuration(Number(item.seconds) * 1000)})` : '';
+    if (RUN_STARTING_STATES.includes(state)) return { who: 'inspire', tone: 'quiet', text: `${what} is starting${after}` };
+    if (state === 'RUNNING' || state === 'TERMINATING') return { who: 'inspire', tone: 'quiet', text: `${what} is running${after}` };
+    if (state === 'TERMINATED' && result === 'SUCCESS') return { who: 'inspire', tone: 'plain', text: `${what} finished${after}` };
+    return { who: 'inspire', tone: 'error', text: `${what} ended: ${[state, result].filter(Boolean).join(' / ')}${after}` };
+  }
+  if (kind === 'failed') return { who: 'inspire', tone: 'error', text };
+  if (kind === 'note') return { who: 'inspire', tone: 'quiet', text };
+  return null;
+}
+
+export function feedKey(item) {
+  return `${item?.at || ''}|${item?.kind || ''}|${String(item?.text || item?.run_id || '').slice(0, 60)}`;
+}
+
+export const FEED_WORDS_PER_SECOND = 12;
+
+export function typedText(text, elapsedMs, wordsPerSecond = FEED_WORDS_PER_SECOND) {
+  const value = String(text || '');
+  const tokens = value.split(/(\s+)/);
+  const words = Math.max(0, Math.floor((Math.max(0, Number(elapsedMs) || 0) / 1000) * wordsPerSecond));
+  let shown = 0;
+  let out = '';
+  for (const token of tokens) {
+    if (!/^\s+$/.test(token) && token) {
+      if (shown >= words) return out.trimEnd();
+      shown += 1;
+    }
+    out += token;
+  }
+  return out;
+}
+
+export function typingDone(text, elapsedMs, wordsPerSecond = FEED_WORDS_PER_SECOND) {
+  return typedText(text, elapsedMs, wordsPerSecond) === String(text || '');
+}
+
+export function feedTypesOut(item) {
+  return ['message', 'stopped', 'error'].includes(String(item?.kind || ''));
+}
+
+export function feedArrivals(previous, feed, at) {
+  const next = new Map(previous || []);
+  for (const item of Array.isArray(feed) ? feed : []) {
+    const key = feedKey(item);
+    if (!next.has(key)) next.set(key, previous ? at : 0);
+  }
+  return next;
+}
+
+export function typingSchedule(feed, arrivals, wordsPerSecond = FEED_WORDS_PER_SECOND) {
+  const starts = new Map();
+  let end = 0;
+  for (const item of Array.isArray(feed) ? feed : []) {
+    const key = feedKey(item);
+    const arrived = arrivals?.get(key) || 0;
+    if (!arrived || !feedTypesOut(item)) continue;
+    const line = feedLine(item);
+    if (!line?.text) continue;
+    const start = Math.max(arrived, end);
+    end = start + (line.text.split(/\s+/).filter(Boolean).length / wordsPerSecond) * 1000;
+    starts.set(key, start);
+  }
+  return { starts, end };
+}

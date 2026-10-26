@@ -627,8 +627,11 @@ test('profile estimates come from Deep evidence, and say unknown when there is n
   assert.deepEqual(windowed, { rows: Math.round(3650 * 31 / 366), text: `about ${Math.round(3650 * 31 / 366)} rows of main.s.orders (31 of 366 days of order_date)` });
   assert.equal(w.profileEstimate({ ...base, table: 'MAIN.S.ORDERS', sampleEntities: '200', entityCap: '50' }).text,
     'about 3,650 rows of MAIN.S.ORDERS (366 of 366 days of order_date; then a sample of 200 entities; capped at 50 entities)');
-  assert.equal(w.profileEstimate({ ...base, table: 'main.s.events', dateColumn: '', windowDays: '30' }).text,
+  assert.equal(w.profileEstimate({ ...base, table: 'main.s.events', windowDays: '30' }).text,
     'at most 500 rows of main.s.events (no date range was profiled, so this is the whole table)');
+  assert.equal(w.profileEstimate({ ...base, table: 'main.s.events', dateColumn: '', windowDays: '30' }).text,
+    "at most 500 rows of main.s.events (no event date column is set here, so this is the whole table; the PoC/MVP applies the "
+    + "window to the instruction's date)");
 });
 
 test('every permission check the preflight can return has a label', async () => {
@@ -672,7 +675,7 @@ test('Edit opens the wizard on the step it was asked for, and on Choose otherwis
 
 test('Full PoC is the first mode, and Notebook only swaps Delivery for a Notebook step with nothing to check', async () => {
   const w = await load();
-  assert.deepEqual(w.IMPLEMENT_MODES.map((m) => [m.id, m.label]), [['poc', 'Full PoC'], ['notebook', 'Notebook only']]);
+  assert.deepEqual(w.IMPLEMENT_MODES.map((m) => [m.id, m.label]), [['poc', 'Full PoC/MVP'], ['notebook', 'Notebook only']]);
   assert.equal(w.wizardSteps('poc'), w.IMPLEMENT_STEPS);
   assert.deepEqual(w.wizardSteps('notebook').map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['notebook', 'Notebook']]);
   assert.throws(() => w.wizardSteps('both'), /unknown implement mode 'both'/);
@@ -717,14 +720,14 @@ test('the PoC state outranks the notebook, and a stopped PoC run counts as faile
   const w = await load();
   const ready = { state: 'ready', label: 'Notebook ready', tone: 'success' };
   const cases = [
-    [{ status: 'ready' }, ready, 'ready', 'PoC ready'],
-    [{ status: 'ready_with_warnings' }, null, 'ready', 'PoC ready with warnings'],
-    [{ status: 'failed' }, ready, 'failed', 'PoC failed'],
-    [{ status: 'filling', stalled: { reason: 'run ended' } }, null, 'failed', 'PoC stopped'],
-    [{ status: 'previewing', stalled: null }, ready, 'in_progress', 'PoC running'],
-    [{ status: 'queued' }, null, 'in_progress', 'PoC running'],
-    [{ status: 'building_outputs' }, null, 'in_progress', 'PoC running'],
-    [{ status: 'archived_v2' }, null, 'in_progress', 'PoC archived v2'],
+    [{ status: 'ready' }, ready, 'ready', 'PoC/MVP ready'],
+    [{ status: 'ready_with_warnings' }, null, 'ready', 'PoC/MVP ready with warnings'],
+    [{ status: 'failed' }, ready, 'failed', 'PoC/MVP failed'],
+    [{ status: 'filling', stalled: { reason: 'run ended' } }, null, 'failed', 'PoC/MVP stopped'],
+    [{ status: 'previewing', stalled: null }, ready, 'in_progress', 'PoC/MVP running'],
+    [{ status: 'queued' }, null, 'in_progress', 'PoC/MVP running'],
+    [{ status: 'building_outputs' }, null, 'in_progress', 'PoC/MVP running'],
+    [{ status: 'archived_v2' }, null, 'in_progress', 'PoC/MVP archived v2'],
     [null, ready, 'ready', 'Notebook ready'],
     [null, { state: 'running', label: 'Notebook running', tone: 'busy' }, 'in_progress', 'Notebook running'],
     [null, { state: 'failed', label: 'Notebook failed', tone: 'error' }, 'failed', 'Notebook failed'],
@@ -861,4 +864,52 @@ test('a notebook run counts as ended when it stops running or a newer finished r
   assert.equal(w.notebookRunEnded(null, run(1, 'succeeded')), false);
   assert.equal(w.notebookRunEnded(run(1, 'running'), null), false);
   assert.equal(w.notebookRunEnded({ run_id: 7, state: 'succeeded' }, { run_id: '7', state: 'failed' }), false, 'ids compare as text');
+});
+
+
+test('the wizard judges column roles by the rules and cases the agent shares', async () => {
+  const w = await load();
+  const rules = FIXTURE.role_rules;
+  assert.deepEqual(w.ROLE_RULES.keyNameSuffixes, rules.key_name_suffixes);
+  assert.deepEqual(w.ROLE_RULES.keyNamePrefixes, rules.key_name_prefixes);
+  assert.deepEqual(w.ROLE_RULES.genericKeyNames, rules.generic_key_names);
+  assert.deepEqual(w.ROLE_RULES.concatKeySuffixes, rules.concat_key_suffixes);
+  assert.deepEqual(w.ROLE_RULES.textNameTokens, rules.text_name_tokens);
+  assert.deepEqual(w.ROLE_RULES.personNameTokens, rules.person_name_tokens);
+  for (const c of rules.cases) {
+    assert.equal(w.isDateKeyColumn(c.column, c.type), c.date_key, `${c.column} date key`);
+    assert.equal(w.columnRoleProblem(c.role, c.column, c.type) === '', c.fits, `${c.role} ${c.column}`);
+  }
+  assert.equal(w.columnRoleProblem('label', 'c_first_name', 'STRING', { trainsModel: false }), '');
+});
+
+test('the Data step names each column role that does not fit and leaves unset roles to Inspire', async () => {
+  const w = await load();
+  const columnsByTable = {
+    'samples.tpcds_sf1.web_sales': [{ column_name: 'ws_sold_date_sk', data_type: 'INT' }, { column_name: 'ws_quantity', data_type: 'INT' }],
+    'samples.tpcds_sf1.customer': [{ column_name: 'c_first_name', data_type: 'STRING' }, { column_name: 'c_last_review_date', data_type: 'INT' }],
+  };
+  const guessed = specWith(w, { column_roles: {
+    entity_id: 'samples.tpcds_sf1.web_sales.ws_sold_date_sk', event_date: 'samples.tpcds_sf1.customer.c_last_review_date',
+    label: 'samples.tpcds_sf1.customer.c_first_name', measure: 'samples.tpcds_sf1.web_sales.ws_quantity' } });
+  const errors = w.sectionErrors('data', guessed, { columnsByTable, trainsModel: true });
+  assert.deepEqual(errors.filter((e) => /^(entity id|event date|label|measure|segment) samples\./.test(e)), [
+    'entity id samples.tpcds_sf1.web_sales.ws_sold_date_sk: a date, a date key or a measure is not the entity the decision acts on',
+    'event date samples.tpcds_sf1.customer.c_last_review_date: pick a DATE or TIMESTAMP column, or a date key that joins a date table',
+    'label samples.tpcds_sf1.customer.c_first_name: an outcome is a flag, a number or a category, never a date, a key, a name or free text',
+  ]);
+  const unset = specWith(w, { column_roles: {} });
+  assert.deepEqual(w.sectionErrors('data', unset, { columnsByTable }).filter((e) => e.includes('samples.')), []);
+  assert.deepEqual(w.defaultSpecFromUseCase(ROW, {}).data.column_roles, {});
+  const gone = specWith(w, { column_roles: { measure: 'samples.tpcds_sf1.web_sales.ws_gone' } });
+  assert.deepEqual(w.sectionErrors('data', gone, { columnsByTable }).filter((e) => e.includes('ws_gone')),
+    ['measure samples.tpcds_sf1.web_sales.ws_gone: samples.tpcds_sf1.web_sales has no column ws_gone']);
+});
+
+test('the wizard never fills a column role on its own', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(path.resolve(__dirname, '..', '..', 'frontend', 'src', 'pages', 'ImplementWizard.jsx'), 'utf8');
+  assert.doesNotMatch(source, /guessColumnRole|confirmedRoles|unconfirmedRoles/);
+  assert.match(source, /<option value="">Inspire&apos;s choice<\/option>/);
+  assert.doesNotMatch(source, /column_roles: roles/);
 });

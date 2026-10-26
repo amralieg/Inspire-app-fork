@@ -19,7 +19,7 @@ test('a notebook link opens the workspace path on the host, adding /Workspace an
 test('a PoC saved under /Shared warns that everyone can edit it, and no other folder does', async () => {
   const { sharedFolderWarning, generationFolder } = await load();
   const said = sharedFolderWarning('/Workspace/Shared/demos/acme');
-  assert.match(said, /^Inspire saves this PoC under \/Workspace\/Shared\/demos\/acme_implemented\. Everyone in the workspace can edit, republish and delete/);
+  assert.match(said, /^Inspire saves this PoC\/MVP under \/Workspace\/Shared\/demos\/acme_implemented\. Everyone in the workspace can edit, republish and delete/);
   assert.match(said, /their own access\. To keep it to yourself, run Discover again with a generation path under your own user folder\.$/);
   assert.match(sharedFolderWarning('/Shared/demos/acme/'), /under \/Workspace\/Shared\/demos\/acme_implemented\./);
   assert.match(sharedFolderWarning(generationFolder({ generationPath: 'out', notebookPath: '/Shared/inspire-ai/dbx_inspire_ai_agent', businessName: 'Acme' })),

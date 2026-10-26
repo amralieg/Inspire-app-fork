@@ -78,6 +78,13 @@ test('favorites load from the fingerprint key, migrate only fingerprint legacy k
   assert.equal(f.favoriteKeyOf({ _domain: 'Customer' }), '');
 });
 
+test('the favorites count holds only the use cases still marked as favorites', async () => {
+  const f = await load();
+  assert.equal(f.favoriteCount({ a: true, b: false, c: 1, d: 0 }), 2);
+  assert.equal(f.favoriteCount({}), 0);
+  assert.equal(f.favoriteCount(null), 0);
+});
+
 test('the tracking id prefers id, then No', async () => {
   const f = await load();
   assert.equal(f.trackingIdOf({ id: ' N01-U01 ', No: 'X' }), 'N01-U01');

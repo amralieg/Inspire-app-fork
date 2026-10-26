@@ -689,7 +689,7 @@ function registerImplementRoutes(app, deps) {
           useCaseIds: [useCaseId],
         });
       } catch (err) {
-        const failed = I.implementStartFailedStatement(table, { ...version, message: `the Implement run could not start: ${err.message}` });
+        const failed = I.implementStartFailedStatement(table, { ...version, message: `the PoC/MVP run could not start: ${err.message}` });
         try {
           await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, warehouseId, failed.sql, { parameters: failed.parameters });
         } catch (e) {
@@ -732,12 +732,12 @@ function registerImplementRoutes(app, deps) {
       }
       const session = await loadSession(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid).catch(() => null);
       const logPath = I.liveLogPath(`${catalog}.${schema}`, session?.business_name, sid);
-      let log_lines = [];
+      let feed = [];
       if (logPath) {
         const got = await jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/fs/files${logPath}`);
         if (got.ok) {
           const text = typeof got.data === 'string' ? got.data : (got.data.raw || '');
-          log_lines = I.useCaseLogLines(text, useCaseId).slice(-200);
+          feed = I.genieFeed(text, useCaseId, history[0] && history[0].created_at);
         }
       }
       const appName = I.carriedAssets(history).app;
@@ -755,7 +755,7 @@ function registerImplementRoutes(app, deps) {
         history,
         steps,
         log_path: logPath,
-        log_lines,
+        feed,
         rerun_widgets: I.rerunWidgets(history),
         app_status: I.appStatusFrom(appInfo, { useCaseId, sessionId: sid }),
         runs: I.jobRunsFrom(runInfo, jobInfo),

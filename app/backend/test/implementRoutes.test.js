@@ -145,7 +145,7 @@ test('a version whose run could not start is failed with the reason, so it never
     const writes = made.sqlCalls.filter((c) => /^(INSERT|UPDATE)/.test(String(c.sql)));
     assert.deepEqual(writes.map((c) => String(c.sql).split(' ')[0]), ['INSERT', 'UPDATE']);
     assert.match(writes[1].sql, /SET status = 'failed', status_message = :message, updated_at = current_timestamp\(\) .* AND status = 'queued'$/);
-    assert.deepEqual(writes[1].parameters.map((p) => [p.name, p.value]), [['message', 'the Implement run could not start: RESOURCE_EXHAUSTED: too many concurrent runs'],
+    assert.deepEqual(writes[1].parameters.map((p) => [p.name, p.value]), [['message', 'the PoC/MVP run could not start: RESOURCE_EXHAUSTED: too many concurrent runs'],
       ['sid', '42'], ['uc', 'N01-U01'], ['v', '1']]);
   });
 });

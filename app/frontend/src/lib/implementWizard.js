@@ -1,5 +1,7 @@
+export const START_POC_LABEL = 'Start Use Case PoC/MVP with Genie';
+
 export const IMPLEMENT_MODES = [
-  { id: 'poc', label: 'Full PoC', blurb: 'Genie builds the result table, then the outputs you pick: dashboard, Genie space, App or alert.' },
+  { id: 'poc', label: 'Full PoC/MVP', blurb: 'Genie builds the result table, then the outputs you pick: dashboard, Genie space, App or alert.' },
   { id: 'notebook', label: 'Notebook only', blurb: 'Inspire writes the Genie Code notebook for this use case. Nothing else is built; you run the notebook yourself.' },
 ];
 
@@ -333,14 +335,81 @@ export function specFromLatest(latest, fallback, assets = {}) {
   };
 }
 
-export function guessColumnRole(column) {
-  const n = String(column || '').toLowerCase();
-  if (/(_sk|_id|entity|customer|account|user)$/.test(n) || n.endsWith('id')) return 'entity_id';
-  if (/(date|dt|_ts|timestamp|as_of)/.test(n)) return 'event_date';
-  if (/(amount|qty|quantity|revenue|cost|score|value|measure)/.test(n)) return 'measure';
-  if (/(name|title|label|desc)/.test(n)) return 'label';
-  if (/(region|segment|tier|category|channel)/.test(n)) return 'segment';
+export const ROLE_RULES = {
+  keyNameSuffixes: ['_id', '_key', '_sk', '_pk', '_fk', '_nk', '_code', '_no', '_num', '_number', '_ref', '_uuid', '_guid'],
+  keyNamePrefixes: ['id_', 'fk_', 'sk_', 'pk_'],
+  genericKeyNames: ['code', 'fk', 'guid', 'id', 'key', 'nk', 'no', 'num', 'number', 'pk', 'record_id', 'ref', 'row_id', 'rowid', 'sk', 'uuid'],
+  concatKeySuffixes: ['id', 'key', 'sk', 'code', 'num', 'number'],
+  textNameTokens: ['text', 'comment', 'review', 'description', 'desc', 'note', 'feedback', 'transcript', 'body', 'message', 'title',
+    'subject', 'content', 'reason', 'summary', 'narrative', 'remark'],
+  personNameTokens: ['name', 'email', 'phone', 'address'],
+};
+
+const CAMEL_KEY_NAME_RE = /[a-z0-9](Id|ID|Key|KEY|Sk|SK|Code|CODE|No|NO|Num|NUM|Number|NUMBER|Ref|REF|Uuid|UUID|Guid|GUID)$/;
+
+export function columnTypeFamily(type) {
+  const t = String(type || '');
+  if (/^\s*(tinyint|smallint|integer|int|bigint|long|short|byte|float|double|real|decimal|dec|numeric)\b/i.test(t)) return 'numeric';
+  if (/^\s*(timestamp_ntz|timestamp_ltz|timestamp|datetime|date|time)\b/i.test(t)) return 'temporal';
+  if (/^\s*(string|varchar|char|text)\b/i.test(t)) return 'string';
+  if (/^\s*bool/i.test(t)) return 'boolean';
+  return 'other';
+}
+
+export function nameTokens(name) {
+  return String(name || '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+export function isKeyLikeColumn(name) {
+  const raw = String(name || '').trim();
+  const low = raw.toLowerCase();
+  if (!low) return false;
+  if (ROLE_RULES.genericKeyNames.includes(low) || ROLE_RULES.keyNameSuffixes.some((s) => low.endsWith(s))
+    || ROLE_RULES.keyNamePrefixes.some((p) => low.startsWith(p))) return true;
+  if (CAMEL_KEY_NAME_RE.test(raw)) return true;
+  return ROLE_RULES.concatKeySuffixes.some((s) => low.endsWith(s) && low.length - s.length >= 4 && /^[a-z]+$/.test(low.slice(0, -s.length)));
+}
+
+export function isDateKeyColumn(name, type) {
+  return columnTypeFamily(type) === 'numeric' && isKeyLikeColumn(name) && nameTokens(name).includes('date');
+}
+
+export function columnRoleProblem(role, column, type, { trainsModel = true } = {}) {
+  if (role === 'label' && !trainsModel) return '';
+  const family = columnTypeFamily(type);
+  const dateKey = isDateKeyColumn(column, type);
+  const keyLike = isKeyLikeColumn(column);
+  const tokens = nameTokens(column);
+  const freeText = family === 'string' && [...ROLE_RULES.textNameTokens, ...ROLE_RULES.personNameTokens].some((t) => tokens.includes(t));
+  if (role === 'entity_id' && (dateKey || family === 'temporal' || family === 'boolean' || (family === 'numeric' && !keyLike))) {
+    return 'a date, a date key or a measure is not the entity the decision acts on';
+  }
+  if (role === 'event_date' && !(family === 'temporal' || dateKey)) {
+    return 'pick a DATE or TIMESTAMP column, or a date key that joins a date table';
+  }
+  if (role === 'measure' && (family !== 'numeric' || keyLike)) return 'a measure is a numeric column that is not a key';
+  if (role === 'label' && (family === 'temporal' || keyLike || freeText)) {
+    return 'an outcome is a flag, a number or a category, never a date, a key, a name or free text';
+  }
+  if (role === 'segment' && (family === 'temporal' || family === 'other' || freeText)) {
+    return 'a segment is a category column, never a date or free text';
+  }
   return '';
+}
+
+export function columnRoleProblems(roles, columnsByTable, options = {}) {
+  const problems = [];
+  for (const [role, ref] of Object.entries(roles || {})) {
+    if (!ref) continue;
+    const table = tableOfRef(ref);
+    const column = columnOfRef(ref);
+    const columns = Object.entries(columnsByTable || {}).find(([t]) => sameTable(t, table))?.[1];
+    if (!columns) continue;
+    const found = columns.find((c) => String(c.column_name).toLowerCase() === column.toLowerCase());
+    const why = found ? columnRoleProblem(role, found.column_name, found.data_type, options) : `${table} has no column ${column}`;
+    if (why) problems.push(`${role.replace('_', ' ')} ${ref}: ${why}`);
+  }
+  return problems;
 }
 
 const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -623,7 +692,8 @@ export function profileEstimate({ evidence, table, dateColumn, windowDays, dataW
       notes.push(`${days} of ${span} days of ${dateColumn}${sampled ? ', dates from a sample' : ''}`);
     }
   } else if (Number(windowDays) > 0 || dataWindow?.start || dataWindow?.end) {
-    notes.push('no date range was profiled, so this is the whole table');
+    notes.push(dateColumn ? 'no date range was profiled, so this is the whole table'
+      : 'no event date column is set here, so this is the whole table; the PoC/MVP applies the window to the instruction\'s date');
   }
   if (Number(sampleEntities) > 0) notes.push(`then a sample of ${Number(sampleEntities)} entities`);
   if (Number(entityCap) > 0) notes.push(`capped at ${Number(entityCap)} entities`);
@@ -734,7 +804,7 @@ export function sectionErrors(section, spec, extras = {}) {
     if (!spec.config.result_table || spec.config.result_table.split('.').length !== 3) {
       errors.push('output location must be catalog.schema.table');
     }
-    if (extras.unconfirmedRoles?.length) errors.push(`confirm the low-confidence roles: ${extras.unconfirmedRoles.join(', ')}`);
+    errors.push(...columnRoleProblems(spec.data.column_roles, extras.columnsByTable, { trainsModel: extras.trainsModel !== false }));
     const { start, end } = spec.data.window || {};
     if (start && end && start > end) errors.push('the window starts after it ends');
     for (const kept of (spec.data.filters || []).filter((f) => f.op === 'in')) {
@@ -888,12 +958,12 @@ const NOTEBOOK_GROUP = { running: 'in_progress', ready: 'ready', failed: 'failed
 export function implementState(latest, notebook = null) {
   const s = String(latest?.status || '');
   if (s) {
-    if (s === 'ready') return { group: 'ready', label: 'PoC ready', tone: 'success', kind: 'poc' };
-    if (s === 'ready_with_warnings') return { group: 'ready', label: 'PoC ready with warnings', tone: 'warning', kind: 'poc' };
-    if (s === 'failed') return { group: 'failed', label: 'PoC failed', tone: 'error', kind: 'poc' };
-    if (IMPLEMENT_ACTIVE_STATUSES.includes(s) && latest.stalled) return { group: 'failed', label: 'PoC stopped', tone: 'error', kind: 'poc' };
-    if (IMPLEMENT_ACTIVE_STATUSES.includes(s)) return { group: 'in_progress', label: 'PoC running', tone: 'busy', kind: 'poc' };
-    return { group: 'in_progress', label: `PoC ${s.replace(/_/g, ' ')}`, tone: 'idle', kind: 'poc' };
+    if (s === 'ready') return { group: 'ready', label: 'PoC/MVP ready', tone: 'success', kind: 'poc' };
+    if (s === 'ready_with_warnings') return { group: 'ready', label: 'PoC/MVP ready with warnings', tone: 'warning', kind: 'poc' };
+    if (s === 'failed') return { group: 'failed', label: 'PoC/MVP failed', tone: 'error', kind: 'poc' };
+    if (IMPLEMENT_ACTIVE_STATUSES.includes(s) && latest.stalled) return { group: 'failed', label: 'PoC/MVP stopped', tone: 'error', kind: 'poc' };
+    if (IMPLEMENT_ACTIVE_STATUSES.includes(s)) return { group: 'in_progress', label: 'PoC/MVP running', tone: 'busy', kind: 'poc' };
+    return { group: 'in_progress', label: `PoC/MVP ${s.replace(/_/g, ' ')}`, tone: 'idle', kind: 'poc' };
   }
   if (notebook) return { group: NOTEBOOK_GROUP[notebook.state], label: notebook.label, tone: notebook.tone, kind: 'notebook' };
   return { group: 'not_started', label: '', tone: 'idle', kind: 'none' };

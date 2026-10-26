@@ -349,6 +349,7 @@ textarea::placeholder {
   .animate-shimmer-border,
   .animate-gradient-border,
   .animate-cursor-blink,
+  .animate-terminal-line,
   .animate-fade-in-up {
     animation: none !important;
   }
