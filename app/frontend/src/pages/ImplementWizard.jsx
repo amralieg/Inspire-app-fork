@@ -8,6 +8,7 @@ import {
   ALERT_OPERATORS,
   FRESHNESS_OPTIONS,
   defaultSpecFromUseCase,
+  caseNameOf,
   specFromLatest,
   tablesOf,
   primaryTableOf,
@@ -469,7 +470,7 @@ export default function ImplementWizard({
     return () => clearTimeout(t);
   }, [principalQ, apiFetch, q]);
 
-  const title = spec.use_case_name || spec.use_case_id;
+  const title = caseNameOf(uc) || spec.use_case_name || spec.use_case_id;
 
   if (loading) {
     return (

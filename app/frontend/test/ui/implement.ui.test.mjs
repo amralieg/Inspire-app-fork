@@ -211,6 +211,25 @@ test('the wizard names the use case as the card the person clicked, while the da
   }
 });
 
+test('Edit keeps the card name even when the saved version carries the tracking-table name', async () => {
+  const legacy = built({ spec_json: JSON.stringify({ ...builtSpec(), use_case_name: 'Keep customers who would leave' }) });
+  const ui = await openUi('studio', { ...STUDIO_STATE, history: [legacy] });
+  const { page } = ui;
+  try {
+    const studio = page.locator('[data-studio-overlay]');
+    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    assert.equal(await studio.getByText('Keep customers who would leave').count(), 0);
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    const summary = page.getByRole('region', { name: 'Executive summary' });
+    await summary.waitFor();
+    assert.equal(await summary.locator('h3').innerText(), HARNESS_USE_CASE.Name);
+    assert.equal(await page.getByRole('dialog').getByText('Keep customers who would leave').count(), 0, 'one name for the use case, the one on its card');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('the wizard and the Studio cover the screen from any scroll position, above the App header, inside an animated page', async () => {
   for (const open of ['wizard', 'studio']) {
     const ui = await openUi(`${open}&nest=1`, open === 'studio' ? STUDIO_STATE : { me: { userName: OWNER, displayName: 'Owner' } });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, X, ExternalLink, RefreshCw, Pencil, RotateCcw } from 'lucide-react';
 import {
-  statusChip, statusReason, caseIdOf, nextSpecFrom, retryableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
+  statusChip, statusReason, caseIdOf, caseNameOf, nextSpecFrom, retryableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
   resultTierOptions, runProfileText, versionActive, historyStatus,
 } from '../lib/implementWizard';
 import BodyPortal from '../components/BodyPortal';
@@ -152,7 +152,7 @@ export default function UseCaseStudio({
     );
   };
 
-  const names = Object.fromEntries(useCases.map((uc) => [caseIdOf(uc), uc.Name || uc.use_case || caseIdOf(uc)]));
+  const names = Object.fromEntries(useCases.map((uc) => [caseIdOf(uc), caseNameOf(uc) || caseIdOf(uc)]));
 
   return (
     <BodyPortal>

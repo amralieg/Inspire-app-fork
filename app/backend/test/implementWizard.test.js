@@ -357,6 +357,16 @@ test('the live check reads only the primary table, after its swap', async () => 
   assert.deepEqual(w.readinessScope(open, ROW).uncounted, [], 'an empty window is not left out of anything');
 });
 
+test('a use case is named by its card first, then its tracking row, then any plain name', async () => {
+  const w = await load();
+  assert.equal(w.caseNameOf({ Name: 'Predict churn', use_case: 'Keep customers who would leave' }), 'Predict churn');
+  assert.equal(w.caseNameOf({ use_case: ' Keep customers who would leave ' }), 'Keep customers who would leave');
+  assert.equal(w.caseNameOf({ name: 'churn' }), 'churn');
+  assert.equal(w.caseNameOf({}), '');
+  assert.equal(w.caseNameOf(null), '');
+  assert.equal(w.defaultSpecFromUseCase({ id: 'N01-U01', Name: 'Predict churn', use_case: 'Keep customers' }).use_case_name, 'Predict churn');
+});
+
 test('the row count says what it left out, and an empty scope names what to widen', async () => {
   const w = await load();
   const scope = (over) => ({ table: 'main.s.orders', columns: [], filters: [], window: {}, uncounted: [], ...over });

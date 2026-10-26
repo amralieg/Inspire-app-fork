@@ -62,6 +62,10 @@ export function caseIdOf(uc) {
   return String(uc?.id ?? uc?.No ?? uc?.use_case_id ?? '').trim();
 }
 
+export function caseNameOf(uc) {
+  return String(uc?.Name || uc?.use_case || uc?.name || '').trim();
+}
+
 function tableNames(text) {
   const names = [];
   for (const part of String(text || '').split(/[,\s]+/)) {
@@ -217,7 +221,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
   const measures = listOf(uc?.measures_of_success || uc?._v130?.measuresOfSuccess).slice(0, 3);
   const goal = String(uc?.statement || uc?.Statement || uc?.business_value || '').trim().slice(0, 500);
   const decisionOwner = String(owner || uc?.sponsor || uc?.Sponsor || '').trim();
-  const useCaseName = String(uc?.Name || uc?.use_case || uc?.name || '').trim();
+  const useCaseName = caseNameOf(uc);
   return {
     use_case_id: id,
     use_case_name: useCaseName,
