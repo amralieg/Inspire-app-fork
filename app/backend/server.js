@@ -26,6 +26,7 @@ const {
 } = require('./lib/inspireJobParams');
 const { notebookParamsFromSessionForGenerateRun } = require('./lib/inspireSessionParams');
 const { splitInspireDatabase, isTimestampText, stepsStatement } = require('./lib/sqlInputs');
+const { createExecuteSql, runWithRequestDeadline } = require('./lib/sqlStatements');
 const { registerImplementRoutes } = require('./implementRoutes');
 const {
   FEEDBACK_NOT_AVAILABLE,
@@ -472,73 +473,14 @@ async function requireToken(req, res, next) {
     if (!req.dbHost) {
       return res.status(400).json({ error: 'Databricks host not configured.' });
     }
-    next();
+    runWithRequestDeadline(next);
   } catch (err) {
     console.error(`🔒 requireToken error: ${err.message}`);
     next(err);
   }
 }
 
-// Execute SQL via Databricks SQL Statement Execution API
-async function executeSql(host, token, warehouseId, sql, parameters = null) {
-  console.log(`   🔶 SQL: ${sql.substring(0, 150)}...`);
-
-  const body = {
-    warehouse_id: warehouseId,
-    statement: sql,
-    wait_timeout: '50s',
-    on_wait_timeout: 'CONTINUE',
-    disposition: 'INLINE',
-    format: 'JSON_ARRAY',
-  };
-  if (Array.isArray(parameters) && parameters.length) body.parameters = parameters;
-  const submitResp = await dbFetch(host, token, '/api/2.0/sql/statements', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-  if (!submitResp.ok) {
-    const errText = await submitResp.text();
-    console.error(`   ❌ SQL submit failed (${submitResp.status}): ${errText.substring(0, 200)}`);
-    throw new Error(`SQL failed (${submitResp.status}): ${errText}`);
-  }
-  let result = await submitResp.json();
-  console.log(`   📄 SQL state: ${result.status?.state}`);
-
-  // Poll if still running
-  let pollCount = 0;
-  while (result.status?.state === 'PENDING' || result.status?.state === 'RUNNING') {
-    pollCount++;
-    await new Promise(r => setTimeout(r, 2000));
-    const pollResp = await dbFetch(host, token, `/api/2.0/sql/statements/${result.statement_id}`);
-    if (!pollResp.ok) throw new Error(`SQL polling failed`);
-    result = await pollResp.json();
-    if (pollCount % 5 === 0) console.log(`   ⏳ Polling (${pollCount})...`);
-  }
-
-  if (result.status?.state === 'FAILED') {
-    const errMsg = result.status?.error?.message || 'SQL statement execution failed';
-    throw new Error(errMsg);
-  }
-
-  // Handle chunked results
-  if (result.manifest?.total_chunk_count > 1 && result.manifest?.chunks) {
-    let allData = result.result?.data_array || [];
-    for (const chunk of result.manifest.chunks) {
-      if (chunk.chunk_index === 0) continue;
-      const chunkResp = await dbFetch(host, token, `/api/2.0/sql/statements/${result.statement_id}/result/chunks/${chunk.chunk_index}`);
-      if (chunkResp.ok) {
-        const chunkData = await chunkResp.json();
-        if (chunkData.data_array) allData = allData.concat(chunkData.data_array);
-      }
-    }
-    result.result = result.result || {};
-    result.result.data_array = allData;
-  }
-
-  const rowCount = result.result?.data_array?.length ?? 0;
-  console.log(`   ✅ SQL done: ${rowCount} rows`);
-  return result;
-}
+const executeSql = createExecuteSql(dbFetch);
 
 /** Delta optimistic concurrency (notebook + UI can touch __inspire_usecases at once). */
 function isDeltaConcurrentWriteConflict(message) {

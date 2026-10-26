@@ -155,9 +155,12 @@ function makeApp(overrides = {}) {
     },
   });
   app.get('/api/inspire/results', (_req, res) => res.json({ results: state.results || null }));
-  app.get('/api/inspire/sessions', (_req, res) => res.json({
-    sessions: state.sessions || [{ session_id: '42', completed_percent: 100, business_name: state.session.business_name, widget_values: { business: state.session.business_name } }],
-  }));
+  app.get('/api/inspire/sessions', (_req, res) => {
+    if (state.sessionsErrors?.length) return res.status(500).json({ error: state.sessionsErrors.shift() });
+    return res.json({
+      sessions: state.sessions || [{ session_id: '42', completed_percent: 100, business_name: state.session.business_name, widget_values: { business: state.session.business_name } }],
+    });
+  });
   app.get('/api/inspire/step-results', (_req, res) => res.json({ results: null }));
   app.get('/api/inspire/feedback', (_req, res) => res.json({ available: false, latest: [], message: '' }));
   app.get('/api/workspace/list', (_req, res) => res.json({ files: [] }));

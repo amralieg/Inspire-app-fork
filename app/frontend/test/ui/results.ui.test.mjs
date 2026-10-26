@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { closeBrowser, lowContrast, lowContrastThroughAnimations, openUi } from './uiSupport.mjs';
+
+const { SLOW_WAREHOUSE_MESSAGE } = createRequire(import.meta.url)('../../../backend/lib/sqlStatements.js');
 
 test.after(closeBrowser);
 
@@ -172,6 +175,27 @@ test('the whole Results page, its open sidebar panels and every kind of open car
       }
     }
     assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('a warehouse too slow to answer shows its own message with Retry, and Retry brings the sessions back', async () => {
+  const ui = await openUi('results', { ...STATE, sessionsErrors: [SLOW_WAREHOUSE_MESSAGE] });
+  const { page, made } = ui;
+  try {
+    await ready(page);
+    await page.getByRole('button', { name: /Change Session/ }).click();
+    await page.getByText('Could not load sessions').waitFor();
+    assert.equal(await page.getByText(SLOW_WAREHOUSE_MESSAGE, { exact: false }).count(), 1, 'the page shows why and what to do');
+    assert.equal(await page.getByText('Failed to fetch').count(), 0);
+    await page.getByRole('button', { name: 'Retry', exact: true }).click();
+    const session = page.locator('button', { hasText: made.state.session.business_name }).filter({ hasText: 'Complete' });
+    await session.first().waitFor();
+    assert.equal(await page.getByText('Could not load sessions').count(), 0);
+    await session.first().click();
+    await ready(page);
+    assert.deepEqual(ui.pageErrors.filter((e) => !/status of 500/.test(e)), []);
   } finally {
     await ui.close();
   }
