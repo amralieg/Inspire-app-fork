@@ -600,6 +600,16 @@ test('the Studio Results of a version whose first run has not written its table 
   } finally {
     await denied.close();
   }
+  const never = await openUi('studio', { ...STUDIO_STATE, history: [] });
+  try {
+    await never.page.getByText('No implementations yet.').waitFor();
+    await studioTab(never.page, 'Results');
+    await never.page.getByText('No results yet. Implement this use case to create them.').waitFor();
+    assert.equal(await never.page.locator('label', { hasText: 'Tier' }).count(), 0, 'no filters before anything is implemented');
+    assert.deepEqual(never.pageErrors, []);
+  } finally {
+    await never.close();
+  }
 });
 
 const EDITED_AT = Date.UTC(2026, 9, 25, 5, 0, 0);

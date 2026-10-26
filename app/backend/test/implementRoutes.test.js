@@ -846,6 +846,15 @@ test('the Studio results of a version whose first run has not written the output
   });
 });
 
+test('the Studio results of a use case with no implementation say there is nothing yet without reading any table', async () => {
+  await withApp({ history: [] }, async (url, made) => {
+    const got = await call(url, `/api/inspire/implement/results?${Q}`);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.deepEqual(got.data, { result_table: '', exists: false, rows: [], summary: [], segments: [] });
+    assert.ok(!made.sqlCalls.some((c) => /^SELECT .* FROM `main`\.`inspire`\.`churn_out`/.test(c.sql)));
+  });
+});
+
 test('the Studio results still fail when the output table exists but cannot be read', async () => {
   const denied = '[INSUFFICIENT_PERMISSIONS] User does not have SELECT on Table main.inspire.churn_out';
   await withApp({ history: [BUILT()], resultTableError: denied }, async (url) => {

@@ -626,7 +626,7 @@ function registerImplementRoutes(app, deps) {
       const latest = history.find((r) => r.spec_json && r.spec_json.config && r.spec_json.config.result_table) || history[0];
       const spec = latest ? I.validateImplementSpec(latest.spec_json).spec : null;
       const table = spec && spec.config.result_table;
-      if (!table) return res.json({ rows: [], summary: [], result_table: '' });
+      if (!table) return res.json({ result_table: '', exists: false, rows: [], summary: [], segments: [] });
       const statement = I.resultsStatement(table, {
         tier: q(req, 'tier'),
         segment: q(req, 'segment'),

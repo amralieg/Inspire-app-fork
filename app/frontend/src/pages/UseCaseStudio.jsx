@@ -249,7 +249,9 @@ export default function UseCaseStudio({
             )}
             {tab === 'Results' && results.exists === false && (
               <p className="text-[12px] text-text-tertiary">
-                No results yet. The first run creates {results.result_table} and writes its rows there.
+                {results.result_table
+                  ? `No results yet. The first run creates ${results.result_table} and writes its rows there.`
+                  : 'No results yet. Implement this use case to create them.'}
               </p>
             )}
             {tab === 'Results' && results.exists !== false && (
