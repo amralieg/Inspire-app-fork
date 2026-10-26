@@ -5,6 +5,9 @@ import HarnessApp from './HarnessApp.jsx';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <HarnessApp open={new URLSearchParams(window.location.search).get('open')} />
+    <HarnessApp
+      open={new URLSearchParams(window.location.search).get('open')}
+      nest={new URLSearchParams(window.location.search).get('nest') === '1'}
+    />
   </StrictMode>,
 );

@@ -4,6 +4,7 @@ import {
   statusChip, statusReason, caseIdOf, nextSpecFrom, retryableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
   resultTierOptions, runProfileText, versionActive, historyStatus,
 } from '../lib/implementWizard';
+import BodyPortal from '../components/BodyPortal';
 
 const TABS = ['Progress', 'Results', 'Dashboard', 'Genie', 'App', 'Alert', 'History'];
 const TAB_OUTPUT = { Dashboard: 'dashboard', Genie: 'genie_space', App: 'app', Alert: 'alert' };
@@ -154,7 +155,8 @@ export default function UseCaseStudio({
   const names = Object.fromEntries(useCases.map((uc) => [caseIdOf(uc), uc.Name || uc.use_case || caseIdOf(uc)]));
 
   return (
-    <div className="fixed inset-0 z-50 bg-bg flex flex-col">
+    <BodyPortal>
+    <div className="fixed inset-0 z-50 bg-bg flex flex-col" data-studio-overlay="">
       <header className="flex items-center justify-between px-5 py-3 border-b border-border bg-surface">
         <div>
           <h2 className="text-sm font-semibold">Use Case Studio</h2>
@@ -245,7 +247,12 @@ export default function UseCaseStudio({
                 ))}
               </div>
             )}
-            {tab === 'Results' && (
+            {tab === 'Results' && results.exists === false && (
+              <p className="text-[12px] text-text-tertiary">
+                No results yet. The first run creates {results.result_table} and writes its rows there.
+              </p>
+            )}
+            {tab === 'Results' && results.exists !== false && (
               <div className="overflow-x-auto space-y-2">
                 <div className="flex flex-wrap items-center gap-3 text-[11px]">
                   <label className="inline-flex items-center gap-1">
@@ -436,6 +443,7 @@ export default function UseCaseStudio({
         </aside>
       </div>
     </div>
+    </BodyPortal>
   );
 }
 

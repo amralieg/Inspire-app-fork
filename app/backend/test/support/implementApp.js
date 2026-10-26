@@ -61,12 +61,15 @@ function makeApp(overrides = {}) {
         return { rows: state.access };
       }
       if (sql.includes('COUNT_IF(use_case_id')) return { rows: [{ others: String(state.others) }] };
-      if (sql.includes('information_schema.columns') && sql.includes('WITH o AS')) return { rows: [] };
+      if (sql.includes('information_schema.columns') && sql.includes('WITH o AS')) return { rows: state.swapRows || [] };
       if (sql.includes('information_schema.columns')) return { rows: state.columns };
       if (sql.includes('__inspire_step')) return { rows: [] };
       for (const [table, message] of Object.entries(state.probeErrors || {})) {
         if (sql === `SELECT * FROM ${table} LIMIT 0`) throw new Error(message);
       }
+      const readsResults = sql.includes('segment_or_item, COUNT(*)') || sql.includes('priority_tier, COUNT(*)')
+        || /^SELECT \* FROM `[^`]+`\.`[^`]+`\.`[^`]+` WHERE as_of_date = /.test(sql);
+      if (readsResults && state.resultTableError) throw new Error(state.resultTableError);
       if (sql.includes('segment_or_item, COUNT(*)')) return { rows: state.segments || [] };
       if (sql.includes('priority_tier, COUNT(*)')) return { rows: state.summary || [] };
       if (/^SELECT \* FROM `[^`]+`\.`[^`]+`\.`[^`]+` WHERE as_of_date = /.test(sql)) return { rows: state.resultRows || [] };
@@ -84,6 +87,10 @@ function makeApp(overrides = {}) {
         return json(state.warehousePermissions, state.warehousePermissionsStatus || 200);
       }
       if (path.includes('/sql/warehouses')) return json(state.warehouses);
+      if (path.match(/\/api\/2\.0\/apps\/.+/) && !path.includes('page_size') && state.appsByName) {
+        const found = state.appsByName[decodeURIComponent(path.split('/').pop())];
+        return json(found || { error_code: 'NOT_FOUND' }, found ? 200 : 404);
+      }
       if (path.match(/\/api\/2\.0\/apps\/.+/ ) && !path.includes('page_size')) return json(state.app, state.appExists ? 200 : 404);
       if (path.includes('/api/2.0/apps')) return json(state.appsList, state.appsOk ? 200 : 404);
       if (path.includes('/genie/spaces')) return json({}, state.spacesOk ? 200 : 404);

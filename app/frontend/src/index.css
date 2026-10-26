@@ -229,7 +229,7 @@ textarea::placeholder {
   }
 }
 .animate-fade-in-up {
-  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
 /* Ambient floating blobs */
@@ -281,7 +281,7 @@ textarea::placeholder {
   }
 }
 .animate-terminal-line {
-  animation: terminalLine 0.15s ease-out forwards;
+  animation: terminalLine 0.15s ease-out backwards;
 }
 
 /* Cursor blink */
@@ -434,7 +434,7 @@ textarea::placeholder {
   to { opacity: 0; transform: translateY(-8px); }
 }
 .page-enter {
-  animation: pageEnter 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: pageEnter 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 .page-exit {
   animation: pageExit 0.2s ease-in both;
@@ -452,7 +452,7 @@ textarea::placeholder {
   to { transform: translateY(0); opacity: 1; }
 }
 .counter-enter {
-  animation: counterSlide 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: counterSlide 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
 /* Gauge arc animation */

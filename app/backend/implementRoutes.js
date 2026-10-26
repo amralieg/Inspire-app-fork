@@ -632,12 +632,19 @@ function registerImplementRoutes(app, deps) {
         segment: q(req, 'segment'),
         limit: q(req, 'limit') || 500,
       });
-      const [rows, summary, segments] = await Promise.all([
-        sqlRows(req.dbHost, req.dbToken, warehouseId, statement),
-        sqlRows(req.dbHost, req.dbToken, warehouseId, { sql: statement.summarySql, parameters: null }),
-        sqlRows(req.dbHost, req.dbToken, warehouseId, { sql: statement.segmentsSql, parameters: null }),
-      ]);
-      res.json({ result_table: table, rows, summary, segments });
+      let found;
+      try {
+        found = await Promise.all([
+          sqlRows(req.dbHost, req.dbToken, warehouseId, statement),
+          sqlRows(req.dbHost, req.dbToken, warehouseId, { sql: statement.summarySql, parameters: null }),
+          sqlRows(req.dbHost, req.dbToken, warehouseId, { sql: statement.segmentsSql, parameters: null }),
+        ]);
+      } catch (err) {
+        if (!isMissingTableError(err)) throw err;
+        return res.json({ result_table: table, exists: false, rows: [], summary: [], segments: [] });
+      }
+      const [rows, summary, segments] = found;
+      res.json({ result_table: table, exists: true, rows, summary, segments });
     } catch (err) {
       sendError(res, err);
     }

@@ -1,17 +1,19 @@
 export const IMPLEMENT_STEPS = [
-  { id: 'use_case', label: 'Use case' },
-  { id: 'data', label: 'Data' },
-  { id: 'configure', label: 'Configure' },
-  { id: 'schedule', label: 'Run and schedule' },
-  { id: 'use_it', label: 'Use it' },
-  { id: 'review', label: 'Review' },
+  { id: 'data', label: 'Data', sections: ['use_case', 'data', 'configure'], advanced: ['use_case', 'data', 'configure'] },
+  { id: 'delivery', label: 'Delivery', sections: ['use_it', 'alert', 'schedule'], advanced: ['alert', 'schedule'] },
+];
+
+export const FRESHNESS_OPTIONS = [
+  { id: 'off', label: 'Off' },
+  { id: 'daily', label: 'Daily', cron: '0 0 6 * * ?' },
+  { id: 'weekly', label: 'Weekly', cron: '0 0 6 ? * MON' },
 ];
 
 export const IMPLEMENT_OUTPUTS = [
   { id: 'dashboard', label: 'Dashboard', blurb: 'Decision list, trend and run health. Selected by default.' },
   { id: 'genie_space', label: 'Genie space', blurb: 'A space over the result and source tables, with 5 sample questions.' },
   { id: 'app', label: 'App', blurb: 'A Databricks App with the decision list, row detail and export.' },
-  { id: 'alert', label: 'Alert', blurb: 'Emails people or posts to Slack or Teams when the latest run has rows to act on.' },
+  { id: 'alert', label: 'Alert', blurb: 'Emails you when the latest run has rows to act on. Genie writes the check.' },
 ];
 
 export const ALERT_TIER_OPTIONS = [
@@ -22,7 +24,39 @@ export const ALERT_TIER_OPTIONS = [
 export const ALERT_OPERATORS = ['>=', '>', '=', '!=', '<', '<='];
 
 export const APP_NAME_RE = /^[a-z][a-z0-9-]{1,28}[a-z0-9]$/;
+const APP_NAME_MAX = 30;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function dashed(text) {
+  return String(text || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function fitAppName(text, max = APP_NAME_MAX) {
+  let name = text;
+  if (name.length > max) {
+    const boundary = name.slice(0, max + 1).lastIndexOf('-');
+    name = boundary >= 3 ? name.slice(0, boundary) : name.slice(0, max);
+  }
+  return name.replace(/-+$/, '');
+}
+
+export function appNameOf(name, id) {
+  for (const raw of [name, id]) {
+    let text = dashed(raw);
+    if (text && !/^[a-z]/.test(text)) text = `uc-${text}`;
+    const fitted = fitAppName(text);
+    if (APP_NAME_RE.test(fitted)) return fitted;
+  }
+  return '';
+}
+
+export function nextAppName(name) {
+  const counted = /^(.+)-(\d{1,2})$/.exec(String(name || ''));
+  const [base, n] = counted && Number(counted[2]) >= 2 ? [counted[1], Number(counted[2]) + 1] : [String(name || ''), 2];
+  const suffix = `-${n}`;
+  return `${fitAppName(base, APP_NAME_MAX - suffix.length)}${suffix}`;
+}
 
 export function caseIdOf(uc) {
   return String(uc?.id ?? uc?.No ?? uc?.use_case_id ?? '').trim();
@@ -149,9 +183,10 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
   const measures = listOf(uc?.measures_of_success || uc?._v130?.measuresOfSuccess).slice(0, 3);
   const goal = String(uc?.statement || uc?.Statement || uc?.business_value || '').trim().slice(0, 500);
   const decisionOwner = String(owner || uc?.sponsor || uc?.Sponsor || '').trim();
+  const useCaseName = String(uc?.Name || uc?.use_case || uc?.name || '').trim();
   return {
     use_case_id: id,
-    use_case_name: String(uc?.Name || uc?.use_case || uc?.name || '').trim(),
+    use_case_name: useCaseName,
     based_on_version: null,
     confirm_notebook_overwrite: false,
     use_case: {
@@ -194,7 +229,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
       dashboard_filters: [],
       genie_space_name: '',
       genie_questions: [],
-      app_name: slug ? slug.replace(/_/g, '-').slice(0, 30) : '',
+      app_name: appNameOf(uc?.short_name || useCaseName, id),
       app_purpose: '',
       alert: false,
       alert_name: '',
@@ -219,6 +254,8 @@ function withoutOneVersionKeys(spec) {
 export function specFromLatest(latest, fallback) {
   const parsed = latest && latest.spec_json && typeof latest.spec_json === 'object' ? latest.spec_json : null;
   if (!parsed) return fallback;
+  const outputs = { ...fallback.outputs, ...(parsed.outputs || {}) };
+  if (!outputs.app || !outputs.app_name) outputs.app_name = fallback.outputs.app_name;
   return {
     ...fallback,
     ...withoutOneVersionKeys(parsed),
@@ -227,7 +264,7 @@ export function specFromLatest(latest, fallback) {
     data: { ...fallback.data, ...(parsed.data || {}) },
     config: { ...fallback.config, ...(parsed.config || {}), profiles: { ...fallback.config.profiles, ...((parsed.config || {}).profiles || {}) } },
     schedule: { ...fallback.schedule, ...(parsed.schedule || {}) },
-    outputs: { ...fallback.outputs, ...(parsed.outputs || {}) },
+    outputs,
     sharing: { ...fallback.sharing, ...(parsed.sharing || {}) },
     removed_outputs: parsed.removed_outputs || {},
   };
@@ -617,13 +654,13 @@ export function retryableOutputs(latest) {
     .map((o) => ({ ...o, error: String(assets[o.id].error || ''), spec_version: assets[o.id].spec_version ?? latest.spec_version ?? null }));
 }
 
-export function stepErrors(step, spec, extras = {}) {
+export function sectionErrors(section, spec, extras = {}) {
   const errors = [];
-  if (step === 'use_case') {
+  if (section === 'use_case') {
     if (!spec.use_case.goal) errors.push('write the goal sentence');
     if (!spec.use_case.decision_owner) errors.push('name the decision owner');
   }
-  if (step === 'data') {
+  if (section === 'data') {
     if (!spec.config.result_table || spec.config.result_table.split('.').length !== 3) {
       errors.push('output location must be catalog.schema.table');
     }
@@ -635,37 +672,64 @@ export function stepErrors(step, spec, extras = {}) {
       if (both.length) errors.push(`${kept.table}.${kept.column} both keeps and excludes ${both.join(', ')}`);
     }
   }
-  if (step === 'configure') {
+  if (section === 'configure') {
     if (!spec.config.warehouse_id) errors.push('pick a SQL warehouse');
     errors.push(...widgetProblems(extras.widgets || [], spec.config.widgets || {}));
     errors.push(...profileProblems(spec.config.profiles, extras.trainsModel === false ? ['full_load', 'preview'] : ['training', 'full_load', 'preview']));
   }
-  if (step === 'schedule') {
+  if (section === 'schedule') {
     const cron = String(spec.schedule.cron || '').trim();
     if (spec.schedule.enabled && !cron) errors.push('an enabled schedule needs a cron');
     const problem = cron ? cronProblem(cron) : '';
     if (problem) errors.push(`the cron is not valid: ${problem}`);
     if (extras.trainsModel !== false) errors.push(...profileProblems(spec.config.profiles, ['retrain']));
   }
-  if (step === 'use_it') {
+  if (section === 'use_it') {
     if (!IMPLEMENT_OUTPUTS.some((o) => spec.outputs[o.id])) errors.push('pick at least one way to use it');
     if (spec.outputs.app && !APP_NAME_RE.test(spec.outputs.app_name || '')) {
       errors.push('app name must be 3-30 lowercase letters, digits and dashes');
     }
-    if (spec.outputs.alert) {
-      const recipients = spec.outputs.alert_recipients || [];
-      const bad = recipients.filter((e) => !EMAIL_RE.test(String(e || '').trim()));
-      if (bad.length) errors.push(`not an email address: ${bad.join(', ')}`);
-      if (!recipients.length && !(spec.outputs.alert_destinations || []).length) {
-        errors.push('an alert needs at least one recipient email or notification destination');
-      }
-      const threshold = spec.outputs.alert_threshold;
-      if (threshold !== '' && threshold != null && !(Number.isFinite(Number(threshold)) && Number(threshold) >= 0)) {
-        errors.push('the alert threshold must be a number of rows, 0 or more');
-      }
+  }
+  if (section === 'alert' && spec.outputs.alert) {
+    const recipients = spec.outputs.alert_recipients || [];
+    const bad = recipients.filter((e) => !EMAIL_RE.test(String(e || '').trim()));
+    if (bad.length) errors.push(`not an email address: ${bad.join(', ')}`);
+    if (!recipients.length && !(spec.outputs.alert_destinations || []).length) {
+      errors.push('an alert needs at least one recipient email or notification destination');
+    }
+    const threshold = spec.outputs.alert_threshold;
+    if (threshold !== '' && threshold != null && !(Number.isFinite(Number(threshold)) && Number(threshold) >= 0)) {
+      errors.push('the alert threshold must be a number of rows, 0 or more');
     }
   }
   return errors;
+}
+
+function stepOf(id) {
+  const step = IMPLEMENT_STEPS.find((s) => s.id === id);
+  if (!step) throw new Error(`unknown wizard step '${id}'`);
+  return step;
+}
+
+export function stepErrors(step, spec, extras = {}) {
+  return stepOf(step).sections.flatMap((section) => sectionErrors(section, spec, extras));
+}
+
+export function advancedErrors(step, spec, extras = {}) {
+  return stepOf(step).advanced.flatMap((section) => sectionErrors(section, spec, extras));
+}
+
+export function freshnessOf(schedule) {
+  if (!schedule?.enabled) return 'off';
+  const cron = String(schedule.cron || '').trim();
+  return FRESHNESS_OPTIONS.find((o) => o.cron === cron)?.id || 'custom';
+}
+
+export function withFreshness(spec, id) {
+  if (id === 'off') return { ...spec, schedule: { ...spec.schedule, enabled: false } };
+  const option = FRESHNESS_OPTIONS.find((o) => o.id === id && o.cron);
+  if (!option) throw new Error(`unknown freshness '${id}'`);
+  return { ...spec, schedule: { ...spec.schedule, enabled: true, cron: option.cron } };
 }
 
 export const IMPLEMENT_ACTIVE_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs'];
@@ -713,7 +777,9 @@ export function lostTablesText(missing) {
 }
 
 export function initialStepIndex(focus) {
-  const index = IMPLEMENT_STEPS.findIndex((s) => s.id === focus?.step);
+  const want = focus?.step;
+  if (want === 'review') return IMPLEMENT_STEPS.length - 1;
+  const index = IMPLEMENT_STEPS.findIndex((s) => s.id === want || s.sections.includes(want));
   return index < 0 ? 0 : index;
 }
 

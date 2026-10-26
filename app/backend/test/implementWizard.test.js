@@ -126,18 +126,137 @@ test('alert recipients default to the decision owner and the users it is shared 
   assert.deepEqual(w.defaultAlertRecipients({}), []);
 });
 
-test('the Use it step accepts an alert on its own and blocks one nobody would receive', async () => {
+test('the Delivery step accepts an alert on its own and blocks one nobody would receive', async () => {
   const w = await load();
   const base = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire' });
   const only = (outputs) => ({ ...base, outputs: { ...base.outputs, dashboard: false, ...outputs } });
-  assert.deepEqual(w.stepErrors('use_it', only({ alert: true, alert_recipients: ['a@example.com'] })), []);
-  assert.deepEqual(w.stepErrors('use_it', only({ alert: true, alert_destinations: [{ id: '1234abcd-ef' }] })), []);
-  assert.deepEqual(w.stepErrors('use_it', only({})), ['pick at least one way to use it']);
-  assert.ok(w.stepErrors('use_it', only({ alert: true })).includes('an alert needs at least one recipient email or notification destination'));
-  assert.ok(w.stepErrors('use_it', only({ alert: true, alert_recipients: ['nope'] })).some((e) => e.includes('not an email address: nope')));
-  assert.ok(w.stepErrors('use_it', only({ alert: true, alert_recipients: ['a@example.com'], alert_threshold: '-1' }))
+  assert.deepEqual(w.stepErrors('delivery', only({ alert: true, alert_recipients: ['a@example.com'] })), []);
+  assert.deepEqual(w.stepErrors('delivery', only({ alert: true, alert_destinations: [{ id: '1234abcd-ef' }] })), []);
+  assert.deepEqual(w.stepErrors('delivery', only({})), ['pick at least one way to use it']);
+  assert.ok(w.stepErrors('delivery', only({ alert: true })).includes('an alert needs at least one recipient email or notification destination'));
+  assert.ok(w.stepErrors('delivery', only({ alert: true, alert_recipients: ['nope'] })).some((e) => e.includes('not an email address: nope')));
+  assert.ok(w.stepErrors('delivery', only({ alert: true, alert_recipients: ['a@example.com'], alert_threshold: '-1' }))
     .includes('the alert threshold must be a number of rows, 0 or more'));
-  assert.deepEqual(w.stepErrors('use_it', only({ alert: true, alert_recipients: ['a@example.com'], alert_threshold: '' })), []);
+  assert.deepEqual(w.stepErrors('delivery', only({ alert: true, alert_recipients: ['a@example.com'], alert_threshold: '' })), []);
+  assert.deepEqual(w.sectionErrors('use_it', only({ alert: true })), [], 'the tile choice itself is fine; the alert details are their own section');
+  assert.deepEqual(w.sectionErrors('alert', only({ alert: false, alert_recipients: ['nope'] })), [], 'an alert that is off is never checked');
+});
+
+test('each of the two steps runs the checks of every section it shows, and only those', async () => {
+  const w = await load();
+  assert.deepEqual(w.IMPLEMENT_STEPS.map((s) => [s.id, s.label]), [['data', 'Data'], ['delivery', 'Delivery']]);
+  const shown = w.IMPLEMENT_STEPS.flatMap((s) => s.sections);
+  assert.deepEqual([...shown].sort(), ['alert', 'configure', 'data', 'schedule', 'use_case', 'use_it']);
+  for (const s of w.IMPLEMENT_STEPS) assert.ok(s.advanced.every((a) => s.sections.includes(a)), s.id);
+  const spec = w.defaultSpecFromUseCase(UC, { warehouseId: '', inspireDatabase: 'main.inspire' });
+  const bad = { ...spec, use_case: { ...spec.use_case, decision_owner: '' }, schedule: { ...spec.schedule, enabled: true, cron: '0 0 25 * * ?' },
+    outputs: { ...spec.outputs, dashboard: false, app: true, app_name: 'X', alert: true } };
+  assert.deepEqual(w.stepErrors('data', bad), ['name the decision owner', 'pick a SQL warehouse']);
+  assert.deepEqual(w.stepErrors('delivery', bad), [
+    'app name must be 3-30 lowercase letters, digits and dashes',
+    'an alert needs at least one recipient email or notification destination',
+    "the cron is not valid: the hour value '25' is not 0 to 23",
+  ]);
+  assert.deepEqual(w.advancedErrors('delivery', bad), [
+    'an alert needs at least one recipient email or notification destination',
+    "the cron is not valid: the hour value '25' is not 0 to 23",
+  ], 'the App name lives on the main view, so it never opens Advanced');
+  assert.deepEqual(w.advancedErrors('data', bad), w.stepErrors('data', bad));
+  assert.throws(() => w.stepErrors('use_it', bad), /unknown wizard step 'use_it'/);
+  assert.throws(() => w.advancedErrors('review', bad), /unknown wizard step 'review'/);
+});
+
+test('the App name is the use case name cut at a word inside the 30-character limit, else the use case id', async () => {
+  const w = await load();
+  const cases = [
+    ['Predict churn', 'N01-U01', 'predict-churn'],
+    ['Recommend Next-Best Products to Lift Basket Size', 'N05-U01', 'recommend-next-best-products'],
+    ['Forecast demand by zone to reduce idle time', 'N02-U03', 'forecast-demand-by-zone-to'],
+    ['Supercalifragilisticexpialidocious forecasting', 'N01-U02', 'supercalifragilisticexpialidoc'],
+    ['Café Ünïcode churn', 'N01-U03', 'cafe-unicode-churn'],
+    ['360 customer view', 'N01-U04', 'uc-360-customer-view'],
+    ['  --Churn!!  risk--  ', 'N01-U05', 'churn-risk'],
+    ['توقع فقدان العملاء', 'N07-U02', 'n07-u02'],
+    ['AI', 'N03-U01', 'n03-u01'],
+    ['', 'N03-U02', 'n03-u02'],
+    ['', '', ''],
+  ];
+  for (const [name, id, want] of cases) {
+    const got = w.appNameOf(name, id);
+    assert.equal(got, want, name);
+    if (got) {
+      assert.match(got, w.APP_NAME_RE, name);
+      assert.ok(got.length <= 30, name);
+      assert.ok(!got.endsWith('-'), name);
+    }
+  }
+  const spec = w.defaultSpecFromUseCase({ ...UC, Name: 'Recommend Next-Best Products to Lift Basket Size' }, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
+  assert.equal(spec.outputs.app_name, 'recommend-next-best-products');
+  assert.equal(w.defaultSpecFromUseCase({ ...UC, short_name: 'Churn desk' }).outputs.app_name, 'churn-desk', 'a short name wins over the full name');
+  const withApp = { ...spec, outputs: { ...spec.outputs, app: true } };
+  assert.deepEqual(backend.validateImplementSpec(withApp).errors, []);
+  assert.equal(backend.validateImplementSpec(withApp).spec.outputs.app_name, 'recommend-next-best-products');
+});
+
+test('a taken App name suggests the next free-looking name and stays inside the limit', async () => {
+  const w = await load();
+  assert.equal(w.nextAppName('predict-churn'), 'predict-churn-2');
+  assert.equal(w.nextAppName('predict-churn-2'), 'predict-churn-3');
+  assert.equal(w.nextAppName('predict-churn-9'), 'predict-churn-10');
+  assert.equal(w.nextAppName('n07-u02'), 'n07-u02-2', 'an id ending in letters and digits is not a counter');
+  assert.equal(w.nextAppName('uc-360'), 'uc-360-2', 'a three-digit number is part of the name');
+  assert.equal(w.nextAppName('predict-churn-1'), 'predict-churn-1-2', 'a -1 is part of the name, not a counter');
+  assert.equal(w.nextAppName('recommend-next-best-products'), 'recommend-next-best-products-2');
+  assert.equal(w.nextAppName('supercalifragilisticexpialidoc'), 'supercalifragilisticexpialid-2');
+  assert.equal(w.nextAppName('forecast-demand-by-zone-to-red'), 'forecast-demand-by-zone-to-2');
+  for (const name of ['predict-churn', 'recommend-next-best-products', 'supercalifragilisticexpialidoc', 'forecast-demand-by-zone-to-red', 'n07-u02']) {
+    let next = name;
+    for (let i = 0; i < 12; i += 1) {
+      next = w.nextAppName(next);
+      assert.match(next, w.APP_NAME_RE, next);
+      assert.notEqual(next, name);
+    }
+  }
+});
+
+test('Keep it fresh maps Off, Daily and Weekly onto the schedule, and shows Custom for any other cron', async () => {
+  const w = await load();
+  const spec = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
+  assert.equal(w.freshnessOf(spec.schedule), 'off', 'a new use case starts Off');
+  const daily = w.withFreshness(spec, 'daily');
+  assert.deepEqual([daily.schedule.enabled, daily.schedule.cron], [true, '0 0 6 * * ?']);
+  assert.equal(w.freshnessOf(daily.schedule), 'daily');
+  const weekly = w.withFreshness(daily, 'weekly');
+  assert.deepEqual([weekly.schedule.enabled, weekly.schedule.cron], [true, '0 0 6 ? * MON']);
+  assert.equal(w.freshnessOf(weekly.schedule), 'weekly');
+  const off = w.withFreshness(weekly, 'off');
+  assert.deepEqual([off.schedule.enabled, off.schedule.cron], [false, '0 0 6 ? * MON'], 'Off keeps the cron for the next time it is turned on');
+  assert.equal(w.freshnessOf(off.schedule), 'off');
+  assert.equal(w.freshnessOf({ enabled: true, cron: '0 30 2 1 * ?' }), 'custom');
+  assert.equal(w.freshnessOf({ enabled: true, cron: ' 0 0 6 * * ? ' }), 'daily');
+  assert.equal(w.freshnessOf(null), 'off');
+  for (const option of w.FRESHNESS_OPTIONS.filter((o) => o.cron)) {
+    assert.equal(w.cronProblem(option.cron), '', option.id);
+    assert.deepEqual(w.stepErrors('delivery', w.withFreshness(spec, option.id)), [], option.id);
+    assert.deepEqual(backend.validateImplementSpec(w.withFreshness(spec, option.id)).errors, [], option.id);
+  }
+  assert.equal(spec.schedule.enabled, false, 'withFreshness never mutates the spec it was given');
+  assert.throws(() => w.withFreshness(spec, 'hourly'), /unknown freshness 'hourly'/);
+  assert.throws(() => w.withFreshness(spec, 'custom'), /unknown freshness 'custom'/);
+});
+
+test('an edit offers the default App name when the version it edits has no App, and keeps the live App name otherwise', async () => {
+  const w = await load();
+  const fallback = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
+  const stored = backend.validateImplementSpec(fallback).spec;
+  assert.equal(stored.outputs.app_name, '', 'the backend stores no App name when the App is off');
+  const noApp = w.specFromLatest({ spec_version: 2, spec_json: stored }, fallback);
+  assert.equal(noApp.outputs.app_name, 'predict-churn');
+  const legacy = w.specFromLatest({ spec_version: 2, spec_json: { ...stored, outputs: { ...stored.outputs, app_name: 'n01-u01' } } }, fallback);
+  assert.equal(legacy.outputs.app_name, 'predict-churn', 'a name kept from an App that was never built is replaced');
+  const live = w.specFromLatest({ spec_version: 3, spec_json: { ...stored, outputs: { ...stored.outputs, app: true, app_name: 'n01-u01-churn' } } }, fallback);
+  assert.equal(live.outputs.app_name, 'n01-u01-churn', 'renaming a live App would build a second one');
+  assert.equal(live.outputs.app, true);
 });
 
 test('the trigger reads the same as the one the agent writes on the alert', async () => {
@@ -205,9 +324,9 @@ test('segment and exclusion filters are set, replaced and dropped by column and 
     { table: 'main.s.web', column: 'region', op: 'not in', values: ['XX'] },
     { table: 'main.s.web', column: 'region', op: 'in', values: ['EU'] },
   ]);
-  assert.deepEqual(w.stepErrors('data', spec), []);
+  assert.deepEqual(w.sectionErrors('data', spec), []);
   const clash = w.setFilterValues(spec, 'main.s.web', 'region', 'not in', ['EU']);
-  assert.deepEqual(w.stepErrors('data', clash), ['main.s.web.region both keeps and excludes EU']);
+  assert.deepEqual(w.sectionErrors('data', clash), ['main.s.web.region both keeps and excludes EU']);
   assert.deepEqual(w.setFilterValues(spec, 'main.s.web', 'region', 'in', []).data.filters, [
     { table: 'main.s.web', column: 'region', op: 'not in', values: ['XX'] },
   ]);
@@ -348,27 +467,27 @@ test('Next is blocked on a bad cron, an out-of-range widget or profile value, an
   const w = await load();
   const spec = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
   const widgets = [{ name: 'act_now_share', default: '0.05', allowed: '0 to 1' }, { name: 'review_share', default: '0.2', allowed: '0 to 1' }, { name: 'note', default: '', allowed: '' }];
-  assert.deepEqual(w.stepErrors('configure', spec, { widgets }), []);
+  assert.deepEqual(w.sectionErrors('configure', spec, { widgets }), []);
   const bad = JSON.parse(JSON.stringify(spec));
   bad.config.widgets = { act_now_share: '1.2', note: 'anything' };
   bad.config.profiles.training.window_days = '30.5';
   bad.config.profiles.retrain.drift_threshold = '2';
-  assert.deepEqual(w.stepErrors('configure', bad, { widgets }), [
+  assert.deepEqual(w.sectionErrors('configure', bad, { widgets }), [
     "act_now_share is '1.2'; allowed: 0 to 1",
     'act_now_share + review_share is 1.4; allowed: at most 1',
     "training window days is '30.5'; allowed: whole number, at least 1",
   ]);
-  assert.deepEqual(w.stepErrors('configure', bad, { widgets, trainsModel: false }), [
+  assert.deepEqual(w.sectionErrors('configure', bad, { widgets, trainsModel: false }), [
     "act_now_share is '1.2'; allowed: 0 to 1",
     'act_now_share + review_share is 1.4; allowed: at most 1',
   ]);
   bad.schedule.cron = '0 0 25 * * ?';
-  assert.deepEqual(w.stepErrors('schedule', bad), [
+  assert.deepEqual(w.sectionErrors('schedule', bad), [
     "the cron is not valid: the hour value '25' is not 0 to 23",
     "retrain drift threshold is '2'; allowed: above 0, at most 1",
   ]);
-  assert.deepEqual(w.stepErrors('schedule', bad, { trainsModel: false }), ["the cron is not valid: the hour value '25' is not 0 to 23"]);
-  assert.deepEqual(w.stepErrors('schedule', spec), []);
+  assert.deepEqual(w.sectionErrors('schedule', bad, { trainsModel: false }), ["the cron is not valid: the hour value '25' is not 0 to 23"]);
+  assert.deepEqual(w.sectionErrors('schedule', spec), []);
   for (const drift of ['0', '0.0', '-0.1', 'abc']) {
     assert.equal(w.profileFieldProblem('retrain.drift_threshold', drift), `retrain drift threshold is '${drift}'; allowed: above 0, at most 1`, drift);
   }
@@ -466,8 +585,10 @@ test('the Studio shows lost tables from a refused re-run first, else only from a
 
 test('Edit opens the wizard on the step it was asked for, and on the first step otherwise', async () => {
   const w = await load();
-  assert.equal(w.initialStepIndex({ step: 'data' }), 1);
-  assert.equal(w.initialStepIndex({ step: 'review' }), 5);
+  assert.equal(w.initialStepIndex({ step: 'data' }), 0);
+  assert.equal(w.initialStepIndex({ step: 'delivery' }), 1);
+  for (const section of ['use_case', 'configure']) assert.equal(w.initialStepIndex({ step: section }), 0, section);
+  for (const section of ['use_it', 'alert', 'schedule', 'review']) assert.equal(w.initialStepIndex({ step: section }), 1, section);
   assert.equal(w.initialStepIndex({ step: 'nope' }), 0);
   assert.equal(w.initialStepIndex(null), 0);
 });

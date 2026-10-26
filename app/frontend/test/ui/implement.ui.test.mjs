@@ -115,43 +115,55 @@ async function onStep(page, label) {
   try {
     await page.locator('[aria-current="step"]', { hasText: label }).waitFor({ timeout: 15000 });
   } catch (e) {
-    const shown = await page.locator('p.text-error').allTextContents();
+    const shown = await page.locator('[role="alert"] p').allTextContents();
     throw new Error(`the wizard did not reach "${label}": ${shown.join(' | ') || e.message}`);
   }
 }
 
 const next = (page) => page.getByRole('button', { name: 'Next' }).click();
 const studioTab = (page, name) => page.getByRole('button', { name, exact: true }).click();
+const advanced = (page) => page.getByRole('button', { name: 'Advanced settings' });
+const footerErrors = (page) => page.locator('[role="alert"] p').allTextContents();
 
-test('the wizard walks all six steps and its spec launches exactly one implement run', async () => {
-  const ui = await openUi('wizard');
+async function implementWhenReady(page) {
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Implement' && !b.disabled),
+    null, { timeout: 15000 });
+  await page.getByRole('button', { name: 'Implement', exact: true }).click();
+}
+
+function submittedSpec(made) {
+  const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
+  assert.equal(inserts.length, 1);
+  return JSON.parse(inserts[0].parameters.find((p) => p.name === 'spec').value);
+}
+
+test('the wizard is two steps: Data shows the summary and Inspire\'s tables, Delivery picks the outputs, and Implement launches one run', async () => {
+  const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Use case');
-    assert.equal(await page.getByLabel('Goal sentence').inputValue(), 'Cut churn in the top segment');
-    await page.getByLabel('Decision owner').fill(OWNER);
-    await next(page);
     await onStep(page, 'Data');
-    await page.locator('span.font-mono', { hasText: 'main.s.returns' }).waitFor();
+    const summary = page.getByRole('region', { name: 'Executive summary' });
+    await summary.getByText('Cut churn in the top segment').waitFor();
+    await summary.getByText('Head of Retention').waitFor();
+    assert.deepEqual(await page.locator('[data-table]').evaluateAll((rows) => rows.map((r) => r.dataset.table)), ['main.s.orders', 'main.s.returns']);
+    assert.equal(await advanced(page).getAttribute('aria-expanded'), 'false');
+    assert.equal(await page.getByLabel('Goal sentence').count(), 0, 'every other setting waits under Advanced settings');
     await next(page);
-    await onStep(page, 'Configure');
-    await page.getByPlaceholder('25').waitFor();
-    await next(page);
-    await onStep(page, 'Run and schedule');
-    await next(page);
-    await onStep(page, 'Use it');
-    await page.getByRole('button', { name: `${OWNER} ×` }).waitFor();
+    await onStep(page, 'Delivery');
+    assert.equal(await page.getByRole('checkbox', { name: /^Dashboard/ }).isChecked(), true, 'the dashboard is the default');
+    for (const name of [/^Genie space/, /^App /, /^Alert/]) assert.equal(await page.getByRole('checkbox', { name }).isChecked(), false, String(name));
     await page.getByRole('checkbox', { name: /^Genie space/ }).check();
-    await page.getByPlaceholder('Up to 5 questions, one per line').fill('Which customers should we call first?\nHow many customers are in Act now?');
     await page.getByRole('checkbox', { name: /^App / }).check();
-    await page.getByPlaceholder('app-name').fill('churn-desk');
-    await page.getByPlaceholder('What the App should let people do').fill('Work the call list and record each call');
+    assert.equal(await page.getByLabel('App name').inputValue(), 'predict-churn', 'the App is named after the use case');
+    await page.getByText("'predict-churn' is free").waitFor();
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
-    assert.equal(await page.getByLabel('Email recipients (comma separated)').inputValue(), OWNER);
-    await next(page);
-    await onStep(page, 'Review');
+    await page.getByText(`Emails ${OWNER} when Act now rows in the latest run >= 1.`).waitFor();
+    const fresh = page.getByRole('group', { name: 'Keep it fresh' });
+    assert.equal(await fresh.getByRole('button', { name: 'Off' }).getAttribute('aria-pressed'), 'true', 'Keep it fresh starts Off');
+    await fresh.getByRole('button', { name: 'Weekly' }).click();
+    assert.equal(await fresh.getByRole('button', { name: 'Weekly' }).getAttribute('aria-pressed'), 'true');
     assert.equal(made.jobs.length, 0);
-    await page.getByRole('button', { name: 'Implement', exact: true }).click();
+    await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
 
     assert.equal(made.jobs.length, 1);
@@ -159,18 +171,17 @@ test('the wizard walks all six steps and its spec launches exactly one implement
     assert.equal(params['15_operation'], 'Implement Use Cases');
     assert.equal(params.inspire_implement_use_case, 'N01-U01');
     assert.equal(params.inspire_implement_spec_version, '1');
-    const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
-    assert.equal(inserts.length, 1);
-    const spec = JSON.parse(inserts[0].parameters.find((p) => p.name === 'spec').value);
+    const spec = submittedSpec(made);
     assert.equal(spec.use_case.decision_owner, OWNER);
+    assert.equal(spec.data.column_roles.entity_id, 'main.s.orders.order_id', 'a new implementation guesses the column roles');
     assert.equal(spec.config.result_table, RESULT_TABLE);
     assert.deepEqual(
       { dashboard: spec.outputs.dashboard, genie_space: spec.outputs.genie_space, app: spec.outputs.app, alert: spec.outputs.alert },
       { dashboard: true, genie_space: true, app: true, alert: true },
     );
-    assert.equal(spec.outputs.app_name, 'churn-desk');
-    assert.deepEqual(spec.outputs.genie_questions, ['Which customers should we call first?', 'How many customers are in Act now?']);
+    assert.equal(spec.outputs.app_name, 'predict-churn');
     assert.deepEqual(spec.outputs.alert_recipients, [OWNER]);
+    assert.deepEqual([spec.schedule.enabled, spec.schedule.cron], [true, '0 0 6 ? * MON']);
     assert.deepEqual(spec.schedule.failure_emails, [OWNER]);
     assert.deepEqual(spec.sharing.principals, [{ type: 'user', name: OWNER }]);
     assert.deepEqual(ui.pageErrors, []);
@@ -179,33 +190,55 @@ test('the wizard walks all six steps and its spec launches exactly one implement
   }
 });
 
-test('the signed-in person starts as decision owner and as the one the outputs are shared with, and removing them sticks', async () => {
+test('the wizard and the Studio cover the screen from any scroll position, above the App header, inside an animated page', async () => {
+  for (const open of ['wizard', 'studio']) {
+    const ui = await openUi(`${open}&nest=1`, open === 'studio' ? STUDIO_STATE : { me: { userName: OWNER, displayName: 'Owner' } });
+    const { page } = ui;
+    try {
+      const overlay = page.locator(open === 'wizard' ? '[data-implement-overlay]' : '[data-studio-overlay]');
+      await overlay.waitFor();
+      await page.evaluate(() => window.scrollTo(0, 1200));
+      await page.waitForFunction(() => window.scrollY === 1200);
+      await page.waitForFunction(() => getComputedStyle(document.querySelector('main')).transform === 'none', null, { timeout: 5000 })
+        .catch(async () => {
+          throw new Error(`the page animation leaves a transform behind: ${await page.evaluate(() => getComputedStyle(document.querySelector('main')).transform)}`);
+        });
+      assert.equal(await overlay.evaluate((el) => el.parentElement === document.body), true, `${open} renders at the top of the page`);
+      const box = await overlay.boundingBox();
+      assert.deepEqual([box.x, box.y, box.width, box.height], [0, 0, 1440, 1000], `${open} fills the viewport`);
+      assert.equal(await page.evaluate(() => Boolean(document.elementFromPoint(720, 30)?.closest('[data-implement-overlay],[data-studio-overlay]'))), true,
+        `the App header never paints over the ${open}`);
+      if (open === 'wizard') {
+        const dialog = await page.getByRole('dialog', { name: 'Implement with Genie' }).boundingBox();
+        assert.ok(dialog.y >= 0 && dialog.y + dialog.height <= 1000, JSON.stringify(dialog));
+        const button = await page.getByRole('button', { name: 'Next' }).boundingBox();
+        assert.ok(button.y >= 0 && button.y + button.height <= 1000, 'Next is on screen without scrolling the page');
+        await page.getByRole('region', { name: 'Executive summary' }).waitFor();
+      }
+      assert.deepEqual(ui.pageErrors, []);
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test('the signed-in person is the decision owner and is shared with by default, and removing them under Advanced sticks', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Use case');
+    await onStep(page, 'Data');
+    await advanced(page).click();
     assert.equal(await page.getByLabel('Decision owner').inputValue(), OWNER);
     await next(page);
-    await onStep(page, 'Data');
-    await page.locator('span.font-mono', { hasText: 'main.s.returns' }).waitFor();
-    await next(page);
-    await onStep(page, 'Configure');
-    await page.getByPlaceholder('25').waitFor();
-    await next(page);
-    await onStep(page, 'Run and schedule');
-    await next(page);
-    await onStep(page, 'Use it');
+    await onStep(page, 'Delivery');
+    await advanced(page).click();
     const chip = page.getByRole('button', { name: `${OWNER} ×` });
     await chip.waitFor();
     await chip.click();
     await chip.waitFor({ state: 'detached' });
-    await next(page);
-    await onStep(page, 'Review');
-    await page.getByRole('button', { name: 'Implement', exact: true }).click();
+    await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
-    const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
-    assert.equal(inserts.length, 1);
-    const spec = JSON.parse(inserts[0].parameters.find((p) => p.name === 'spec').value);
+    const spec = submittedSpec(made);
     assert.equal(spec.use_case.decision_owner, OWNER);
     assert.deepEqual(spec.sharing.principals, []);
     assert.deepEqual(ui.pageErrors, []);
@@ -221,36 +254,117 @@ test('a new App that could not get access is disabled up front with the reason, 
   const ui = await openUi('wizard', { access, me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Use case');
-    await next(page);
     await onStep(page, 'Data');
-    await page.locator('span.font-mono', { hasText: 'main.s.returns' }).waitFor();
     await next(page);
-    await onStep(page, 'Configure');
-    await page.getByPlaceholder('25').waitFor();
-    await next(page);
-    await onStep(page, 'Run and schedule');
-    await next(page);
-    await onStep(page, 'Use it');
+    await onStep(page, 'Delivery');
     const appBox = page.getByRole('checkbox', { name: /^App / });
     await appBox.waitFor();
     assert.equal(await appBox.isDisabled(), true);
     const reason = await page.getByText('Inspire cannot create this App:', { exact: false }).textContent();
-    assert.ok(reason.startsWith(`Inspire cannot create this App: a new App could not read ${RESULT_TABLE}: its service principal needs USE CATALOG on catalog \`main\` (owner admins)`), reason);
+    assert.ok(reason.includes(`Inspire cannot create this App: a new App could not read ${RESULT_TABLE}: its service principal needs USE CATALOG on catalog \`main\` (owner admins)`), reason);
     assert.ok(reason.includes('Inspire cannot manage'), reason);
     assert.equal(await page.getByRole('checkbox', { name: /^Genie space/ }).isDisabled(), false);
-    await next(page);
-    await onStep(page, 'Review');
     const warn = page.locator('span.text-warning', { hasText: `${OWNER} may not be able to read the result table` });
     await warn.waitFor();
-    assert.equal(await warn.count(), 1);
-    const implement = page.getByRole('button', { name: 'Implement', exact: true });
-    assert.equal(await implement.isEnabled(), true);
-    await implement.click();
+    assert.equal(await warn.count(), 1, 'the warning shows on the main view, once');
+    await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
-    const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
-    assert.equal(inserts.length, 1);
-    assert.equal(JSON.parse(inserts[0].parameters.find((p) => p.name === 'spec').value).outputs.app, false);
+    assert.equal(submittedSpec(made).outputs.app, false);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('what blocks a step shows in the footer, opens Advanced on the field to fix, and clears as it is fixed', async () => {
+  const ui = await openUi('wizard', { useCase: { ...HARNESS_USE_CASE, statement: '', sponsor: '' }, me: { userName: '', displayName: '' } });
+  const { page, made } = ui;
+  try {
+    await onStep(page, 'Data');
+    assert.deepEqual(await footerErrors(page), [], 'nothing is flagged before the person tries to move on');
+    await next(page);
+    await page.locator('[role="alert"]').waitFor();
+    assert.deepEqual(await footerErrors(page), ['write the goal sentence', 'name the decision owner']);
+    assert.equal(await advanced(page).getAttribute('aria-expanded'), 'true');
+    await page.getByLabel('Goal sentence').fill('Cut churn in the top segment');
+    await page.waitForFunction(() => [...document.querySelectorAll('[role="alert"] p')].length === 1);
+    assert.deepEqual(await footerErrors(page), ['name the decision owner']);
+    await page.getByLabel('Decision owner').fill('Head of Retention');
+    await next(page);
+    await onStep(page, 'Delivery');
+    await page.getByRole('checkbox', { name: /^Alert/ }).check();
+    await page.getByText('Nobody gets it yet: add an email under Advanced settings.').waitFor();
+    assert.equal(await advanced(page).getAttribute('aria-expanded'), 'false');
+    await implementWhenReady(page);
+    await page.locator('[role="alert"]').waitFor();
+    assert.deepEqual(await footerErrors(page), ['an alert needs at least one recipient email or notification destination']);
+    assert.equal(await advanced(page).getAttribute('aria-expanded'), 'true');
+    assert.equal(made.jobs.length, 0);
+    await page.getByLabel('Email recipients (comma separated)').fill(OWNER);
+    await page.locator('[role="alert"]').waitFor({ state: 'detached' });
+    await implementWhenReady(page);
+    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    assert.deepEqual(submittedSpec(made).outputs.alert_recipients, [OWNER]);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('an App name another App already uses offers the next name, and Implement waits until the name is free', async () => {
+  const ui = await openUi('wizard', {
+    me: { userName: OWNER, displayName: 'Owner' },
+    appsByName: { 'predict-churn': { name: 'predict-churn', description: 'Sales forecasting tool' } },
+  });
+  const { page, made } = ui;
+  try {
+    await onStep(page, 'Data');
+    await next(page);
+    await onStep(page, 'Delivery');
+    await page.getByRole('checkbox', { name: /^App / }).check();
+    await page.getByText("'predict-churn' is used by another App in this workspace; pick another name.", { exact: false }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Implement', exact: true }).isDisabled(), true);
+    await page.getByRole('button', { name: 'Use predict-churn-2' }).click();
+    assert.equal(await page.getByLabel('App name').inputValue(), 'predict-churn-2');
+    await page.getByText("'predict-churn-2' is free").waitFor();
+    await implementWhenReady(page);
+    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    assert.equal(submittedSpec(made).outputs.app_name, 'predict-churn-2');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('Change swaps a table for a similar one or drops it, and never offers to drop the primary table', async () => {
+  const ui = await openUi('wizard', {
+    me: { userName: OWNER, displayName: 'Owner' },
+    swapRows: [{ table_schema: 's2', table_name: 'orders_v2', matched: '5', total: '6' }],
+  });
+  const { page, made } = ui;
+  try {
+    await onStep(page, 'Data');
+    const row = (table) => page.locator(`[data-table="${table}"]`);
+    await row('main.s.orders').getByRole('button', { name: 'Change' }).click();
+    const ordersPick = page.getByLabel('Table to use for main.s.orders');
+    await page.waitForFunction(() => [...document.querySelectorAll('option')].some((o) => o.textContent === 'main.s2.orders_v2 (5 of 6 columns match)'));
+    const drop = ordersPick.locator('option', { hasText: "Don't use this table" });
+    assert.equal(await drop.textContent(), "Don't use this table (the primary table can be swapped, not removed)");
+    assert.equal(await drop.isDisabled(), true);
+    await ordersPick.selectOption('main.s2.orders_v2');
+    await row('main.s.orders').getByText('main.s2.orders_v2', { exact: true }).waitFor();
+    await row('main.s.orders').getByText('instead of main.s.orders').waitFor();
+    await row('main.s.returns').getByRole('button', { name: 'Change' }).click();
+    await page.getByLabel('Table to use for main.s.returns').selectOption('__remove__');
+    await page.getByText('Removed main.s.returns.', { exact: false }).waitFor();
+    await row('main.s.returns').getByRole('button', { name: 'Use it again' }).waitFor();
+    await next(page);
+    await onStep(page, 'Delivery');
+    await implementWhenReady(page);
+    await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    const spec = submittedSpec(made);
+    assert.deepEqual(spec.data.tables, { 'main.s.orders': 'main.s2.orders_v2' });
+    assert.deepEqual(spec.data.removed_tables, ['main.s.returns']);
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -436,7 +550,7 @@ test('a failed output offers its own retry, which submits the next version that 
   }
 });
 
-test('a dropped source table stops the re-run with its name, and Edit opens the Data step with that table marked', async () => {
+test('a dropped source table stops the re-run with its name, and Edit opens the Data step with that table marked and its Change open', async () => {
   const ui = await openUi('studio', { ...STUDIO_STATE, probeErrors: { '`main`.`s`.`returns`': GONE } });
   const { page, made } = ui;
   const missing = [{ table: 'main.s.returns', reason: 'not found' }];
@@ -450,14 +564,41 @@ test('a dropped source table stops the re-run with its name, and Edit opens the 
     await page.getByRole('button', { name: 'Edit the Data step' }).click();
     await onStep(page, 'Data');
     await page.getByText(lostTablesText(missing)).waitFor();
-    const lost = page.locator('span.font-mono', { hasText: 'main.s.returns' });
-    assert.match(await lost.textContent(), /^main\.s\.returnsnot found$/);
-    assert.match(await page.locator('span.font-mono', { hasText: 'main.s.orders' }).textContent(), /^main\.s\.ordersPrimary$/);
-    const lostCard = page.locator('div.border.rounded-lg', { has: lost });
-    assert.match(await lostCard.getAttribute('class'), /border-error\/50/);
+    const lostRow = page.locator('[data-table="main.s.returns"]');
+    await lostRow.getByText('not found', { exact: true }).waitFor();
+    assert.match(await lostRow.getAttribute('class'), /border-error\/50/);
+    await page.getByLabel('Table to use for main.s.returns').waitFor();
+    const primaryRow = page.locator('[data-table="main.s.orders"]');
+    await primaryRow.getByText('Primary', { exact: true }).waitFor();
+    assert.doesNotMatch(await primaryRow.getAttribute('class'), /border-error/);
+    assert.equal(await page.getByLabel('Table to use for main.s.orders').count(), 0, 'only the lost table opens its Change');
     assert.equal(made.jobs.length, 0);
   } finally {
     await ui.close();
+  }
+});
+
+test('the Studio Results of a version whose first run has not written its table yet say so, and a real read error still shows', async () => {
+  const missing = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`inspire`.`n01_u01_out` cannot be found. SQLSTATE: 42P01; line 1 pos 46';
+  const ui = await openUi('studio', { ...STUDIO_STATE, resultTableError: missing });
+  try {
+    await ui.page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await studioTab(ui.page, 'Results');
+    await ui.page.getByText(`No results yet. The first run creates ${RESULT_TABLE} and writes its rows there.`).waitFor();
+    assert.equal(await ui.page.getByText('TABLE_OR_VIEW_NOT_FOUND', { exact: false }).count(), 0);
+    assert.equal(await ui.page.locator('label', { hasText: 'Tier' }).count(), 0, 'no filters over a table that is not there');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+  const denied = await openUi('studio', { ...STUDIO_STATE, resultTableError: '[INSUFFICIENT_PERMISSIONS] User does not have SELECT on Table main.inspire.n01_u01_out' });
+  try {
+    await denied.page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
+    await studioTab(denied.page, 'Results');
+    await denied.page.getByText('INSUFFICIENT_PERMISSIONS', { exact: false }).first().waitFor();
+    assert.equal(await denied.page.getByText('No results yet.', { exact: false }).count(), 0);
+  } finally {
+    await denied.close();
   }
 });
 
@@ -510,22 +651,13 @@ test('a version stopped by notebook edits offers a rebuild that overwrites them,
   }
 });
 
-test('Edit after notebook edits asks on Review whether to overwrite them, and only a ticked box confirms', async () => {
+test('Edit after notebook edits asks on Delivery whether to overwrite them, and only a ticked box confirms', async () => {
   const ui = await openUi('wizard', { ...STUDIO_STATE, history: [editedVersion(), built()], me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
-    await onStep(page, 'Use case');
-    await next(page);
     await onStep(page, 'Data');
-    await page.locator('span.font-mono', { hasText: 'main.s.returns' }).waitFor();
     await next(page);
-    await onStep(page, 'Configure');
-    await next(page);
-    await onStep(page, 'Run and schedule');
-    await next(page);
-    await onStep(page, 'Use it');
-    await next(page);
-    await onStep(page, 'Review');
+    await onStep(page, 'Delivery');
     const box = page.getByRole('checkbox', { name: /^Overwrite the edits made to the notebook on / });
     await box.waitFor();
     assert.equal(await box.isChecked(), false, 'an Edit never starts confirmed');
@@ -533,7 +665,7 @@ test('Edit after notebook edits asks on Review whether to overwrite them, and on
     await asks.waitFor();
     await box.check();
     await asks.waitFor({ state: 'detached' });
-    await page.getByRole('button', { name: 'Implement', exact: true }).click();
+    await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Use Case Studio' }).waitFor();
     const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
     assert.equal(inserts.length, 1);
@@ -546,13 +678,13 @@ test('Edit after notebook edits asks on Review whether to overwrite them, and on
   }
   const fresh = await openUi('wizard', { ...STUDIO_STATE, me: { userName: OWNER, displayName: 'Owner' } });
   try {
-    await onStep(fresh.page, 'Use case');
-    for (const label of ['Data', 'Configure', 'Run and schedule', 'Use it', 'Review']) {
-      await next(fresh.page);
-      await onStep(fresh.page, label);
-    }
-    await fresh.page.getByRole('button', { name: 'Implement', exact: true }).waitFor();
+    await onStep(fresh.page, 'Data');
+    await next(fresh.page);
+    await onStep(fresh.page, 'Delivery');
+    await fresh.page.getByText('nothing changed since the last built version', { exact: false }).waitFor();
+    assert.equal(await fresh.page.getByRole('button', { name: 'Implement', exact: true }).isDisabled(), true, 'an edit with no change cannot submit');
     assert.equal(await fresh.page.getByRole('checkbox', { name: /^Overwrite the edits/ }).count(), 0, 'no recorded edit, no question');
+    assert.equal(await fresh.page.getByLabel('App name').inputValue(), 'churn-desk', 'an edit keeps the live App name');
   } finally {
     await fresh.close();
   }

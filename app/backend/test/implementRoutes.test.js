@@ -827,11 +827,31 @@ test('the Studio results return the segments of the latest run for the display f
   await withApp({ history: [BUILT()], segments }, async (url, made) => {
     const got = await call(url, `/api/inspire/implement/results?${Q}&tier=Act%20now&segment=Books`);
     assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.equal(got.data.exists, true);
     assert.deepEqual(got.data.segments, segments);
     const rowsCall = made.sqlCalls.find((c) => c.sql.startsWith('SELECT * FROM `main`.`inspire`.`churn_out` WHERE'));
     assert.deepEqual(rowsCall.parameters, [{ name: 'tier', value: 'Act now', type: 'STRING' }, { name: 'segment', value: 'Books', type: 'STRING' }]);
     assert.ok(made.sqlCalls.some((c) => c.sql === 'SELECT segment_or_item, COUNT(*) AS rows FROM `main`.`inspire`.`churn_out` WHERE as_of_date = '
       + '(SELECT MAX(as_of_date) FROM `main`.`inspire`.`churn_out`) AND segment_or_item IS NOT NULL GROUP BY segment_or_item ORDER BY rows DESC, '
       + 'segment_or_item LIMIT 100'));
+  });
+});
+
+test('the Studio results of a version whose first run has not written the output table yet are empty, not a 500', async () => {
+  const missing = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`inspire`.`churn_out` cannot be found. SQLSTATE: 42P01; line 1 pos 46';
+  await withApp({ history: [BUILT()], resultTableError: missing }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/results?${Q}`);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.deepEqual(got.data, { result_table: 'main.inspire.churn_out', exists: false, rows: [], summary: [], segments: [] });
+  });
+});
+
+test('the Studio results still fail when the output table exists but cannot be read', async () => {
+  const denied = '[INSUFFICIENT_PERMISSIONS] User does not have SELECT on Table main.inspire.churn_out';
+  await withApp({ history: [BUILT()], resultTableError: denied }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/results?${Q}`);
+    assert.equal(got.status, 500, JSON.stringify(got.data));
+    assert.match(JSON.stringify(got.data), /INSUFFICIENT_PERMISSIONS/);
+    assert.equal(got.data.exists, undefined);
   });
 });
