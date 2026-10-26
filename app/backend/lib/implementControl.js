@@ -72,7 +72,7 @@ function controlRequest(asset, action, id, { warehouseId } = {}) {
   if (asset === 'build') return { method: 'POST', path: '/api/2.1/jobs/runs/cancel', body: { run_id: Number(id) } };
   if (action === 'unpublish') return { method: 'DELETE', path: `/api/2.0/lakeview/dashboards/${enc}/published` };
   if (!str(warehouseId)) throw I.badRequest('the PoC spec has no SQL warehouse to publish the dashboard on', 409);
-  return { method: 'POST', path: `/api/2.0/lakeview/dashboards/${enc}/published`, body: { warehouse_id: str(warehouseId), embed_credentials: true } };
+  return { method: 'POST', path: `/api/2.0/lakeview/dashboards/${enc}/published`, body: { warehouse_id: str(warehouseId), embed_credentials: false } };
 }
 
 function ownerCheckPath(asset, id) {
@@ -113,7 +113,8 @@ function liveStatus(targets, got, ctx) {
     out.dashboard = !got.dashboard || !got.dashboard.ok
       ? { ok: false, error: got.dashboard && got.dashboard.status === 404 ? 'the dashboard no longer exists' : `Inspire cannot read the dashboard: ${errorOf(got.dashboard)}` }
       : { ok: true, name: str(d.display_name), trashed: str(d.lifecycle_state) === 'TRASHED', published: Boolean(got.published && got.published.ok),
-          published_at: got.published && got.published.ok ? str(dataOf(got.published).revision_create_time) : '' };
+          published_at: got.published && got.published.ok ? str(dataOf(got.published).revision_create_time) : '',
+          embedded: Boolean(got.published && got.published.ok && dataOf(got.published).embed_credentials === true) };
   }
   if (targets.genie_space) {
     out.genie_space = got.genie_space && got.genie_space.ok

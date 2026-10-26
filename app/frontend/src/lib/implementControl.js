@@ -33,8 +33,16 @@ function appRow(entry) {
 function dashboardRow(entry) {
   if (!entry?.ok) return unreadable(entry);
   if (entry.trashed) return { state: { label: 'In the trash', tone: 'error' }, detail: '', actions: [] };
+  const when = entry.published_at ? `Published ${formatWhen(entry.published_at, entry.published_at)}` : 'Published';
+  if (entry.published && entry.embedded) {
+    return {
+      state: { label: 'Shares its publisher’s access', tone: 'warning' },
+      detail: `${when} with the publisher’s credentials, so anyone who can open it reads the data as the publisher. Publish again so each viewer reads it with their own access`,
+      actions: [action('dashboard', 'publish', 'Publish again'), action('dashboard', 'unpublish', 'Unpublish', true)],
+    };
+  }
   return entry.published
-    ? { state: { label: 'Published', tone: 'success' }, detail: entry.published_at ? `Published ${formatWhen(entry.published_at, entry.published_at)}` : '', actions: [action('dashboard', 'unpublish', 'Unpublish', true)] }
+    ? { state: { label: 'Published', tone: 'success' }, detail: entry.published_at ? when : '', actions: [action('dashboard', 'unpublish', 'Unpublish', true)] }
     : { state: { label: 'Not published', tone: 'idle' }, detail: 'People with access cannot open the published view', actions: [action('dashboard', 'publish', 'Publish')] };
 }
 

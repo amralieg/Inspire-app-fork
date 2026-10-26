@@ -396,6 +396,7 @@ export default function ImplementWizard({
         app_name: spec.outputs.app ? spec.outputs.app_name : '',
         alert: spec.outputs.alert ? '1' : '0',
         genie: spec.outputs.genie_space ? '1' : '0',
+        dashboard: spec.outputs.dashboard ? '1' : '0',
         share: (spec.sharing.principals || []).length ? '1' : '0',
         principals: JSON.stringify((spec.sharing.principals || []).map((p) => p.name)),
       });

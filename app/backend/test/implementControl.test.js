@@ -77,7 +77,7 @@ test('each action calls the one Databricks API that does it', () => {
   assert.deepEqual(C.controlRequest('build', 'cancel', '900'), { method: 'POST', path: '/api/2.1/jobs/runs/cancel', body: { run_id: 900 } });
   assert.deepEqual(C.controlRequest('dashboard', 'unpublish', 'd1'), { method: 'DELETE', path: '/api/2.0/lakeview/dashboards/d1/published' });
   assert.deepEqual(C.controlRequest('dashboard', 'publish', 'd1', { warehouseId: 'wh1' }),
-    { method: 'POST', path: '/api/2.0/lakeview/dashboards/d1/published', body: { warehouse_id: 'wh1', embed_credentials: true } });
+    { method: 'POST', path: '/api/2.0/lakeview/dashboards/d1/published', body: { warehouse_id: 'wh1', embed_credentials: false } });
   assert.throws(() => C.controlRequest('dashboard', 'publish', 'd1', {}), (e) => e.statusCode === 409 && /no SQL warehouse/.test(e.message));
 });
 
@@ -123,7 +123,7 @@ test('live status reads every asset in one pass and says plainly what is gone or
   assert.equal(live.app.compute_state, 'STOPPED');
   assert.deepEqual(live.job, { ok: true, job_id: '77', schedule: { cron: '0 0 6 * * ?', timezone: 'Europe/London', paused: true },
     active_runs: [{ run_id: 5, state: 'RUNNING', url: 'https://h/run/5' }], runs_error: '' });
-  assert.deepEqual(live.dashboard, { ok: true, name: 'Churn', trashed: false, published: false, published_at: '' });
+  assert.deepEqual(live.dashboard, { ok: true, name: 'Churn', trashed: false, published: false, published_at: '', embedded: false });
   assert.deepEqual(live.genie_space, { ok: true, title: 'Churn desk' });
   assert.deepEqual(live.alert, { ok: true, name: 'Churn alert', state: 'TRIGGERED', checked_at: '2026-10-26T06:00:05Z', trashed: false });
   const gone = C.liveStatus(targets, { app: missing(), job: ok({ settings: { tags: {} } }), runs: { ok: false, status: 403, data: { message: 'no' } },
@@ -137,8 +137,10 @@ test('live status reads every asset in one pass and says plainly what is gone or
   assert.equal(unread.job.active_runs, null, 'unreadable runs are not shown as zero runs');
   assert.equal(unread.job.runs_error, 'no runs access');
   const published = C.liveStatus({ dashboard: 'd1' }, { dashboard: ok({ display_name: 'Churn', lifecycle_state: 'ACTIVE' }),
-    published: ok({ revision_create_time: '2026-10-26T08:57:59.570Z' }) }, CTX);
-  assert.deepEqual(published.dashboard, { ok: true, name: 'Churn', trashed: false, published: true, published_at: '2026-10-26T08:57:59.570Z' });
+    published: ok({ revision_create_time: '2026-10-26T08:57:59.570Z', embed_credentials: false }) }, CTX);
+  assert.deepEqual(published.dashboard, { ok: true, name: 'Churn', trashed: false, published: true, published_at: '2026-10-26T08:57:59.570Z', embedded: false });
+  const embedded = (flag) => C.liveStatus({ dashboard: 'd1' }, { dashboard: ok({ display_name: 'Churn' }), published: ok({ embed_credentials: flag }) }, CTX).dashboard.embedded;
+  assert.deepEqual([embedded(true), embedded(false), embedded(undefined), embedded('true')], [true, false, false, false]);
 });
 
 test('the live cache serves one load for 15 seconds, shares a load in flight, and never stores a load that a control action outran', async () => {
@@ -255,7 +257,7 @@ test('a failed Databricks call is logged as failed and reported with its reason'
     assert.equal(got.status, 403);
     assert.equal(got.data.error, 'Publish the dashboard failed: PERMISSION_DENIED: no CAN_MANAGE');
     const sent = made.fetches.find((f) => f.path === '/api/2.0/lakeview/dashboards/d1/published');
-    assert.deepEqual(JSON.parse(sent.opts.body), { warehouse_id: 'wh1', embed_credentials: true });
+    assert.deepEqual(JSON.parse(sent.opts.body), { warehouse_id: 'wh1', embed_credentials: false }, 'viewers query with their own access, never the App\'s');
     const logged = made.sqlCalls.find((c) => String(c.sql).startsWith('INSERT INTO `main`.`inspire`.`__inspire_control_log`'));
     assert.equal(logged.parameters.find((p) => p.name === 'result').value, 'failed');
   });
@@ -347,6 +349,13 @@ test('the dashboard, Genie space, alert and job rows read their live state and o
   assert.doesNotMatch(one('dashboard', { ok: true, published: true, published_at: '2026-10-26T11:59:42.625Z' }).detail, /T11|\.625|Z$/);
   assert.equal(one('dashboard', { ok: true, published: true, published_at: 'soon' }).detail, 'Published soon', 'a time Inspire cannot read is shown as sent');
   assert.deepEqual(actionsOf(one('dashboard', { ok: true, published: false })), ['dashboard:publish']);
+  const shared = one('dashboard', { ok: true, published: true, embedded: true, published_at: '2026-10-26T11:59:42.625Z' });
+  assert.deepEqual([shared.state.tone, actionsOf(shared)], ['warning', ['dashboard:publish', 'dashboard:unpublish']]);
+  assert.match(shared.detail, new RegExp(`^Published ${when('2026-10-26T11:59:42.625Z')} with the publisher’s credentials.*their own access$`));
+  assert.equal(shared.actions[0].label, 'Publish again');
+  assert.match(one('dashboard', { ok: true, published: true, embedded: true }).detail, /^Published with the publisher’s credentials/);
+  assert.equal(one('dashboard', { ok: true, published: true, embedded: false }).state.tone, 'success', 'a dashboard that embeds nobody is not flagged');
+  assert.equal(one('dashboard', { ok: true, published: false, embedded: true }).state.label, 'Not published', 'an unpublished dashboard shares nothing');
   assert.deepEqual([one('dashboard', { ok: true, trashed: true, published: true }).state.label, one('dashboard', { ok: true, trashed: true }).actions], ['In the trash', []]);
   assert.deepEqual([one('genie_space', { ok: true }).state, one('genie_space', { ok: true }).actions], [{ label: 'Live', tone: 'success' }, []]);
   assert.deepEqual(['TRIGGERED', 'OK', 'ERROR', 'UNKNOWN', '', 'PAUSED_STATE'].map((s) => one('alert', { ok: true, state: s }).state),

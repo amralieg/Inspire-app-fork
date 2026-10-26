@@ -177,9 +177,11 @@ function registerImplementRoutes(app, deps) {
   async function checkOutput(req, warehouseId, table, useCaseId, options = {}) {
     const rows = await sqlRows(req.dbHost, req.dbToken, warehouseId, I.outputAccessStatement(table));
     const access = I.outputAccess(rows, table);
-    const warnings = I.shareWarnings(table, rows, options.principals);
+    const warehouse = await appWarehouseCheck(req, warehouseId, access.identity, options.warehouseName);
+    const warnings = [...I.shareWarnings(table, rows, options.principals),
+      ...I.shareWarehouseWarnings(warehouse, options.principals, options.viewed, options.warehouseName)];
     if (warnings.length) access.grant = { ...access.grant, warn: warnings.join(' ') };
-    access.app = I.appAccessCheck(access.app, await appWarehouseCheck(req, warehouseId, access.identity, options.warehouseName));
+    access.app = I.appAccessCheck(access.app, warehouse);
     let safety = { ok: true, detail: access.exists ? `${access.table} holds only this use case's rows` : `${access.table} is new; the first run creates it` };
     if (access.exists && access.write.ok) {
       const columns = await sqlRows(req.dbHost, req.dbToken, warehouseId, I.columnsStatement(table));
@@ -526,6 +528,7 @@ function registerImplementRoutes(app, deps) {
       const appName = q(req, 'app_name');
       const wantsAlert = q(req, 'alert') === '1';
       const wantsGenie = q(req, 'genie') === '1';
+      const wantsDashboard = q(req, 'dashboard') !== '0';
       const shares = q(req, 'share') === '1';
       const principals = principalsOf(req);
       if (I.resultTableNameError(resultTable)) throw I.badRequest(I.resultTableNameError(resultTable));
@@ -539,7 +542,8 @@ function registerImplementRoutes(app, deps) {
       let output = null;
       let outputError = '';
       try {
-        output = await checkOutput(req, warehouseId, resultTable, useCaseId, { principals, warehouseName });
+        const viewed = [wantsDashboard && 'the dashboard', wantsGenie && 'the Genie space'];
+        output = await checkOutput(req, warehouseId, resultTable, useCaseId, { principals, warehouseName, viewed });
       } catch (err) {
         outputError = err.message || String(err);
       }

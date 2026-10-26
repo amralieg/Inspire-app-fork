@@ -1251,13 +1251,28 @@ function appAccessMessage(table, gaps, me = '') {
     + `Ask the owner to run: ${statements}${shared}; or choose a result table in a catalog and schema Inspire manages`;
 }
 
-function shareWarnings(name, rows, principals) {
+function principalNames(principals) {
   return (Array.isArray(principals) ? principals : [])
     .map((p) => str(p && typeof p === 'object' ? p.name : p).trim())
-    .filter(Boolean)
+    .filter(Boolean);
+}
+
+function shareWarnings(name, rows, principals) {
+  return principalNames(principals)
     .map((who) => ({ who, gaps: accessPlan(name, rows, who).gaps }))
     .filter((p) => p.gaps.length)
     .map((p) => accessGapMessage(p.who, p.gaps));
+}
+
+function shareWarehouseWarnings(warehouse, principals, viewed, warehouseName) {
+  const who = principalNames(principals);
+  const opens = (Array.isArray(viewed) ? viewed : []).filter(Boolean);
+  if (!who.length || !opens.length || !warehouse || warehouse.ok) return [];
+  const name = str(warehouseName).trim() || 'the SQL warehouse';
+  const one = who.length === 1;
+  return [`${joinAnd(who)} ${one ? 'needs' : 'need'} CAN USE on ${name} to open ${joinAnd(opens)}, because they query with their own `
+    + `access, and Inspire may not be able to grant it: ask the warehouse owner to give ${one ? 'it' : 'them'} CAN USE on ${name}, `
+    + `or to give Inspire CAN MANAGE on it`];
 }
 
 function warehouseManageCheck(got, identities, groups, warehouseName) {
@@ -1513,6 +1528,7 @@ module.exports = {
   accessGapMessage,
   appAccessMessage,
   shareWarnings,
+  shareWarehouseWarnings,
   warehouseManageCheck,
   appAccessCheck,
   executionFamily,
