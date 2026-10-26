@@ -11,6 +11,7 @@ import ChoosePage from './pages/ChoosePage';
 import ImplementPage from './pages/ImplementPage';
 import ScrollProgressRing from './components/ScrollProgressRing';
 import ParticleField from './components/ParticleField';
+import { RESULTS_FRAME } from './lib/layout';
 
 /** Legacy Configure default pointed at a user folder that often does not exist; use shared publish path. */
 const WORKSPACE_NOTEBOOK_SHARED = '/Shared/inspire-ai/dbx_inspire_ai_agent';
@@ -364,7 +365,7 @@ export default function App() {
 
         {page === 'results' && (
           <ErrorBoundary key="results">
-            <div className="max-w-7xl mx-auto px-6 py-4 sm:py-5">
+            <div className={RESULTS_FRAME}>
               <ResultsPage
                 settings={settings}
                 update={update}

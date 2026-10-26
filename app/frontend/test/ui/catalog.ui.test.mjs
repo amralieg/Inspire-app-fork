@@ -115,18 +115,20 @@ test('the use case title keeps its room however many columns are on: a narrow pa
     await page.getByRole('button', { name: /^Columns/ }).click();
     await chooser.getByRole('button', { name: 'Reset to default columns' }).click();
     await page.keyboard.press('Escape');
-    await page.setViewportSize({ width: 1330, height: 900 });
+    await page.setViewportSize({ width: 1480, height: 900 });
     await page.waitForTimeout(300);
     assert.ok(await titleWidth() >= 239, `the default columns leave the title 240px (${await titleWidth()})`);
-    assert.ok(await overflow() <= 1, 'the default columns fit a page as wide as the Results page');
+    assert.equal(await overflow(), 0, 'the default columns fit the Results page without a sideways scroll');
+    const spare = await page.getByRole('region', { name: 'Use case grid' }).evaluate((el) => el.clientWidth - parseFloat(el.querySelector('table').style.minWidth));
+    assert.ok(spare >= 16, `the default columns leave room for a vertical scrollbar (${spare}px spare)`);
     const clipped = await page.locator('[data-use-case-grid] tbody td').evaluateAll((tds) => tds
       .filter((td) => td.cellIndex !== 2 && td.scrollWidth > td.clientWidth + 1)
       .map((td) => `${td.closest('tr').dataset.rowId} col ${td.cellIndex}: ${td.innerText.trim()}`));
     assert.deepEqual(clipped, [], 'no default cell spills out of its column');
     await page.setViewportSize({ width: 1800, height: 900 });
     await page.waitForTimeout(300);
-    assert.ok(await titleWidth() > 260, `the title grows past its floor on a wide page (${await titleWidth()})`);
-    assert.ok(await overflow() <= 1, 'no sideways scroll when everything fits');
+    assert.ok(await titleWidth() > 245, `the title grows past its floor on a wide page (${await titleWidth()})`);
+    assert.equal(await overflow(), 0, 'no sideways scroll when everything fits');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();

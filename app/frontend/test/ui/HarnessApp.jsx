@@ -5,6 +5,7 @@ import ResultsPage from '../../src/pages/ResultsPage';
 import ImplementCardActions from '../../src/components/ImplementCardActions';
 import Header from '../../src/components/Header';
 import LandingPage from '../../src/pages/LandingPage';
+import { RESULTS_FRAME } from '../../src/lib/layout';
 import { ThemeProvider } from '../../src/ThemeContext';
 import { makeApiFetch, makeApiPostJson } from '../../src/lib/apiClient';
 import { caseIdOf, implementState, notebookStatus } from '../../src/lib/implementWizard';
@@ -73,7 +74,7 @@ function CardHarness() {
 function CatalogHarness() {
   const [opened, setOpened] = useState('');
   return (
-    <div className="p-6">
+    <div className={RESULTS_FRAME}>
       <ResultsPage
         settings={SETTINGS}
         update={() => {}}

@@ -96,9 +96,9 @@ function catalogColumns({ maxInspire = 0, onToggleFavorite } = {}) {
         );
       },
     },
-    textColumn('domain', 'Domain', (r) => r.domain, { size: 128, meta: { label: 'Domain' } }),
+    textColumn('domain', 'Domain', (r) => r.domain, { size: 120, meta: { label: 'Domain' } }),
     textColumn('subdomain', 'Subdomain', (r) => r.subdomain, { size: 160, meta: { label: 'Subdomain' } }),
-    textColumn('technique', 'Technique', (r) => r.technique, { size: 144, meta: { label: 'Technique' } }),
+    textColumn('technique', 'Technique', (r) => r.technique, { size: 136, meta: { label: 'Technique' } }),
     textColumn('type', 'Type', (r) => r.type, { size: 112, meta: { label: 'Type' } }),
     {
       id: 'quality',
@@ -128,7 +128,7 @@ function catalogColumns({ maxInspire = 0, onToggleFavorite } = {}) {
       accessorFn: (r) => (typeof r.inspire === 'number' && Number.isFinite(r.inspire) ? r.inspire : undefined),
       sortUndefined: 'last',
       sortDescFirst: true,
-      size: 112, meta: { label: 'Inspire score' },
+      size: 104, meta: { label: 'Inspire score' },
       cell: ({ row }) => {
         const v = row.original.inspire;
         if (!(typeof v === 'number' && Number.isFinite(v))) return dash;
