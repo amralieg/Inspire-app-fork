@@ -3,6 +3,7 @@ const { stepsStatement } = require('./lib/sqlInputs');
 const I = require('./lib/inspireImplement');
 const { createGenieJobGuard } = require('./lib/genieJobGuard');
 const { genieNotebookJobName, latestGenieNotebookRun } = require('./lib/genieNotebookJob');
+const C = require('./lib/implementControl');
 
 function sendError(res, err) {
   const code = err && Number.isFinite(err.statusCode) ? err.statusCode : 500;
@@ -100,6 +101,7 @@ function registerImplementRoutes(app, deps) {
 
   const sqlRows = (host, token, warehouseId, statement) =>
     rowsOf(executeSql, sqlResultToObjects, host, token, warehouseId, statement);
+  const liveCache = C.createLiveCache();
   const fetchJsonFor = (req) => (path) => jsonOf(dbFetch, req.dbHost, req.dbToken, path);
 
   async function loadMe(req) {
@@ -319,6 +321,7 @@ function registerImplementRoutes(app, deps) {
           cluster_id,
           jobType: 'genie_regen',
           jobName: genieNotebookJobName(sidStr),
+          useCaseIds: safeIds,
         });
       } catch (launchErr) {
         genieJobGuard.failed(sidStr);
@@ -679,6 +682,7 @@ function registerImplementRoutes(app, deps) {
           notebook_path: req.body?.notebook_path,
           cluster_id: req.body?.cluster_id,
           jobType: 'implement',
+          useCaseIds: [useCaseId],
         });
       } catch (err) {
         const failed = I.implementStartFailedStatement(table, { ...version, message: `the Implement run could not start: ${err.message}` });
@@ -752,6 +756,88 @@ function registerImplementRoutes(app, deps) {
         app_status: I.appStatusFrom(appInfo, { useCaseId, sessionId: sid }),
         runs: I.jobRunsFrom(runInfo, jobInfo),
       });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  async function controlContext(req) {
+    const sid = sessionIdOf(req);
+    const warehouseId = warehouseOf(req);
+    const { catalog, schema } = dbOf(req, splitInspireDatabase);
+    const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
+    const history = await loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId);
+    return {
+      sid, warehouseId, catalog, schema, useCaseId, history,
+      targets: C.controlTargets(history),
+      key: `${req.dbHost}|${catalog}.${schema}|${sid}|${useCaseId}`,
+      logTable: C.controlLogTableName(catalog, schema),
+    };
+  }
+
+  app.get('/api/inspire/implement/live', requireToken, async (req, res) => {
+    try {
+      const ctx = await controlContext(req);
+      const live = await liveCache.get(ctx.key, async () => {
+        const paths = C.livePaths(ctx.targets);
+        const names = Object.keys(paths);
+        const got = await Promise.all(names.map((name) => jsonOf(dbFetch, req.dbHost, req.dbToken, paths[name])));
+        let actions = [];
+        try {
+          actions = await sqlRows(req.dbHost, req.dbToken, ctx.warehouseId,
+            C.controlLogSelect(ctx.logTable, { sessionId: ctx.sid, useCaseId: ctx.useCaseId }));
+        } catch (err) {
+          if (!isMissingTableError(err)) throw err;
+        }
+        return {
+          targets: ctx.targets,
+          assets: C.liveStatus(ctx.targets, Object.fromEntries(names.map((name, i) => [name, got[i]])),
+            { useCaseId: ctx.useCaseId, sessionId: ctx.sid }),
+          actions,
+          checked_at: new Date().toISOString(),
+        };
+      });
+      res.json(live);
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.post('/api/inspire/implement/control', requireToken, async (req, res) => {
+    try {
+      const asset = q(req, 'asset');
+      const action = q(req, 'action');
+      const label = C.controlAction(asset, action);
+      const ctx = await controlContext(req);
+      const id = C.controlTarget(asset, ctx.targets);
+      const latest = ctx.history[0] || {};
+      if (asset !== 'build' && I.IMPLEMENT_ACTIVE_STATUSES.includes(latest.status)) {
+        throw I.badRequest(`spec v${latest.spec_version} is still ${latest.status}; ${C.controlPhrase(label)} after it finishes, or stop the build first`, 409);
+      }
+      const owner = await jsonOf(dbFetch, req.dbHost, req.dbToken, C.ownerCheckPath(asset, id));
+      const problem = C.ownerProblem(asset, owner, { useCaseId: ctx.useCaseId, sessionId: ctx.sid });
+      if (problem) throw I.badRequest(`Inspire did not ${C.controlPhrase(label)}: ${problem}`, 409);
+      const spec = latest.spec_json ? I.validateImplementSpec(latest.spec_json).spec : null;
+      const request = C.controlRequest(asset, action, id, { warehouseId: spec && spec.config.warehouse_id });
+      await executeSql(req.dbHost, req.dbToken, ctx.warehouseId, C.controlLogCreateSql(ctx.logTable));
+      const got = await jsonOf(dbFetch, req.dbHost, req.dbToken, request.path,
+        { method: request.method, ...(request.body ? { body: JSON.stringify(request.body) } : {}) });
+      const failure = got.ok ? '' : String((got.data && (got.data.message || got.data.error || got.data.raw)) || `HTTP ${got.status}`);
+      const message = got.ok ? `${label}: done` : `${label} failed: ${failure}`;
+      const me = await loadMe(req);
+      const insert = C.controlLogInsert(ctx.logTable, {
+        sessionId: ctx.sid, useCaseId: ctx.useCaseId, asset, assetId: id, action, result: got.ok ? 'done' : 'failed', message, actedBy: requesterOf(req, me),
+      });
+      let auditError = '';
+      try {
+        await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, ctx.warehouseId, insert.sql, { parameters: insert.parameters });
+      } catch (e) {
+        auditError = `the action was not recorded in ${C.CONTROL_LOG_TABLE}: ${e.message}`;
+        console.warn(`implement control audit write failed: ${e.message}`);
+      }
+      liveCache.forget(ctx.key);
+      if (!got.ok) throw I.badRequest(message, got.status >= 400 && got.status < 500 ? got.status : 502);
+      res.json({ ok: true, asset, action, asset_id: id, message, audit_error: auditError });
     } catch (err) {
       sendError(res, err);
     }

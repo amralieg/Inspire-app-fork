@@ -78,8 +78,11 @@ test('deployment and API surfaces advertise v1.3.0 consistently', () => {
   const server = fs.readFileSync(path.join(appRoot, 'backend', 'server.js'), 'utf8');
   const bundleConfig = fs.readFileSync(path.join(appRoot, 'databricks.yml'), 'utf8');
 
+  const jobParams = fs.readFileSync(path.join(appRoot, 'backend', 'lib', 'inspireJobParams.js'), 'utf8');
+
   assert.match(server, /agentVersion:\s*INSPIRE_AGENT_VERSION/);
-  assert.match(server, /inspire_version:\s*INSPIRE_AGENT_VERSION/);
+  assert.match(server, /tags:\s*inspireJobTags\(/);
+  assert.match(jobParams, /inspire_version:\s*INSPIRE_AGENT_VERSION/);
   assert.match(bundleConfig, /inspire_version:\s*"v1\.3\.0"/);
 });
 

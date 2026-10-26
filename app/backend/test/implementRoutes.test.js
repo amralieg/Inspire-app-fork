@@ -67,6 +67,7 @@ test('submit writes the spec then launches an implement job', async () => {
     assert.equal(jobs[0].jobType, 'implement');
     assert.equal(jobs[0].params['15_operation'], 'Implement Use Cases');
     assert.equal(jobs[0].params.inspire_implement_use_case, 'N01-U01');
+    assert.deepEqual(jobs[0].useCaseIds, ['N01-U01'], 'the implement job is tagged with the use case it builds');
     assert.ok(sqlCalls.some((c) => String(c.sql).includes('CREATE TABLE IF NOT EXISTS')));
     assert.ok(sqlCalls.some((c) => String(c.sql).includes('INSERT INTO')));
   } finally {
@@ -915,6 +916,7 @@ test('a notebook-only request flags just its use case and starts the session not
     assert.equal(jobs[0].jobType, 'genie_regen');
     assert.equal(jobs[0].params['15_operation'], 'Generate Use Cases');
     assert.equal(jobs[0].params['14_session_id'], '42');
+    assert.deepEqual(jobs[0].useCaseIds, ['N01-U01'], 'the notebook job is tagged with the use cases it writes');
   } finally {
     await srv.close();
   }

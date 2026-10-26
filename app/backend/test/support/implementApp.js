@@ -44,6 +44,10 @@ function makeApp(overrides = {}) {
     executeSql: async (_h, _t, _w, sql, parameters) => {
       sqlCalls.push({ sql, parameters });
       if (sql.includes('CREATE TABLE')) return { rows: [] };
+      if (sql.startsWith('SELECT') && sql.includes('__inspire_control_log')) {
+        if (state.controlLogError) throw new Error(state.controlLogError);
+        return { rows: state.controlLog || [] };
+      }
       if (sql.startsWith('DESCRIBE TABLE') && sql.includes('__inspire_implement')) {
         return { rows: [...state.implementColumns.map((col_name) => ({ col_name, data_type: 'string' })),
           { col_name: '', data_type: '' }, { col_name: '# Clustering Information', data_type: '' }, { col_name: 'session_id', data_type: '' }] };
@@ -88,6 +92,11 @@ function makeApp(overrides = {}) {
     sqlResultToObjects,
     dbFetch: async (_host, _token, path, opts = {}) => {
       fetches.push({ path, opts });
+      const routed = `${String(opts.method || 'GET').toUpperCase()} ${path.split('?')[0]}`;
+      if (state.responses && Object.prototype.hasOwnProperty.call(state.responses, routed)) {
+        const [data, status = 200] = state.responses[routed];
+        return json(data, status);
+      }
       if (path.includes('/scim/v2/Me')) return json(state.me);
       if (path.startsWith('/api/2.0/permissions/sql/warehouses/')) {
         return json(state.warehousePermissions, state.warehousePermissionsStatus || 200);
@@ -100,6 +109,8 @@ function makeApp(overrides = {}) {
       if (path.match(/\/api\/2\.0\/apps\/.+/ ) && !path.includes('page_size')) return json(state.app, state.appExists ? 200 : 404);
       if (path.includes('/api/2.0/apps')) return json(state.appsList, state.appsOk ? 200 : 404);
       if (path.includes('/genie/spaces')) return json({}, state.spacesOk ? 200 : 404);
+      if (path.startsWith('/api/2.0/lakeview/dashboards/') && path.endsWith('/published')) return json({}, state.dashboardPublished === false ? 404 : 200);
+      if (path.startsWith('/api/2.0/lakeview/dashboards/')) return json({ display_name: 'Dashboard', lifecycle_state: 'ACTIVE' });
       if (path.startsWith('/api/2.0/alerts')) return json({}, state.alertsOk ? 200 : 403);
       if (path.startsWith('/api/2.0/notification-destinations')) {
         const pages = Array.isArray(state.destinations) ? state.destinations : [state.destinations];

@@ -193,3 +193,78 @@ test('tracking rows carry the star NULL-safe: Y with its rank, N without one, ol
   const older = normalizeV130UseCaseFields({});
   assert.deepEqual([older.best_of_best, older.best_of_best_rank, older.best_of_best_score, older.best_of_best_reason], [null, null, null, null]);
 });
+
+test('a launched job carries the real session id, the use cases it works on and the spec version, never a made-up id', () => {
+  const { inspireJobTags } = require('../lib/inspireJobParams');
+  const tags = inspireJobTags({
+    runType: 'implement',
+    params: { '14_session_id': '1234567890123456789', inspire_implement_spec_version: '3' },
+    businessName: 'TPCDS Retail V130 Ship',
+    notebookFilename: 'dbx_inspire_ai_agent',
+    useCaseIds: ['N05-U01'],
+  });
+  assert.deepEqual(tags, {
+    inspire_version: INSPIRE_AGENT_VERSION,
+    dbx_inspire_ai_business: 'TPCDS_Retail_V130_Ship',
+    dbx_inspire_ai_type: 'implement',
+    dbx_inspire_ai_run_type: 'implement',
+    dbx_inspire_ai_usecases: '1',
+    dbx_inspire_ai_notebook: 'dbx_inspire_ai_agent',
+    dbx_inspire_ai_launcher_source: 'Inspire_App',
+    dbx_inspire_ai_session: '1234567890123456789',
+    dbx_inspire_ai_session_id: '1234567890123456789',
+    dbx_inspire_ai_usecase_id: 'N05-U01',
+    dbx_inspire_ai_spec_version: '3',
+  });
+  const discovery = inspireJobTags({ runType: 'discovery', params: {}, businessName: 'Acme', notebookFilename: 'nb' });
+  assert.equal(discovery.dbx_inspire_ai_usecases, '0');
+  for (const key of ['dbx_inspire_ai_session', 'dbx_inspire_ai_session_id', 'dbx_inspire_ai_usecase_id', 'dbx_inspire_ai_spec_version']) {
+    assert.equal(key in discovery, false, `${key} is left out when the launch does not know it`);
+  }
+});
+
+test('several use cases share one tag, deduplicated, and a list that does not fit keeps whole ids with the full count', () => {
+  const { inspireJobTags } = require('../lib/inspireJobParams');
+  const two = inspireJobTags({ runType: 'genie_regen', params: { '14_session_id': '42' }, useCaseIds: ['N01-U01', 'N01-U02', 'N01-U01', ' ', null] });
+  assert.equal(two.dbx_inspire_ai_usecase_id, 'N01-U01_N01-U02');
+  assert.equal(two.dbx_inspire_ai_usecases, '2');
+  const many = Array.from({ length: 40 }, (_, i) => `N${String(i).padStart(2, '0')}-U01`);
+  const capped = inspireJobTags({ runType: 'genie_regen', params: {}, useCaseIds: many });
+  assert.ok(capped.dbx_inspire_ai_usecase_id.length <= 255);
+  assert.deepEqual(capped.dbx_inspire_ai_usecase_id.split('_'), many.slice(0, capped.dbx_inspire_ai_usecase_id.split('_').length));
+  assert.ok(capped.dbx_inspire_ai_usecase_id.split('_').length < 40);
+  assert.equal(capped.dbx_inspire_ai_usecases, '40');
+});
+
+test('tag values are cleaned exactly the way the agent cleans them, and the use case tags are the same on both sides', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const { inspireJobTags, inspireTagValue } = require('../lib/inspireJobParams');
+  const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'implement_change_classes.json'), 'utf8'));
+  for (const [raw, cleaned] of fixture.tag_values) assert.equal(inspireTagValue(raw), cleaned, raw);
+  assert.equal(inspireTagValue('x'.repeat(300)).length, 255);
+  const tags = inspireJobTags({
+    runType: 'implement', params: { '14_session_id': '42', inspire_implement_spec_version: '1' }, businessName: 'Acme', notebookFilename: 'nb',
+    useCaseIds: ['N01-U01'],
+  });
+  assert.deepEqual(fixture.use_case_tag_keys.filter((key) => !(key in tags)), []);
+});
+
+test('every job the App creates takes its tags from inspireJobTags', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const backend = path.join(__dirname, '..');
+  const sources = [path.join(backend, 'server.js')].concat(
+    fs.readdirSync(path.join(backend, 'lib')).map((name) => path.join(backend, 'lib', name)),
+  );
+  const creators = sources.filter((file) => fs.readFileSync(file, 'utf8').includes("'/api/2.1/jobs/create'"));
+  assert.deepEqual(creators.map((file) => path.basename(file)).sort(), ['demoDataPipeline.js', 'server.js']);
+  for (const file of creators) {
+    const source = fs.readFileSync(file, 'utf8');
+    assert.match(source, /tags: inspireJobTags\(/, file);
+    assert.doesNotMatch(source, /dbx_inspire_ai_session: /, file);
+  }
+  const server = fs.readFileSync(path.join(backend, 'server.js'), 'utf8');
+  const start = server.indexOf('async function triggerInspireNotebookJob');
+  assert.doesNotMatch(server.slice(start, server.indexOf("'/api/2.1/jobs/create'", start)), /randomUUID/);
+});

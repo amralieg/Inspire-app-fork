@@ -18,6 +18,7 @@ const { triggerDemoDataPipeline } = require('./lib/demoDataPipeline');
 const { resolveInspireAppServicePrincipalId } = require('./lib/inspireSpGrants');
 const {
   INSPIRE_AGENT_VERSION,
+  inspireJobTags,
   inspireTaskCompute,
   normalizeUseCasesQualityParams,
   sanitizeInspireNotebookJobParams,
@@ -778,7 +779,7 @@ async function resolveWorkspaceNotebookObjectPath(host, token, candidatePath) {
  * @param {'discovery'|'genie_regen'|'implement'} [opts.jobType]
  * @param {string} [opts.jobName]
  */
-async function triggerInspireNotebookJob(host, token, { params, notebook_path, cluster_id, jobType = 'discovery', jobName: requestedJobName = '' }) {
+async function triggerInspireNotebookJob(host, token, { params, notebook_path, cluster_id, jobType = 'discovery', jobName: requestedJobName = '', useCaseIds = [] }) {
   normalizeUseCasesQualityParams(params);
   const sanitized = sanitizeInspireNotebookJobParams(params);
   for (const k of Object.keys(params)) delete params[k];
@@ -827,23 +828,13 @@ async function triggerInspireNotebookJob(host, token, { params, notebook_path, c
   } catch (_) {}
 
   const businessName = params['00_business_name'] || 'Run';
-  const sanitizeTag = (v) => String(v || '').replace(/[^A-Za-z0-9._-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 255);
   const jobName = requestedJobName || `Inspire AI - ${businessName} - ${new Date().toISOString().slice(0, 19)}`;
-  const jobSessionId = crypto.randomUUID();
   const notebookFilename = resolvedPath.split('/').pop() || 'inspire_notebook';
   const inspireRunType = jobType === 'genie_regen' ? 'genie_regen' : (jobType === 'implement' ? 'implement' : 'discovery');
 
   const createPayload = {
     name: jobName,
-    tags: {
-      inspire_version: INSPIRE_AGENT_VERSION,
-      dbx_inspire_ai_business: sanitizeTag(businessName),
-      dbx_inspire_ai_type: inspireRunType,
-      dbx_inspire_ai_run_type: inspireRunType,
-      dbx_inspire_ai_session: sanitizeTag(jobSessionId),
-      dbx_inspire_ai_usecases: '0',
-      dbx_inspire_ai_notebook: sanitizeTag(notebookFilename),
-    },
+    tags: inspireJobTags({ runType: inspireRunType, params, businessName, notebookFilename, useCaseIds }),
     tasks: [{
       task_key: 'inspire_notebook',
       notebook_task: {

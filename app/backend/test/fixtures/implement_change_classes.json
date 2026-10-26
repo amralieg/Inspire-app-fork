@@ -2570,8 +2570,8 @@
   "app_owner_tags": [
     {
       "use_case_id": "N01-U01",
-      "session_id": "1792812930252888616",
-      "tag": "Inspire use case N01-U01 (session 1792812930252888616)"
+      "session_id": "1234567890123456789",
+      "tag": "Inspire use case N01-U01 (session 1234567890123456789)"
     }
   ],
   "task_keys": {
@@ -2647,5 +2647,50 @@
   "stopped_states": [
     "deleted",
     "released"
+  ],
+  "tag_values": [
+    [
+      "Inspire App",
+      "Inspire_App"
+    ],
+    [
+      "TPCDS Retail V130 Ship",
+      "TPCDS_Retail_V130_Ship"
+    ],
+    [
+      "  A b/c__d.. ",
+      "A_b_c_d"
+    ],
+    [
+      "N05-U01",
+      "N05-U01"
+    ],
+    [
+      "v1.3.0",
+      "v1.3.0"
+    ],
+    [
+      "Café & Co.",
+      "Caf_Co"
+    ],
+    [
+      "-._x_.-",
+      "._x_."
+    ],
+    [
+      "",
+      ""
+    ]
+  ],
+  "use_case_tag_keys": [
+    "inspire_version",
+    "dbx_inspire_ai_business",
+    "dbx_inspire_ai_run_type",
+    "dbx_inspire_ai_session",
+    "dbx_inspire_ai_session_id",
+    "dbx_inspire_ai_usecase_id",
+    "dbx_inspire_ai_spec_version",
+    "dbx_inspire_ai_notebook",
+    "dbx_inspire_ai_launcher_source"
   ]
 }

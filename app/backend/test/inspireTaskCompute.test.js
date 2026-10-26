@@ -70,6 +70,11 @@ test('both demo pipeline tasks run once on serverless and use the cluster when o
     assert.equal('disable_auto_optimization' in task, false, task.task_key);
   }
   assert.equal(classic.environments, undefined);
+  assert.equal(serverless.tags.dbx_inspire_ai_session, '42');
+  assert.equal(serverless.tags.dbx_inspire_ai_session_id, '42');
+  assert.equal(serverless.tags.dbx_inspire_ai_run_type, 'demo_pipeline');
+  assert.equal(serverless.tags.dbx_inspire_ai_type, 'demo_pipeline');
+  assert.equal(serverless.tags.dbx_inspire_ai_business, 'Acme_Retail');
 });
 
 test('every job the App creates takes its task compute from inspireTaskCompute', () => {

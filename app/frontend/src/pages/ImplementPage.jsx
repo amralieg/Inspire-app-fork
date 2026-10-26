@@ -9,6 +9,8 @@ import { buildUseCaseList } from '../lib/useCaseList';
 import { workspaceNotebookUrl } from '../lib/workspaceLinks';
 import ImplementStatusBadge from '../components/ImplementStatusBadge';
 import ImplementWizard from './ImplementWizard';
+import ImplementControlTower from '../components/ImplementControlTower';
+import { CONTROL_REFRESH_MS, removeChanges } from '../lib/implementControl';
 
 const TABS = ['Progress', 'Results', 'Dashboard', 'Genie', 'App', 'Alert', 'History', 'Edit'];
 const TAB_OUTPUT = { Dashboard: 'dashboard', Genie: 'genie_space', App: 'app', Alert: 'alert' };
@@ -224,11 +226,30 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const [rerunError, setRerunError] = useState(null);
   const [submitBusy, setSubmitBusy] = useState(false);
   const [filters, setFilters] = useState({ tier: '', segment: '' });
+  const [live, setLive] = useState(null);
+  const [liveError, setLiveError] = useState('');
+  const [actionBusy, setActionBusy] = useState('');
 
   const loadStatus = useCallback(async () => {
     const data = await apiFetch(`/api/inspire/implement/status?${qBase}&use_case_id=${encodeURIComponent(useCaseId)}`);
     setStatus(data);
   }, [apiFetch, qBase, useCaseId]);
+
+  const loadLive = useCallback(async () => {
+    try {
+      setLive(await apiFetch(`/api/inspire/implement/live?${qBase}&use_case_id=${encodeURIComponent(useCaseId)}`));
+      setLiveError('');
+    } catch (e) {
+      setLiveError(e.message);
+    }
+  }, [apiFetch, qBase, useCaseId]);
+
+  useEffect(() => {
+    if (!hasPoc) return undefined;
+    loadLive();
+    const id = setInterval(loadLive, CONTROL_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [hasPoc, loadLive, refreshKey]);
 
   useEffect(() => {
     if (!hasPoc) return undefined;
@@ -297,6 +318,22 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
 
   const toggleSchedule = () => submitNext({ schedule: { ...(spec.schedule || {}), enabled: !spec.schedule?.enabled } });
   const retryOutput = (name) => submitNext({ retry_outputs: [name] });
+  const removeOutput = (name) => submitNext(removeChanges(latest, name));
+
+  const runControl = async (a) => {
+    setActionBusy(`${a.asset}:${a.action}`);
+    setError('');
+    try {
+      const got = await apiPostJson(`/api/inspire/implement/control?${qBase}&use_case_id=${encodeURIComponent(useCaseId)}`, { asset: a.asset, action: a.action });
+      if (got.audit_error) setError(got.audit_error);
+      await loadStatus();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      await loadLive();
+      setActionBusy('');
+    }
+  };
   const failedOutputs = retryableOutputs(latest);
   const builtOutputs = rebuildableOutputs(latest);
   const alertAsset = latest?.asset_status?.alert || {};
@@ -349,6 +386,19 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
       )}
       {hasPoc && (
         <>
+          <ImplementControlTower
+            live={live}
+            liveError={liveError}
+            latest={latest}
+            useCaseId={useCaseId}
+            active={active}
+            actionBusy={actionBusy}
+            submitBusy={submitBusy}
+            onAction={runControl}
+            onRemove={removeOutput}
+            onToggleSchedule={toggleSchedule}
+            onRefresh={loadLive}
+          />
           <div role="tablist" aria-label="PoC views" className="flex flex-wrap gap-1 px-4 pt-3 border-b border-border">
             {TABS.map((name) => (
               <button

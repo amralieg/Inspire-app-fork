@@ -169,6 +169,50 @@ function buildDemoInspireDiscoveryParams({ inspireDatabase, sessionId, generateT
   return sanitizeInspireNotebookJobParams(raw);
 }
 
+const INSPIRE_TAG_VALUE_MAX = 255;
+
+function inspireTagValue(value) {
+  return String(value ?? '')
+    .replace(/[^A-Za-z0-9._-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/^\.+|\.+$/g, '')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, INSPIRE_TAG_VALUE_MAX);
+}
+
+function inspireUseCaseIdsTag(useCaseIds) {
+  let joined = '';
+  for (const id of useCaseIds) {
+    const next = joined ? `${joined}_${id}` : id;
+    if (next.length > INSPIRE_TAG_VALUE_MAX) break;
+    joined = next;
+  }
+  return joined;
+}
+
+function inspireJobTags({ runType, params = {}, businessName = '', notebookFilename = '', useCaseIds = [] }) {
+  const sessionId = inspireTagValue(params['14_session_id']);
+  const ids = [...new Set(useCaseIds.map(inspireTagValue).filter(Boolean))];
+  const specVersion = inspireTagValue(params.inspire_implement_spec_version);
+  const tags = {
+    inspire_version: INSPIRE_AGENT_VERSION,
+    dbx_inspire_ai_business: inspireTagValue(businessName),
+    dbx_inspire_ai_type: runType,
+    dbx_inspire_ai_run_type: runType,
+    dbx_inspire_ai_usecases: String(ids.length),
+    dbx_inspire_ai_notebook: inspireTagValue(notebookFilename),
+    dbx_inspire_ai_launcher_source: inspireTagValue('Inspire App'),
+  };
+  if (sessionId) {
+    tags.dbx_inspire_ai_session = sessionId;
+    tags.dbx_inspire_ai_session_id = sessionId;
+  }
+  if (ids.length) tags.dbx_inspire_ai_usecase_id = inspireUseCaseIdsTag(ids);
+  if (specVersion) tags.dbx_inspire_ai_spec_version = specVersion;
+  return tags;
+}
+
 function inspireTaskCompute(clusterId) {
   return clusterId
     ? { existing_cluster_id: clusterId }
@@ -246,6 +290,8 @@ module.exports = {
   BEST_OF_BEST_MAX_COUNT,
   BEST_OF_BEST_DEFAULT_COUNT,
   buildDemoInspireDiscoveryParams,
+  inspireTagValue,
+  inspireJobTags,
   inspireTaskCompute,
   sanitizeInspireNotebookJobParams,
   normalizeGenerationOptionsParams,

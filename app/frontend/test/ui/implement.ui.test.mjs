@@ -139,7 +139,7 @@ async function implementWhenReady(page) {
 }
 
 function submittedSpec(made) {
-  const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
+  const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO') && (c.parameters || []).some((p) => p.name === 'spec'));
   assert.equal(inserts.length, 1);
   return JSON.parse(inserts[0].parameters.find((p) => p.name === 'spec').value);
 }
@@ -998,6 +998,47 @@ test('a card has one button, Start Use Case PoC with Genie, and a status label t
     await card('running').getByRole('button').click();
     await label.click();
     assert.equal(await page.getByLabel('Clicks').textContent(), 'start:running,card:notebook', 'the button never toggles the card, and the label has no action of its own');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('the control tower shows each asset live, stops the App through Inspire, and removes the dashboard only once the use case id is typed', async () => {
+  const pocJob = { job_id: 77, settings: { tags: { dbx_inspire_ai_run_type: 'implement', dbx_inspire_ai_session_id: '42', dbx_inspire_ai_usecase_id: 'N01-U01' },
+    schedule: { quartz_cron_expression: '0 0 6 * * ?', timezone_id: 'UTC', pause_status: 'UNPAUSED' } } };
+  const ui = await openUi('implement', { ...STUDIO_STATE, job: pocJob, spacesOk: true, alertsOk: true,
+    responses: { 'POST /api/2.0/apps/churn-desk/stop': [{}] } });
+  const { page, made } = ui;
+  try {
+    const tower = page.getByRole('region', { name: 'Control tower' });
+    await tower.locator('[data-control="app"]').getByText('Running', { exact: true }).waitFor();
+    assert.deepEqual(await tower.locator('[data-control]').evaluateAll((rows) => rows.map((r) => r.dataset.control)),
+      ['job', 'dashboard', 'genie_space', 'app', 'alert']);
+    await tower.locator('[data-control="dashboard"]').getByText('Published', { exact: true }).waitFor();
+    await tower.locator('[data-control="job"]').getByText('Scheduled: 0 0 6 * * ? (UTC)').waitFor();
+    assert.equal(await tower.locator('[data-control="genie_space"]').getByRole('button', { name: /Stop|Start|Publish/ }).count(), 0,
+      'a Genie space has nothing to stop or start');
+
+    await tower.getByRole('button', { name: 'Stop the App' }).click();
+    await until(() => made.fetches.some((f) => f.path === '/api/2.0/apps/churn-desk/stop' && f.opts.method === 'POST'), 'the App stop call');
+    await until(() => made.sqlCalls.some((c) => String(c.sql).startsWith('INSERT INTO `main`.`inspire`.`__inspire_control_log`')), 'the audit row');
+    assert.equal(made.jobs.length, 0, 'stopping the App starts no Inspire run');
+
+    await tower.locator('[data-control="dashboard"]').getByRole('button', { name: 'Remove' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Remove the Dashboard' });
+    const confirm = dialog.getByRole('button', { name: 'Remove the Dashboard' });
+    assert.equal(await confirm.isDisabled(), true);
+    await dialog.getByLabel('Type the use case id to confirm').fill('n01-u01');
+    assert.equal(await confirm.isDisabled(), true, 'the id must match exactly');
+    await dialog.getByLabel('Type the use case id to confirm').fill('N01-U01');
+    await confirm.click();
+    await until(() => made.jobs.length === 1, 'the implement run that deletes the dashboard');
+    const spec = submittedSpec(made);
+    assert.deepEqual([spec.outputs.dashboard, spec.outputs.genie_space, spec.outputs.app, spec.outputs.alert], [false, true, true, true]);
+    assert.deepEqual(spec.removed_outputs, { dashboard: 'delete' });
+    assert.equal(made.jobs[0].params['15_operation'], 'Implement Use Cases');
+    await dialog.waitFor({ state: 'detached' });
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
