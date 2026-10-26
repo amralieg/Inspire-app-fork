@@ -57,7 +57,7 @@ function catalogColumns({ maxInspire = 0, onToggleFavorite } = {}) {
       header: () => <span className="sr-only">Favorite</span>,
       enableSorting: false,
       enableHiding: false,
-      meta: { width: 'w-9', label: 'Favorite' },
+      size: 36, meta: { label: 'Favorite' },
       cell: ({ row }) => (
         <button
           type="button"
@@ -70,14 +70,15 @@ function catalogColumns({ maxInspire = 0, onToggleFavorite } = {}) {
         </button>
       ),
     },
-    textColumn('id', 'ID', (r) => r.id, { meta: { width: 'w-24', label: 'ID' }, cell: (c) => plain(c.getValue(), true) }),
+    textColumn('id', 'ID', (r) => r.id, { size: 88, meta: { label: 'ID' }, cell: (c) => plain(c.getValue(), true) }),
     {
       id: 'title',
       header: 'Use case',
       accessorFn: (r) => r.title,
       sortDescFirst: false,
       enableHiding: false,
-      meta: { label: 'Use case' },
+      size: 240,
+      meta: { label: 'Use case', grow: true },
       cell: ({ row }) => {
         const r = row.original;
         return (
@@ -95,17 +96,17 @@ function catalogColumns({ maxInspire = 0, onToggleFavorite } = {}) {
         );
       },
     },
-    textColumn('domain', 'Domain', (r) => r.domain, { meta: { width: 'w-40', label: 'Domain' } }),
-    textColumn('subdomain', 'Subdomain', (r) => r.subdomain, { meta: { width: 'w-40', label: 'Subdomain' } }),
-    textColumn('technique', 'Technique', (r) => r.technique, { meta: { width: 'w-40', label: 'Technique' } }),
-    textColumn('type', 'Type', (r) => r.type, { meta: { width: 'w-28', label: 'Type' } }),
+    textColumn('domain', 'Domain', (r) => r.domain, { size: 128, meta: { label: 'Domain' } }),
+    textColumn('subdomain', 'Subdomain', (r) => r.subdomain, { size: 160, meta: { label: 'Subdomain' } }),
+    textColumn('technique', 'Technique', (r) => r.technique, { size: 144, meta: { label: 'Technique' } }),
+    textColumn('type', 'Type', (r) => r.type, { size: 112, meta: { label: 'Type' } }),
     {
       id: 'quality',
       header: 'Quality',
       accessorFn: (r) => tierRank(r.quality),
       sortUndefined: 'last',
       sortDescFirst: false,
-      meta: { width: 'w-28', label: 'Quality' },
+      size: 96, meta: { label: 'Quality' },
       cell: ({ row }) => (row.original.quality
         ? <span className={`inline-block rounded-full border px-1.5 py-px text-[10px] font-semibold ${priorityPillClass(row.original.quality)}`}>{row.original.quality}</span>
         : dash),
@@ -116,7 +117,7 @@ function catalogColumns({ maxInspire = 0, onToggleFavorite } = {}) {
       accessorFn: (r) => tierRank(r.priority),
       sortUndefined: 'last',
       sortDescFirst: false,
-      meta: { width: 'w-28', label: 'Priority' },
+      size: 112, meta: { label: 'Priority' },
       cell: ({ row }) => (row.original.priority
         ? <span className={`inline-block rounded-full border px-1.5 py-px text-[10px] font-semibold ${priorityPillClass(row.original.priority)}`}>{row.original.priority}</span>
         : dash),
@@ -127,7 +128,7 @@ function catalogColumns({ maxInspire = 0, onToggleFavorite } = {}) {
       accessorFn: (r) => (typeof r.inspire === 'number' && Number.isFinite(r.inspire) ? r.inspire : undefined),
       sortUndefined: 'last',
       sortDescFirst: true,
-      meta: { width: 'w-32', label: 'Inspire score' },
+      size: 112, meta: { label: 'Inspire score' },
       cell: ({ row }) => {
         const v = row.original.inspire;
         if (!(typeof v === 'number' && Number.isFinite(v))) return dash;
@@ -148,7 +149,7 @@ function catalogColumns({ maxInspire = 0, onToggleFavorite } = {}) {
       accessorFn: (r) => r.value ?? undefined,
       sortUndefined: 'last',
       sortDescFirst: true,
-      meta: { width: 'w-20', label: 'Value score' },
+      size: 80, meta: { label: 'Value score' },
       cell: (c) => number(c.getValue()),
     },
     {
@@ -157,13 +158,13 @@ function catalogColumns({ maxInspire = 0, onToggleFavorite } = {}) {
       accessorFn: (r) => r.feasibility ?? undefined,
       sortUndefined: 'last',
       sortDescFirst: true,
-      meta: { width: 'w-24', label: 'Feasibility score' },
+      size: 96, meta: { label: 'Feasibility score' },
       cell: (c) => number(c.getValue()),
     },
-    textColumn('beneficiary', 'Beneficiary', (r) => r.beneficiary, { meta: { width: 'w-40', label: 'Beneficiary' } }),
-    textColumn('sponsor', 'Sponsor', (r) => r.sponsor, { meta: { width: 'w-40', label: 'Sponsor' } }),
+    textColumn('beneficiary', 'Beneficiary', (r) => r.beneficiary, { size: 160, meta: { label: 'Beneficiary' } }),
+    textColumn('sponsor', 'Sponsor', (r) => r.sponsor, { size: 160, meta: { label: 'Sponsor' } }),
     textColumn('strategy', 'Strategy', (r) => r.strategyPaths[0] || (r.strategy[0] === STRATEGY_NOT_ALIGNED ? STRATEGY_NOT_ALIGNED : ''), {
-      meta: { width: 'w-56', label: 'Strategy path' },
+      size: 224, meta: { label: 'Strategy path' },
       cell: ({ row }) => {
         const r = row.original;
         const first = r.strategyPaths[0] || (r.strategy[0] === STRATEGY_NOT_ALIGNED ? STRATEGY_NOT_ALIGNED : '');
@@ -172,14 +173,14 @@ function catalogColumns({ maxInspire = 0, onToggleFavorite } = {}) {
         return <span className="block truncate" title={r.strategyPaths.join('\n') || first}>{first}{more > 0 ? ` +${more}` : ''}</span>;
       },
     }),
-    textColumn('feedback', 'Feedback', (r) => (r.feedbackStatus ? r.feedback : ''), { meta: { width: 'w-28', label: 'Feedback' } }),
+    textColumn('feedback', 'Feedback', (r) => (r.feedbackStatus ? r.feedback : ''), { size: 112, meta: { label: 'Feedback' } }),
     {
       id: 'poc',
       header: 'PoC',
       accessorFn: (r) => (r.status?.label ? r.status.label : undefined),
       sortUndefined: 'last',
       sortDescFirst: false,
-      meta: { width: 'w-40', label: 'PoC status' },
+      size: 128, meta: { label: 'PoC status' },
       cell: ({ row }) => (row.original.status?.label ? <ImplementStatusBadge state={row.original.status} /> : dash),
     },
   ];

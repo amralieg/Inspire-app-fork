@@ -6,6 +6,8 @@ const SORT_ICON = { asc: ArrowUp, desc: ArrowDown };
 export default function UseCaseGrid({ table, density = 'compact', activeKey, onOpen, className = '' }) {
   const pad = density === 'comfortable' ? 'py-3' : 'py-1.5';
   const rows = table.getRowModel().rows;
+  const columns = table.getVisibleLeafColumns();
+  const minWidth = columns.reduce((sum, col) => sum + col.getSize(), 0);
   const openRow = (e, row) => {
     if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter' || e.key === ' ') {
@@ -20,7 +22,12 @@ export default function UseCaseGrid({ table, density = 'compact', activeKey, onO
 
   return (
     <div className={`overflow-auto rounded-xl border border-border bg-surface shadow-sm ${className}`} role="region" aria-label="Use case grid">
-      <table className="w-full min-w-[48rem] table-fixed border-collapse text-xs" data-use-case-grid="">
+      <table className="w-full table-fixed border-collapse text-xs" style={{ minWidth }} data-use-case-grid="">
+        <colgroup>
+          {columns.map((col) => (
+            <col key={col.id} data-col={col.id} style={col.columnDef.meta?.grow ? undefined : { width: col.getSize() }} />
+          ))}
+        </colgroup>
         <thead className="sticky top-0 z-10 bg-bg-subtle">
           {table.getHeaderGroups().map((group) => (
             <tr key={group.id}>
@@ -33,7 +40,7 @@ export default function UseCaseGrid({ table, density = 'compact', activeKey, onO
                     key={header.id}
                     scope="col"
                     aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined}
-                    className={`${col.columnDef.meta?.width || ''} border-b border-border px-2 py-2 text-left text-[10px] font-bold uppercase tracking-[0.12em] text-text-tertiary`}
+                    className={`border-b border-border px-2 py-2 text-left text-[10px] font-bold uppercase tracking-[0.12em] text-text-tertiary`}
                   >
                     {col.getCanSort() ? (
                       <button

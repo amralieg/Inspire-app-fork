@@ -96,6 +96,43 @@ test('the catalog is a grid with a facet rail: facets AND across and OR within, 
   }
 });
 
+test('the use case title keeps its room however many columns are on: a narrow page scrolls the grid sideways and a wide one gives the title the spare width', async () => {
+  const ui = await openUi('catalog', STATE);
+  const { page } = ui;
+  try {
+    await ready(page);
+    const titleWidth = () => page.locator('[data-use-case-grid] thead th').nth(2).evaluate((th) => th.getBoundingClientRect().width);
+    const overflow = () => page.getByRole('region', { name: 'Use case grid' }).evaluate((el) => el.scrollWidth - el.clientWidth);
+    assert.equal(await page.locator('[data-use-case-grid] thead th').nth(2).innerText().then((t) => t.trim().toLowerCase()), 'use case');
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await page.getByRole('button', { name: /^Columns/ }).click();
+    const chooser = page.getByRole('group', { name: 'Choose columns' });
+    for (const box of await chooser.getByRole('checkbox').all()) await box.check();
+    await page.keyboard.press('Escape');
+    assert.ok(await page.locator('[data-use-case-grid] thead th').count() >= 15, 'every column is on');
+    assert.ok(await titleWidth() >= 239, `the title keeps 240px with every column on (${await titleWidth()})`);
+    assert.ok(await overflow() > 0, 'the grid scrolls sideways instead of crushing the title');
+    await page.getByRole('button', { name: /^Columns/ }).click();
+    await chooser.getByRole('button', { name: 'Reset to default columns' }).click();
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1330, height: 900 });
+    await page.waitForTimeout(300);
+    assert.ok(await titleWidth() >= 239, `the default columns leave the title 240px (${await titleWidth()})`);
+    assert.ok(await overflow() <= 1, 'the default columns fit a page as wide as the Results page');
+    const clipped = await page.locator('[data-use-case-grid] tbody td').evaluateAll((tds) => tds
+      .filter((td) => td.cellIndex !== 2 && td.scrollWidth > td.clientWidth + 1)
+      .map((td) => `${td.closest('tr').dataset.rowId} col ${td.cellIndex}: ${td.innerText.trim()}`));
+    assert.deepEqual(clipped, [], 'no default cell spills out of its column');
+    await page.setViewportSize({ width: 1800, height: 900 });
+    await page.waitForTimeout(300);
+    assert.ok(await titleWidth() > 260, `the title grows past its floor on a wide page (${await titleWidth()})`);
+    assert.ok(await overflow() <= 1, 'no sideways scroll when everything fits');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('a column header sorts the grid, and the column chooser adds a column and resets to the default set', async () => {
   const ui = await openUi('catalog', STATE);
   const { page } = ui;
