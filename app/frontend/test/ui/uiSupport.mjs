@@ -120,3 +120,25 @@ export async function lowContrast(page, selectors = ['[aria-label="Control tower
     return { checked, low };
   }, selectors);
 }
+
+export async function lowContrastThroughAnimations(page, selectors, fractions = [0, 0.25, 0.5, 0.75]) {
+  const low = new Set();
+  let checked = 0;
+  let animations = 0;
+  for (const fraction of fractions) {
+    animations = await page.evaluate((f) => {
+      const running = document.getAnimations().filter((a) => a instanceof CSSAnimation);
+      for (const a of running) {
+        const timing = a.effect.getComputedTiming();
+        a.pause();
+        a.currentTime = (Number(timing.delay) || 0) + (Number(timing.duration) || 0) * f;
+      }
+      return running.length;
+    }, fraction);
+    const result = await lowContrast(page, selectors);
+    checked = Math.max(checked, result.checked);
+    for (const line of result.low) low.add(line.replace(/: [\d.]+$/, ''));
+  }
+  await page.evaluate(() => document.getAnimations().forEach((a) => a.play()));
+  return { checked, animations, low: [...low] };
+}

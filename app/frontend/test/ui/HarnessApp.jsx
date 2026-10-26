@@ -4,6 +4,7 @@ import ImplementPage from '../../src/pages/ImplementPage';
 import ResultsPage from '../../src/pages/ResultsPage';
 import ImplementCardActions from '../../src/components/ImplementCardActions';
 import Header from '../../src/components/Header';
+import LandingPage from '../../src/pages/LandingPage';
 import { ThemeProvider } from '../../src/ThemeContext';
 import { makeApiFetch, makeApiPostJson } from '../../src/lib/apiClient';
 import { caseIdOf, implementState, notebookStatus } from '../../src/lib/implementWizard';
@@ -31,6 +32,13 @@ export default function HarnessApp({ open, nest, discoveryType }) {
 function HarnessContent({ open, discoveryType }) {
   if (open === 'card') return <CardHarness />;
   if (open === 'catalog') return <CatalogHarness />;
+  if (open === 'landing') {
+    return (
+      <ThemeProvider>
+        <LandingPage onStart={() => {}} onOpenSetup={() => {}} />
+      </ThemeProvider>
+    );
+  }
   if (open === 'header') {
     return (
       <ThemeProvider>

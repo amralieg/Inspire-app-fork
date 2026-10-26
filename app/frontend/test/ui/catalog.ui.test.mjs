@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { closeBrowser, lowContrast, openUi } from './uiSupport.mjs';
+import { closeBrowser, lowContrast, lowContrastThroughAnimations, openUi } from './uiSupport.mjs';
 
 test.after(closeBrowser);
 
@@ -265,6 +265,27 @@ test('the contrast check measures gradient fills by their weakest stop and skips
     const result = await lowContrast(page, ['body']);
     assert.equal(result.checked, 5);
     assert.deepEqual(result.low.map((l) => l.replace(/: [\d.]+$/, '')), ['Bright on light', 'Bright stop on dark', 'White on faint tint']);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('the landing page reads at 4.5:1 or better in light and in dark at every point of its animations', async () => {
+  const ui = await openUi('landing');
+  const { page } = ui;
+  try {
+    await page.getByText('Scroll to explore').waitFor();
+    await page.waitForTimeout(1500);
+    for (const dark of [false, true]) {
+      await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
+      await page.waitForTimeout(400);
+      const mode = dark ? 'dark' : 'light';
+      const result = await lowContrastThroughAnimations(page, ['body']);
+      assert.ok(result.checked >= 15, `${mode}: measured ${result.checked} text elements`);
+      assert.ok(result.animations >= 3, `${mode}: paused ${result.animations} animations`);
+      assert.deepEqual(result.low, [], `${mode} landing`);
+    }
+    assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
   }

@@ -741,9 +741,9 @@ export default function LandingPage({ onStart, onOpenSetup }) {
           </div>
 
           {/* Scroll hint */}
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 animate-pulse">
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
             <span className="text-[10px] font-medium text-text-tertiary uppercase tracking-[0.15em]">Scroll to explore</span>
-            <ChevronDown size={16} className="text-text-tertiary" />
+            <ChevronDown size={16} className="text-text-tertiary animate-pulse" />
           </div>
         </section>
 
