@@ -61,7 +61,7 @@ function Facet({ def, options, counts, selected, open, onToggleOpen, onToggleVal
               return (
                 <li key={value}>
                   <label
-                    className={`flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-bg-subtle ${checked ? 'bg-db-red-50' : ''} ${!checked && count === 0 ? 'opacity-50' : ''}`}
+                    className={`flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-bg-subtle ${checked ? 'bg-db-red-50' : ''}`}
                     style={depth ? { paddingLeft: `${0.375 + depth * 0.75}rem` } : undefined}
                     title={value}
                   >
@@ -71,7 +71,7 @@ function Facet({ def, options, counts, selected, open, onToggleOpen, onToggleVal
                       onChange={() => onToggleValue(value)}
                       className="h-3.5 w-3.5 shrink-0 accent-db-red"
                     />
-                    <span className={`min-w-0 flex-1 truncate text-[11px] ${checked ? 'font-semibold text-text-primary' : 'text-text-secondary'} ${def.mono ? 'font-mono text-[10px]' : ''}`}>
+                    <span className={`min-w-0 flex-1 truncate text-[11px] ${checked ? 'font-semibold text-text-primary' : count === 0 ? 'text-text-tertiary' : 'text-text-secondary'} ${def.mono ? 'font-mono text-[10px]' : ''}`}>
                       {display(value)}
                     </span>
                     <span className="shrink-0 text-[10px] tabular-nums text-text-tertiary">{count}</span>

@@ -65,7 +65,7 @@ export default function Header({
                 >
                   <span className="flex items-center gap-1.5">
                     {item.step && (
-                      <span className={`text-xs font-mono ${active ? 'text-db-red-fg' : 'opacity-50'}`}>
+                      <span className={`text-xs font-mono ${active ? 'text-db-red-fg' : can ? 'text-text-tertiary' : 'opacity-50'}`}>
                         {String(item.step).padStart(2, '0')}
                       </span>
                     )}

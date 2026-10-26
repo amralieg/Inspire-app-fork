@@ -3,6 +3,8 @@ import ImplementWizard from '../../src/pages/ImplementWizard';
 import ImplementPage from '../../src/pages/ImplementPage';
 import ResultsPage from '../../src/pages/ResultsPage';
 import ImplementCardActions from '../../src/components/ImplementCardActions';
+import Header from '../../src/components/Header';
+import { ThemeProvider } from '../../src/ThemeContext';
 import { makeApiFetch, makeApiPostJson } from '../../src/lib/apiClient';
 import { caseIdOf, implementState, notebookStatus } from '../../src/lib/implementWizard';
 import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
@@ -29,6 +31,13 @@ export default function HarnessApp({ open, nest, discoveryType }) {
 function HarnessContent({ open, discoveryType }) {
   if (open === 'card') return <CardHarness />;
   if (open === 'catalog') return <CatalogHarness />;
+  if (open === 'header') {
+    return (
+      <ThemeProvider>
+        <Header page="results" setPage={() => {}} canMonitor canResults canImplement={false} />
+      </ThemeProvider>
+    );
+  }
   return <PageHarness open={open} discoveryType={discoveryType} />;
 }
 

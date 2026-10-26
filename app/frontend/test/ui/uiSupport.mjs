@@ -68,18 +68,28 @@ export async function lowContrast(page, selectors = ['[aria-label="Control tower
       const f = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
       return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
     };
+    const STOP = /(rgba?|hsla?|color|oklab|oklch|lab|lch)\([^)]*\)/g;
     const behind = (el) => {
       const layers = [];
-      for (let e = el; e; e = e.parentElement) {
-        const c = parse(getComputedStyle(e).backgroundColor);
-        if (c && c.a > 0) { layers.push(c); if (c.a >= 1) break; }
+      let opaque = false;
+      for (let e = el; e && !opaque; e = e.parentElement) {
+        const s = getComputedStyle(e);
+        const clipText = s.backgroundClip === 'text' || s.webkitBackgroundClip === 'text';
+        if (!clipText && s.backgroundImage.includes('gradient')) {
+          const stops = (s.backgroundImage.match(STOP) || []).map(parse).filter(Boolean);
+          if (stops.length) {
+            layers.push(stops);
+            if (stops.every((c) => c.a >= 1)) { opaque = true; break; }
+          }
+        }
+        const c = parse(s.backgroundColor);
+        if (c && c.a > 0) { layers.push([c]); if (c.a >= 1) opaque = true; }
       }
-      let base = layers.length && layers[layers.length - 1].a >= 1 ? { r: 0, g: 0, b: 0 } : parse(getComputedStyle(document.body).backgroundColor);
+      let bases = [opaque ? { r: 0, g: 0, b: 0 } : parse(getComputedStyle(document.body).backgroundColor)];
       for (let i = layers.length - 1; i >= 0; i -= 1) {
-        const c = layers[i];
-        base = { r: c.r * c.a + base.r * (1 - c.a), g: c.g * c.a + base.g * (1 - c.a), b: c.b * c.a + base.b * (1 - c.a) };
+        bases = bases.flatMap((b) => layers[i].map((c) => ({ r: c.r * c.a + b.r * (1 - c.a), g: c.g * c.a + b.g * (1 - c.a), b: c.b * c.a + b.b * (1 - c.a) })));
       }
-      return base;
+      return bases;
     };
     const roots = rootSelectors.map((sel) => document.querySelector(sel)).filter(Boolean);
     const low = [];
@@ -92,16 +102,17 @@ export async function lowContrast(page, selectors = ['[aria-label="Control tower
     for (const root of roots) {
       for (const el of [root, ...root.querySelectorAll('*')]) {
         const own = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent.trim()).join(' ');
-        if ((!own && el.tagName !== 'INPUT') || el.closest('button:disabled, input:disabled, [aria-disabled="true"]')) continue;
+        if ((!own && el.tagName !== 'INPUT') || el.closest('button:disabled, input:disabled, [aria-disabled="true"], [aria-hidden="true"]')) continue;
         const style = getComputedStyle(el);
         const op = opacityOf(el);
         if (op === 0 || style.visibility === 'hidden' || style.backgroundClip === 'text' || style.webkitBackgroundClip === 'text') continue;
         const fg = parse(style.color);
         fg.a *= op;
-        const bg = behind(el);
-        const mixed = { r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a) };
-        const [x, y] = [lum(mixed), lum(bg)].sort((m, n) => n - m);
-        const ratio = (x + 0.05) / (y + 0.05);
+        const ratio = Math.min(...behind(el).map((bg) => {
+          const mixed = { r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a) };
+          const [x, y] = [lum(mixed), lum(bg)].sort((m, n) => n - m);
+          return (x + 0.05) / (y + 0.05);
+        }));
         checked += 1;
         if (ratio < 4.5) low.push(`${(own || el.value || el.getAttribute('aria-label')).slice(0, 40)}: ${ratio.toFixed(2)}`);
       }

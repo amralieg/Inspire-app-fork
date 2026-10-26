@@ -290,15 +290,15 @@ function NotebookCell({ cell, index }) {
           <span className="font-semibold uppercase tracking-wide text-text-secondary">{label}</span>
           {cell?.cell_type === 'code' && lang && (
             <>
-              <span className="text-border">·</span>
+              <span className="text-text-tertiary">·</span>
               <span className="text-warning-fg font-semibold uppercase">{lang}</span>
             </>
           )}
-          <span className="text-border">·</span>
+          <span className="text-text-tertiary">·</span>
           <span>Cell {index + 1}</span>
           {cell?.cell_type === 'code' && (
             <>
-              <span className="text-border">·</span>
+              <span className="text-text-tertiary">·</span>
               <span className="text-info-fg">In [{exec ?? ' '}]</span>
             </>
           )}

@@ -249,6 +249,49 @@ test('the cards layout shows the same rows in the same order and a card opens th
   }
 });
 
+test('the contrast check measures gradient fills by their weakest stop and skips decoration and disabled controls', async () => {
+  const ui = await openUi('header');
+  const { page } = ui;
+  try {
+    await page.setContent(`<body style="margin:0;background:#ffffff">
+      <button style="background-image:linear-gradient(to right,#D92E1B,#CC2A19);color:#fff">Solid gradient</button>
+      <button style="background-image:linear-gradient(to right,#FF3621,#FF4A36);color:#fff">Bright on light</button>
+      <div style="background:#09090B"><button style="background:transparent;background-image:linear-gradient(to right,#D92E1B,#FF4A36);color:#fff">Bright stop on dark</button></div>
+      <p style="background-image:linear-gradient(to right,rgba(255,54,33,0.06),transparent);color:#18181B">Faint tint</p>
+      <p style="background-image:linear-gradient(to right,rgba(255,54,33,0.06),transparent);color:#ffffff">White on faint tint</p>
+      <span aria-hidden="true" style="color:#eeeeee">Decoration</span>
+      <button disabled style="color:#eeeeee">Locked</button>
+    </body>`);
+    const result = await lowContrast(page, ['body']);
+    assert.equal(result.checked, 5);
+    assert.deepEqual(result.low.map((l) => l.replace(/: [\d.]+$/, '')), ['Bright on light', 'Bright stop on dark', 'White on faint tint']);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('the header reads at 4.5:1 or better in light and in dark on its current, open and locked steps', async () => {
+  const ui = await openUi('header');
+  const { page } = ui;
+  try {
+    const nav = page.locator('header nav');
+    await nav.waitFor();
+    assert.equal(await nav.getByRole('button', { name: /Implement/ }).isDisabled(), true, 'a locked step');
+    assert.equal(await nav.getByRole('button', { name: /Get Started/ }).isEnabled(), true, 'an open step');
+    for (const dark of [false, true]) {
+      await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
+      await page.waitForTimeout(400);
+      const mode = dark ? 'dark' : 'light';
+      const result = await lowContrast(page, ['header']);
+      assert.ok(result.checked >= 8, `${mode}: measured ${result.checked} header elements`);
+      assert.deepEqual(result.low, [], `${mode} header`);
+    }
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('the whole Results page and the drawer of every kind of use case read at 4.5:1 or better in light and in dark', async () => {
   const ui = await openUi('catalog', STATE);
   const { page } = ui;
@@ -269,6 +312,12 @@ test('the whole Results page and the drawer of every kind of use case read at 4.
         await page.keyboard.press('Escape');
         await page.getByRole('dialog').waitFor({ state: 'detached' });
       }
+      await option(page, 'domain', 'Supply').check();
+      assert.equal(await optionCount(page, 'quality', 'Low'), 0, 'a value with no matches stays listed');
+      const filtered = await lowContrast(page, ['aside[aria-label="Filters"]']);
+      assert.ok(filtered.checked >= 20, `${mode}: measured ${filtered.checked} filter elements`);
+      assert.deepEqual(filtered.low, [], `${mode} filters with a value at 0`);
+      await option(page, 'domain', 'Supply').uncheck();
     }
     assert.deepEqual(ui.pageErrors, []);
   } finally {

@@ -165,6 +165,15 @@ test('brand-red text and icons use the theme-aware shade, never the bright fill,
   assert.deepEqual(sourceLines((line) => RED_TEXT.test(line)), []);
 });
 
+test('text never takes a border shade, which reads about 1.3:1', () => {
+  const BORDER_TEXT = /\btext-border(-subtle|-strong)?(?![-\w])/;
+  assert.ok(BORDER_TEXT.test('<span className="text-border">·</span>'));
+  assert.ok(BORDER_TEXT.test('hover:text-border-strong'));
+  assert.ok(BORDER_TEXT.test("'text-border/60 text-xs'"));
+  assert.ok(!BORDER_TEXT.test('border border-border text-text-tertiary border-border-strong'));
+  assert.deepEqual(sourceLines((line) => BORDER_TEXT.test(line)), []);
+});
+
 test('the rendered app follows the theme: no fixed palette or hex colors on any reachable module', () => {
   assert.ok(FIXED_COLOR.test('border-amber-300 bg-amber-50'));
   assert.ok(FIXED_COLOR.test("text: 'text-[#27AE60]'"));
