@@ -72,8 +72,9 @@ test('ticking the App locks the Genie Agent on, App access must be chosen, per-u
     assert.deepEqual([await perUser.isChecked(), await internal.isChecked()], [false, false], 'no access is chosen for the person');
     assert.deepEqual(await access.getByRole('checkbox').evaluateAll((boxes) => boxes.map((b) => [b.closest('label').querySelector('span span').textContent, b.checked])),
       [['Let people edit data', false], ['Record decisions', false]], 'every option starts off, and none is a download');
-    await access.locator('label', { hasText: 'Let people edit data' })
-      .getByText('It also lets people own, track and dismiss each flagged record (the action tracker).', { exact: false }).waitFor();
+    await access.locator('label', { hasText: 'Record decisions' })
+      .getByText('They own, track and dismiss each flagged record (the action tracker).', { exact: false }).waitFor();
+    assert.equal(await access.locator('label', { hasText: 'Let people edit data' }).getByText('action tracker', { exact: false }).count(), 0);
     const offers = access.getByRole('note', { name: 'What every App offers' });
     await offers.getByText('Refresh now: in a shared App anyone who can open it can refresh it; in an App where each person sees only their own data, only you can. '
       + 'One refresh runs at a time.', { exact: true }).waitFor();

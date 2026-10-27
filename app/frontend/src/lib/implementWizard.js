@@ -43,9 +43,9 @@ export const APP_ACCESS_CHOICES = [
 export const APP_OPTION_KEYS = ['modify', 'replace_edits', 'decisions'];
 export const PER_USER_OFF = ['decisions'];
 export const APP_OPTIONS = [
-  { id: 'modify', label: 'Let people edit data',
-    blurb: 'People can change records in the App, and Inspire keeps who changed what. It also lets people own, track and dismiss each flagged record (the action tracker).' },
-  { id: 'decisions', label: 'Record decisions', blurb: 'People can record what they decided on each record, with who decided and when.' },
+  { id: 'modify', label: 'Let people edit data', blurb: 'People can change records in the App, and Inspire keeps who changed what.' },
+  { id: 'decisions', label: 'Record decisions',
+    blurb: 'People can record what they decided on each record, with who decided and when. They own, track and dismiss each flagged record (the action tracker).' },
 ];
 export const APP_NO_DOWNLOADS = 'The App offers no data downloads.';
 export const APP_REFRESH_NOTE = 'Refresh now: in a shared App anyone who can open it can refresh it; in an App where each person sees only their own data, only you can. '

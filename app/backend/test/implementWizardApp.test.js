@@ -34,7 +34,8 @@ test('the wizard offers exactly the App choices the backend and the App shell ac
   ]);
   assert.equal(w.LAKEVIEW_STYLE_NOTE, 'Only style A matches the Lakeview dashboard look.');
   assert.deepEqual(w.APP_OPTIONS.map((o) => o.label), ['Let people edit data', 'Record decisions']);
-  assert.match(w.APP_OPTIONS.find((o) => o.id === 'modify').blurb, /It also lets people own, track and dismiss each flagged record \(the action tracker\)\.$/);
+  assert.match(w.APP_OPTIONS.find((o) => o.id === 'decisions').blurb, /They own, track and dismiss each flagged record \(the action tracker\)\.$/);
+  assert.doesNotMatch(w.APP_OPTIONS.find((o) => o.id === 'modify').blurb, /action tracker/);
   assert.equal(w.APP_NO_DOWNLOADS, 'The App offers no data downloads.');
   assert.equal(w.APP_REFRESH_NOTE, 'Refresh now: in a shared App anyone who can open it can refresh it; in an App where each person sees only their own data, '
     + 'only you can. One refresh runs at a time.');
