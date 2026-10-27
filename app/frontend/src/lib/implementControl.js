@@ -108,6 +108,52 @@ export function controlRows(live, latest) {
   return rows;
 }
 
+const DELIVERED_WORDS = { dashboard: ['dashboard', 'dashboards'], genie_space: ['Genie space', 'Genie spaces'], app: ['App', 'Apps'], alert: ['alert', 'alerts'] };
+
+export function deliveredOutputs(latest) {
+  return IMPLEMENT_OUTPUTS.filter((output) => latest?.[OUTPUT_URLS[output.id]]).map((output) => output.id);
+}
+
+export function buildSummary(items) {
+  const list = Array.isArray(items) ? items : [];
+  const pocs = list.filter((item) => item.state?.kind === 'poc');
+  const inGroup = (group) => pocs.filter((item) => item.state.group === group);
+  const delivered = IMPLEMENT_OUTPUTS
+    .map((output) => {
+      const count = pocs.filter((item) => deliveredOutputs(item.latest).includes(output.id)).length;
+      return { id: output.id, count, text: `${count} ${DELIVERED_WORDS[output.id][count === 1 ? 0 : 1]}` };
+    })
+    .filter((entry) => entry.count > 0);
+  return {
+    pocs: pocs.length,
+    building: inGroup('in_progress'),
+    ready: inGroup('ready').length,
+    failed: inGroup('failed').length,
+    notebooks: list.filter((item) => item.state?.kind === 'notebook' && item.notebook?.state === 'ready').length,
+    notStarted: list.filter((item) => item.state?.group === 'not_started').length,
+    delivered,
+  };
+}
+
+export function controlTiles(live, latest, { active = false, buildingNow = '' } = {}) {
+  const rows = controlRows(live, latest);
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const chosen = latest?.spec_json?.outputs || {};
+  const assets = latest?.asset_status || {};
+  return {
+    strips: rows.filter((row) => row.id === 'build' || row.id === 'job'),
+    tiles: IMPLEMENT_OUTPUTS.map((output) => {
+      const row = byId.get(output.id);
+      if (row) return { output, kind: 'live', row };
+      if (!chosen[output.id]) return { output, kind: 'off' };
+      if (active) return { output, kind: 'building', now: buildingNow === output.label };
+      if (assets[output.id]?.state === 'failed') return { output, kind: 'failed', error: String(assets[output.id].error || '') };
+      if (!live) return { output, kind: 'checking' };
+      return { output, kind: 'missing' };
+    }),
+  };
+}
+
 export function removeChanges(latest, output) {
   const spec = latest?.spec_json || {};
   return {

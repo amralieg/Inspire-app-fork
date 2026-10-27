@@ -1,26 +1,213 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, ExternalLink, FileText, RefreshCw, Pencil, RotateCcw, Search, Sparkles } from 'lucide-react';
+import {
+  Activity, AlertTriangle, AppWindow, BellRing, CheckCircle2, CircleDashed, ExternalLink, FileText, Hammer, History, LayoutDashboard, Loader2,
+  NotebookPen, Pencil, RefreshCw, Rocket, RotateCcw, Search, Sparkles, XCircle,
+} from 'lucide-react';
 import {
   statusChip, statusReason, nextSpecFrom, retryableOutputs, rebuildableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
-  runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded, START_POC_LABEL,
+  runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded, START_POC_LABEL, IMPLEMENT_ACTIVE_STATUSES,
 } from '../lib/implementWizard';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
 import { buildUseCaseList } from '../lib/useCaseList';
 import { workspaceNotebookUrl } from '../lib/workspaceLinks';
+import { subtitleOfUseCase } from '../lib/useCaseFields';
+import { reducedMotion } from '../lib/motion';
 import ImplementStatusBadge from '../components/ImplementStatusBadge';
 import ImplementWizard from './ImplementWizard';
 import ImplementControlTower from '../components/ImplementControlTower';
 import UseCaseDrawer from '../components/UseCaseDrawer';
 import UseCaseDetailBody from '../components/UseCaseDetailBody';
+import InspireScoreBadge from '../components/InspireScoreBadge';
+import Celebration from '../components/Celebration';
+import GenieLogo from '../components/GenieLogo';
+import { Counter, CounterDivider, IconChip, PANEL_CLASS, SectionTitle } from '../components/BuildUi';
 import { catalogRow } from '../lib/useCaseFacets';
-import { CONTROL_REFRESH_MS, removeChanges } from '../lib/implementControl';
+import { CONTROL_REFRESH_MS, buildSummary, deliveredOutputs, removeChanges } from '../lib/implementControl';
 import { pocStages, pocProgressSummary, feedArrivals } from '../lib/pocProgress';
 import PocProgress from '../components/PocProgress';
 import GenieFeed from '../components/GenieFeed';
 
-const TABS = ['Progress', 'Dashboard', 'Genie', 'App', 'Alert', 'History', 'Edit'];
+const TABS = [['Progress', Activity], ['Dashboard', LayoutDashboard], ['Genie', GenieLogo], ['App', AppWindow], ['Alert', BellRing], ['History', History], ['Edit', Pencil]];
 const TAB_OUTPUT = { Dashboard: 'dashboard', Genie: 'genie_space', App: 'app', Alert: 'alert' };
+const OUTPUT_ICONS = { dashboard: LayoutDashboard, genie_space: GenieLogo, app: AppWindow, alert: BellRing };
+const OUTPUT_NAMES = { dashboard: 'Dashboard', genie_space: 'Genie space', app: 'App', alert: 'Alert' };
 const NO_RAIL = { latest: [], notebook_run: null, notebook_run_error: '' };
+const READY_STATUSES = ['ready', 'ready_with_warnings'];
+const ERROR_BOX = 'text-xs text-error-fg bg-error-bg border border-error/20 rounded-lg px-3 py-2';
+const OUTLINE_BUTTON = 'inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-border bg-surface text-text-primary hover:bg-bg-subtle disabled:opacity-50';
+const PRIMARY_BUTTON = 'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid hover:bg-db-red-solid-hover shadow-sm shadow-db-red/20 disabled:opacity-50';
+const LINK = 'text-sm font-semibold text-db-red-fg inline-flex items-center gap-1 hover:underline';
+
+const GROUP_LOOK = {
+  in_progress: { icon: Loader2, tone: 'red', hint: 'Genie is working on these' },
+  ready: { icon: CheckCircle2, tone: 'success', hint: 'Built and ready to use' },
+  failed: { icon: XCircle, tone: 'error', hint: 'Open one to see why' },
+  not_started: { icon: CircleDashed, tone: 'idle', hint: 'Start a PoC/MVP with Genie' },
+};
+
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+
+function PageHeader({ summary, loading, query, onQuery }) {
+  const subtitle = loading
+    ? 'Every use case of this session: what has a PoC/MVP or a Genie Code notebook, what is running, and what has not started.'
+    : `Every use case of this session: ${plural(summary.pocs, 'PoC/MVP')}, ${plural(summary.notebooks, 'Genie Code notebook')}, ${summary.notStarted} not started yet.`;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-surface shadow-sm">
+          <Hammer size={20} className="text-db-red-fg" strokeWidth={1.75} aria-hidden />
+        </div>
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-[-0.02em] bg-gradient-to-br from-text-primary via-text-primary to-db-red bg-clip-text text-transparent">Build</h1>
+          <p className="text-sm text-text-secondary">{subtitle}</p>
+        </div>
+      </div>
+      <label className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" aria-hidden />
+        <input
+          type="search"
+          aria-label="Search use cases"
+          placeholder="Search by name, id or domain"
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          className="w-72 pl-9 pr-3 py-2.5 text-sm border border-border rounded-xl bg-surface text-text-primary shadow-sm glow-focus"
+        />
+      </label>
+    </div>
+  );
+}
+
+function SummaryBanner({ summary }) {
+  const { building } = summary;
+  let mark = { icon: Sparkles, tone: 'idle' };
+  let title = 'No PoC/MVP started yet';
+  let line = 'Pick a use case on the left and start one with Genie.';
+  if (building.length) {
+    mark = { icon: Rocket, tone: 'red', live: true };
+    title = `${plural(building.length, 'PoC/MVP')} building now`;
+    line = building.map((item) => `${item.id}${item.latest?.status_message ? `: ${item.latest.status_message}` : ''}`).join(' · ');
+  } else if (summary.pocs) {
+    mark = summary.failed ? { icon: AlertTriangle, tone: 'warning' } : { icon: CheckCircle2, tone: 'success' };
+    title = `${summary.ready} of ${plural(summary.pocs, 'PoC/MVP')} ready`;
+    line = summary.failed ? `${summary.failed} failed or stopped. Open one to see why.` : 'Every PoC/MVP of this session has finished building.';
+  }
+  return (
+    <section aria-label="Build summary" className={PANEL_CLASS}>
+      <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+            {mark.live && <span className="absolute inset-0 rounded-xl bg-db-red/25 motion-safe:animate-ping" aria-hidden />}
+            <span className="relative"><IconChip icon={mark.icon} tone={mark.tone} size="lg" /></span>
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-text-primary tracking-tight">{title}</h2>
+            <p className="text-[12px] text-text-secondary line-clamp-1">{line}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <Counter value={summary.pocs} label="PoC/MVPs" />
+          <CounterDivider />
+          <Counter value={building.length} label="Building" tone="red" />
+          <CounterDivider />
+          <Counter value={summary.ready} label="Ready" tone="success" />
+          {summary.failed > 0 && (
+            <>
+              <CounterDivider />
+              <Counter value={summary.failed} label="Failed" tone="error" />
+            </>
+          )}
+          <CounterDivider />
+          <Counter value={summary.notebooks} label="Notebooks" />
+          <CounterDivider />
+          <Counter value={summary.notStarted} label="Not started" />
+        </div>
+      </div>
+      {summary.delivered.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-5 py-2.5 border-t border-border bg-bg-subtle/60">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-secondary mr-1">Delivered so far</span>
+          {summary.delivered.map((entry) => {
+            const Icon = OUTPUT_ICONS[entry.id];
+            return (
+              <span key={entry.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-success-bg text-success-fg text-[11px] font-medium">
+                <Icon size={12} aria-hidden /> {entry.text}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function OutputIcons({ latest }) {
+  const ids = deliveredOutputs(latest);
+  if (!ids.length) return null;
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {ids.map((id) => {
+        const Icon = OUTPUT_ICONS[id];
+        return (
+          <span key={id} className="h-5 w-5 rounded-md bg-bg-subtle text-text-secondary flex items-center justify-center" aria-hidden>
+            <Icon size={11} />
+          </span>
+        );
+      })}
+      <span className="sr-only">Delivered: {ids.map((id) => OUTPUT_NAMES[id]).join(', ')}</span>
+    </span>
+  );
+}
+
+function Rail({ groups, listLoading, query, shownId, onSelect }) {
+  return (
+    <nav aria-label="Use cases" className="w-80 shrink-0 space-y-3 max-h-[calc(100dvh-11rem)] overflow-y-auto pr-1">
+      {listLoading && (
+        <p className="flex items-center gap-2 px-1 text-[12px] text-text-secondary"><Loader2 size={14} className="animate-spin" /> Loading the use cases…</p>
+      )}
+      {!listLoading && query.trim() && groups.every((group) => group.items.length === 0) && (
+        <p className="px-1 text-[12px] text-text-secondary">No use case matches &quot;{query.trim()}&quot;.</p>
+      )}
+      {!listLoading && groups.map((group) => {
+        const look = GROUP_LOOK[group.id] || GROUP_LOOK.not_started;
+        return (
+          <section key={group.id} aria-label={group.label} className="rounded-xl border border-border bg-surface shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2.5 px-3 py-2.5 border-b border-border bg-gradient-to-b from-db-red-50 to-surface">
+              <IconChip icon={look.icon} tone={look.tone} size="sm" />
+              <div className="flex-1 min-w-0">
+                <h2 className="text-xs font-bold text-text-primary">{group.label}<span className="sr-only"> ({group.items.length})</span></h2>
+                <p className="text-[10px] text-text-secondary">{look.hint}</p>
+              </div>
+              <span className="text-[11px] font-mono font-semibold text-text-secondary bg-bg-subtle rounded-md px-1.5 py-0.5" aria-hidden>{group.items.length}</span>
+            </div>
+            <div className="p-1.5 space-y-0.5">
+              {group.items.length === 0 && <p className="px-3 py-2 text-[11px] text-text-secondary">None</p>}
+              {group.items.map((item) => {
+                const on = item.id === shownId;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-current={on ? 'true' : undefined}
+                    onClick={() => onSelect(item.id)}
+                    className={`w-full text-left px-3 py-2.5 rounded-lg border transition-smooth ${on ? 'bg-db-red-50 border-db-red/25' : 'border-transparent hover:bg-bg-subtle'}`}
+                  >
+                    <div className={`text-[12.5px] font-semibold leading-snug line-clamp-2 ${on ? 'text-db-red-fg' : 'text-text-primary'}`}>{item.name}</div>
+                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                      <span className="flex flex-wrap items-center gap-1.5 min-w-0">
+                        <span className="font-mono text-[10px] text-text-secondary">{item.id}</span>
+                        <ImplementStatusBadge state={item.state} />
+                      </span>
+                      <OutputIcons latest={item.latest} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+    </nav>
+  );
+}
 
 export default function ImplementPage({ settings, sessionId, focusId = null, onFocus }) {
   const { token, databricksHost } = settings;
@@ -92,6 +279,7 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
 
   const groups = useMemo(() => implementGroups(useCases, rail.latest, rail.notebook_run, query), [useCases, rail.latest, rail.notebook_run, query]);
   const allItems = useMemo(() => implementGroups(useCases, rail.latest, rail.notebook_run).flatMap((g) => g.items), [useCases, rail.latest, rail.notebook_run]);
+  const summary = useMemo(() => buildSummary(allItems), [allItems]);
   const shownId = chosenId || allItems[0]?.id || null;
   const selected = allItems.find((item) => item.id === shownId) || null;
 
@@ -109,58 +297,13 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-6 space-y-4" data-implement-page="">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-text-primary">Build</h1>
-          <p className="text-[12px] text-text-secondary">
-            Every use case of this session: what has a PoC/MVP or a Genie Code notebook, what is running, and what has not started.
-          </p>
-        </div>
-        <label className="relative">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" aria-hidden />
-          <input
-            type="search"
-            aria-label="Search use cases"
-            placeholder="Search by name, id or domain"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-72 pl-8 pr-3 py-2 text-sm border border-border rounded-lg bg-surface text-text-primary glow-focus"
-          />
-        </label>
-      </div>
-      {listError && <p className="text-xs text-error-fg bg-error-bg border border-error/20 rounded-md px-3 py-2">{listError}</p>}
-      {railError && <p className="text-xs text-error-fg bg-error-bg border border-error/20 rounded-md px-3 py-2">{railError}</p>}
+      <PageHeader summary={summary} loading={listLoading} query={query} onQuery={setQuery} />
+      {!listLoading && !listError && <SummaryBanner summary={summary} />}
+      {listError && <p className={ERROR_BOX}>{listError}</p>}
+      {railError && <p className={ERROR_BOX}>{railError}</p>}
       <div className="flex gap-4 items-start">
-        <nav aria-label="Use cases" className="w-72 shrink-0 bg-surface border border-border rounded-xl p-3 space-y-4 max-h-[calc(100dvh-11rem)] overflow-y-auto">
-          {listLoading && (
-            <p className="flex items-center gap-2 text-[12px] text-text-secondary"><Loader2 size={14} className="animate-spin" /> Loading the use cases…</p>
-          )}
-          {!listLoading && query.trim() && groups.every((group) => group.items.length === 0) && (
-            <p className="text-[12px] text-text-secondary">No use case matches &quot;{query.trim()}&quot;.</p>
-          )}
-          {!listLoading && groups.map((group) => (
-            <section key={group.id} aria-label={group.label} className="space-y-1">
-              <h2 className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">{group.label} ({group.items.length})</h2>
-              {group.items.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-current={item.id === shownId ? 'true' : undefined}
-                  onClick={() => select(item.id)}
-                  className={`w-full text-left rounded-md px-2.5 py-2 text-xs ${item.id === shownId ? 'bg-db-red-50' : 'hover:bg-bg'}`}
-                >
-                  <div className={`font-medium truncate ${item.id === shownId ? 'text-db-red-fg' : 'text-text-primary'}`}>{item.name}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    <span className="font-mono text-[10px] text-text-tertiary">{item.id}</span>
-                    <ImplementStatusBadge state={item.state} />
-                  </div>
-                </button>
-              ))}
-              {group.items.length === 0 && <p className="text-[11px] text-text-tertiary px-2.5">None</p>}
-            </section>
-          ))}
-        </nav>
-        <section aria-label="Use case" className="flex-1 min-w-0 bg-surface border border-border rounded-xl min-h-[24rem]">
+        <Rail groups={groups} listLoading={listLoading} query={query} shownId={shownId} onSelect={select} />
+        <section aria-label="Use case" className="flex-1 min-w-0 space-y-4">
           {selected ? (
             <UseCaseDetail
               key={selected.id}
@@ -176,7 +319,7 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
               onEdit={(focus) => setWizard({ uc: selected.uc, focus })}
             />
           ) : (
-            !listLoading && !listError && <p className="p-6 text-[12px] text-text-tertiary">This session has no use cases yet.</p>
+            !listLoading && !listError && <p className={`${PANEL_CLASS} p-6 text-[12px] text-text-secondary`}>This session has no use cases yet.</p>
           )}
         </section>
       </div>
@@ -199,24 +342,39 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
 
 function NotebookPanel({ notebook, notebookPath, databricksHost, notebookRunError }) {
   const href = notebook.state === 'ready' ? workspaceNotebookUrl(databricksHost, notebookPath) : '';
+  const tone = { success: 'success', error: 'error', busy: 'red' }[notebook.tone] || 'idle';
   return (
-    <section aria-label="Genie Code notebook" className="mx-5 mt-4 border border-border rounded-md px-3 py-2 text-[12px] space-y-1">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium text-text-primary">Genie Code notebook</span>
-        <ImplementStatusBadge state={notebook} />
+    <section aria-label="Genie Code notebook" className="flex flex-wrap items-center justify-between gap-3 mx-5 mb-4 rounded-xl border border-border bg-bg-subtle/60 px-3.5 py-3 text-[12px]">
+      <div className="flex items-start gap-3 min-w-0 flex-1">
+        <IconChip icon={NotebookPen} tone={tone} />
+        <div className="min-w-0 space-y-0.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-text-primary">Genie Code notebook</span>
+            <ImplementStatusBadge state={notebook} />
+          </div>
+          {notebook.reason && <p className={notebook.state === 'failed' ? 'text-error-fg' : 'text-text-secondary'}>{notebook.reason}</p>}
+          {notebookRunError && <p className="text-error-fg">{notebookRunError}</p>}
+          {notebookPath && <p className="font-mono text-[11px] text-text-secondary break-all">{notebookPath}</p>}
+        </div>
       </div>
-      {notebook.reason && <p className={notebook.state === 'failed' ? 'text-error-fg' : 'text-text-secondary'}>{notebook.reason}</p>}
-      {notebookRunError && <p className="text-error-fg">{notebookRunError}</p>}
-      {notebookPath && <p className="font-mono text-[11px] text-text-secondary break-all">{notebookPath}</p>}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-2">
         {href && (
-          <a className="text-db-red-fg inline-flex items-center gap-1" href={href} target="_blank" rel="noreferrer">Open the notebook <ExternalLink size={12} /></a>
+          <a className={OUTLINE_BUTTON} href={href} target="_blank" rel="noreferrer">Open the notebook <ExternalLink size={12} /></a>
         )}
         {notebook.url && (
-          <a className="text-db-red-fg inline-flex items-center gap-1" href={notebook.url} target="_blank" rel="noreferrer">Open the notebook run <ExternalLink size={12} /></a>
+          <a className={OUTLINE_BUTTON} href={notebook.url} target="_blank" rel="noreferrer">Open the notebook run <ExternalLink size={12} /></a>
         )}
       </div>
     </section>
+  );
+}
+
+function TabCard({ icon, title, hint, children }) {
+  return (
+    <div className={PANEL_CLASS}>
+      <SectionTitle icon={icon} title={title} hint={hint} />
+      <div className="p-4 space-y-3 text-[12px]">{children}</div>
+    </div>
   );
 }
 
@@ -234,6 +392,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const [live, setLive] = useState(null);
   const [liveError, setLiveError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
+  const [celebrations, setCelebrations] = useState(0);
+  const lastStatus = useRef(null);
 
   const [arrivals, setArrivals] = useState(null);
 
@@ -285,6 +445,15 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   }, [active]);
   const stages = useMemo(() => pocStages(status?.steps, latest, { now, stalled }), [status?.steps, latest, now, stalled]);
   const progress = pocProgressSummary(stages, latest, { now, stalled });
+  const row = useMemo(() => (item.uc ? catalogRow(item.uc, 0, { statusOf: () => item.state }) : null), [item.uc, item.state]);
+  const subtitle = item.uc ? subtitleOfUseCase(item.uc, item.name) : '';
+
+  useEffect(() => {
+    const current = latest?.status || null;
+    const was = lastStatus.current;
+    lastStatus.current = current;
+    if (was && IMPLEMENT_ACTIVE_STATUSES.includes(was) && READY_STATUSES.includes(current) && !reducedMotion()) setCelebrations((n) => n + 1);
+  }, [latest?.status]);
 
   const rerun = async () => {
     setRerunBusy(true);
@@ -347,14 +516,9 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     const failed = failedOutputs.find((o) => o.id === name);
     if (!failed) return null;
     return (
-      <div className="border border-error/30 bg-error-bg rounded-md px-3 py-2 text-[12px] space-y-2">
+      <div className="border border-error/30 bg-error-bg rounded-lg px-3 py-2 text-[12px] space-y-2">
         <p className="text-error-fg">The {failed.label} failed on v{failed.spec_version}: {failed.error || 'no error text was recorded'}</p>
-        <button
-          type="button"
-          disabled={active || submitBusy}
-          onClick={() => retryOutput(name)}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
-        >
+        <button type="button" disabled={active || submitBusy} onClick={() => retryOutput(name)} className={PRIMARY_BUTTON}>
           {submitBusy ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />} Retry the {failed.label}
         </button>
       </div>
@@ -362,49 +526,61 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   };
 
   return (
-    <div className="flex flex-col">
-      <header className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 border-b border-border">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold text-text-primary">{item.name}</h2>
-          <p className="text-[11px] text-text-secondary">{[item.id, item.domain].filter(Boolean).join(' · ')}</p>
+    <>
+      {celebrations > 0 && <Celebration key={celebrations} trigger />}
+      <div className={PANEL_CLASS}>
+        <div className="flex flex-wrap items-center gap-2 px-5 py-2.5 border-b border-border bg-gradient-to-r from-db-red-50 to-surface">
+          {row?.domain && <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-db-red-fg">{row.domain}</span>}
+          {row?.domain && row?.subdomain && <span className="text-text-secondary text-[11px]" aria-hidden>›</span>}
+          {row?.subdomain && <span className="text-[11px] text-text-secondary">{row.subdomain}</span>}
+          <span className="font-mono text-[11px] text-text-secondary">{item.id}</span>
+          <span className="ml-auto flex items-center gap-2">
+            <ImplementStatusBadge state={item.state} />
+            {latest?.spec_version != null && <span className="font-mono text-[11px] text-text-secondary">v{latest.spec_version}</span>}
+          </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <ImplementStatusBadge state={item.state} />
-          {item.uc && (
-            <button
-              type="button"
-              onClick={() => setDetailsOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-border text-text-primary hover:bg-bg-subtle"
-            >
-              <FileText size={13} /> Use case details
-            </button>
-          )}
-          {!hasPoc && (
-            <button
-              type="button"
-              onClick={() => onEdit(null)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid hover:bg-db-red-solid-hover shadow-sm shadow-db-red/20"
-            >
-              <Sparkles size={13} /> {START_POC_LABEL}
-            </button>
-          )}
+        <div className="px-5 py-4 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="text-xl sm:text-2xl font-bold text-text-primary leading-snug">{item.name}</h2>
+            {subtitle && <p className="mt-1.5 text-sm text-text-secondary leading-snug line-clamp-2">{subtitle}</p>}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {item.uc && (
+                <button type="button" onClick={() => setDetailsOpen(true)} className={OUTLINE_BUTTON}>
+                  <FileText size={13} /> Use case details
+                </button>
+              )}
+              {hasPoc ? (
+                <button
+                  type="button"
+                  disabled={active}
+                  title={active ? 'Edit applies after this run' : undefined}
+                  onClick={() => onEdit(null)}
+                  className={OUTLINE_BUTTON}
+                >
+                  <Pencil size={13} /> Edit the PoC/MVP
+                </button>
+              ) : (
+                <button type="button" onClick={() => onEdit(null)} className={PRIMARY_BUTTON}>
+                  <Sparkles size={13} /> {START_POC_LABEL}
+                </button>
+              )}
+            </div>
+          </div>
+          {row && <InspireScoreBadge score={row.inspire} />}
         </div>
-      </header>
-      {detailsOpen && item.uc && (() => {
-        const row = catalogRow(item.uc, 0, { statusOf: () => item.state });
-        return (
-          <UseCaseDrawer row={row} onClose={() => setDetailsOpen(false)}>
-            <UseCaseDetailBody uc={item.uc} v130={item.uc._v130 || null} token={settings.token} databricksHost={databricksHost} />
-          </UseCaseDrawer>
-        );
-      })()}
-      {item.notebook && (
-        <NotebookPanel notebook={item.notebook} notebookPath={item.uc?.notebook_path || ''} databricksHost={databricksHost} notebookRunError={notebookRunError} />
-      )}
-      {!hasPoc && (
-        <p className="px-5 py-4 text-[12px] text-text-tertiary">
-          No PoC/MVP yet. {START_POC_LABEL} builds one, or writes only the Genie Code notebook when you choose Notebook only.
-        </p>
+        {item.notebook && (
+          <NotebookPanel notebook={item.notebook} notebookPath={item.uc?.notebook_path || ''} databricksHost={databricksHost} notebookRunError={notebookRunError} />
+        )}
+        {!hasPoc && (
+          <p className="px-5 pb-5 text-[12px] text-text-secondary">
+            No PoC/MVP yet. {START_POC_LABEL} builds one, or writes only the Genie Code notebook when you choose Notebook only.
+          </p>
+        )}
+      </div>
+      {detailsOpen && row && (
+        <UseCaseDrawer row={row} onClose={() => setDetailsOpen(false)}>
+          <UseCaseDetailBody uc={item.uc} v130={item.uc._v130 || null} token={settings.token} databricksHost={databricksHost} />
+        </UseCaseDrawer>
       )}
       {hasPoc && (
         <>
@@ -414,172 +590,179 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
             latest={latest}
             useCaseId={useCaseId}
             active={active}
+            buildingNow={progress.current?.state === 'running' ? progress.current.id : ''}
             actionBusy={actionBusy}
             submitBusy={submitBusy}
             onAction={runControl}
             onRemove={removeOutput}
             onToggleSchedule={toggleSchedule}
             onRefresh={loadLive}
+            onAddOutput={() => onEdit({ step: 'delivery' })}
           />
-          <div role="tablist" aria-label="PoC/MVP views" className="flex flex-wrap gap-1 px-4 pt-3 border-b border-border">
-            {TABS.map((name) => (
-              <button
-                key={name}
-                type="button"
-                role="tab"
-                aria-selected={tab === name}
-                onClick={() => setTab(name)}
-                className={`px-3 py-2 text-xs font-medium ${tab === name ? 'text-db-red-fg border-b-2 border-db-red' : 'text-text-secondary'}`}
-              >
-                {name}
-              </button>
-            ))}
+          <div role="tablist" aria-label="PoC/MVP views" className="inline-flex flex-wrap gap-1 p-1 rounded-xl bg-bg-subtle border border-border">
+            {TABS.map((entry) => {
+              const [name, TabIcon] = entry;
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === name}
+                  onClick={() => setTab(name)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-smooth ${
+                    tab === name ? 'bg-surface text-db-red-fg shadow-sm ring-1 ring-inset ring-db-red/20' : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  <TabIcon size={13} aria-hidden />{name}
+                </button>
+              );
+            })}
           </div>
-          <div className="p-4 space-y-3">
-            {failedOutputs.length > 0 && tab !== 'Edit' && (
-              <p className="text-xs text-error-fg bg-error-bg border border-error/20 rounded-md px-3 py-2">
-                {failedOutputs.map((o) => `The ${o.label}`).join(', ')} failed.{' '}
-                <button type="button" className="underline font-semibold" onClick={() => setTab('Edit')}>Retry on the Edit tab</button>
+          {failedOutputs.length > 0 && tab !== 'Edit' && (
+            <p className={ERROR_BOX}>
+              {failedOutputs.map((o) => `The ${o.label}`).join(', ')} failed.{' '}
+              <button type="button" className="underline font-semibold" onClick={() => setTab('Edit')}>Retry on the Edit tab</button>
+            </p>
+          )}
+          {error && <p className={ERROR_BOX}>{error}</p>}
+          {missing.length > 0 && (
+            <div className="border border-error/30 bg-error-bg rounded-lg px-3 py-2 text-[12px] space-y-2">
+              <p className="text-error-fg">{lostTablesText(missing)}</p>
+              <button type="button" disabled={active} onClick={() => onEdit({ step: 'data', missingTables: missing })} className={PRIMARY_BUTTON}>
+                <Pencil size={12} /> Edit the Data step
+              </button>
+            </div>
+          )}
+          {edited && (
+            <div className="border border-error/30 bg-error-bg rounded-lg px-3 py-2 text-[12px] space-y-2">
+              <p className="text-error-fg">
+                {statusReason(latest) || 'The notebook was edited after Inspire last built it, so this version did not rebuild it.'}
               </p>
-            )}
-            {error && <p className="text-xs text-error-fg bg-error-bg border border-error/20 rounded-md px-3 py-2">{error}</p>}
-            {missing.length > 0 && (
-              <div className="border border-error/30 bg-error-bg rounded-md px-3 py-2 text-[12px] space-y-2">
-                <p className="text-error-fg">{lostTablesText(missing)}</p>
-                <button
-                  type="button"
-                  disabled={active}
-                  onClick={() => onEdit({ step: 'data', missingTables: missing })}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
-                >
-                  <Pencil size={12} /> Edit the Data step
-                </button>
-              </div>
-            )}
-            {edited && (
-              <div className="border border-error/30 bg-error-bg rounded-md px-3 py-2 text-[12px] space-y-2">
-                <p className="text-error-fg">
-                  {statusReason(latest) || 'The notebook was edited after Inspire last built it, so this version did not rebuild it.'}
-                </p>
-                <button
-                  type="button"
-                  disabled={active || submitBusy}
-                  onClick={() => submitNext({ confirm_notebook_overwrite: true })}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
-                >
-                  {submitBusy ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />} Rebuild and overwrite the edits
-                </button>
-              </div>
-            )}
-            {tab === 'Progress' && (
-              <div className="space-y-3">
-                <PocProgress stages={stages} summary={progress} chip={chip} reason={reason} toneClass={toneClass} />
-                {stalled?.run_url && (
-                  <a className="text-[12px] text-db-red-fg inline-flex items-center gap-1" href={stalled.run_url} target="_blank" rel="noreferrer">
-                    Open the run that stopped <ExternalLink size={12} />
-                  </a>
-                )}
+              <button type="button" disabled={active || submitBusy} onClick={() => submitNext({ confirm_notebook_overwrite: true })} className={PRIMARY_BUTTON}>
+                {submitBusy ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />} Rebuild and overwrite the edits
+              </button>
+            </div>
+          )}
+          {tab === 'Progress' && (
+            <>
+              <PocProgress stages={stages} summary={progress} chip={chip} reason={reason} toneClass={toneClass} version={latest?.spec_version}>
                 <GenieFeed feed={status ? status.feed || [] : null} arrivals={arrivals} active={progress.active} working={progress.headline} />
-              </div>
-            )}
-            {TAB_OUTPUT[tab] && retryBanner(TAB_OUTPUT[tab])}
-            {tab === 'Dashboard' && (
-              latest?.dashboard_url
-                ? <a className="text-sm text-db-red-fg inline-flex items-center gap-1" href={latest.dashboard_url} target="_blank" rel="noreferrer">Open dashboard <ExternalLink size={12} /></a>
-                : <p className="text-[12px] text-text-tertiary">No dashboard on this version.</p>
-            )}
-            {tab === 'Genie' && (
-              latest?.genie_space_url ? (
-                <div className="space-y-2 text-[12px]">
-                  <a className="text-sm text-db-red-fg inline-flex items-center gap-1" href={latest.genie_space_url} target="_blank" rel="noreferrer">Open Genie space <ExternalLink size={12} /></a>
+              </PocProgress>
+              {stalled?.run_url && (
+                <a className="text-[12px] font-semibold text-db-red-fg inline-flex items-center gap-1" href={stalled.run_url} target="_blank" rel="noreferrer">
+                  Open the run that stopped <ExternalLink size={12} />
+                </a>
+              )}
+            </>
+          )}
+          {TAB_OUTPUT[tab] && retryBanner(TAB_OUTPUT[tab])}
+          {tab === 'Dashboard' && (
+            <TabCard icon={LayoutDashboard} title="Dashboard" hint="The decision list, trend and run health Genie built">
+              {latest?.dashboard_url
+                ? <a className={LINK} href={latest.dashboard_url} target="_blank" rel="noreferrer">Open dashboard <ExternalLink size={12} /></a>
+                : <p className="text-text-secondary">No dashboard on this version.</p>}
+            </TabCard>
+          )}
+          {tab === 'Genie' && (
+            <TabCard icon={GenieLogo} title="Genie space" hint="Ask the result and source tables in plain language">
+              {latest?.genie_space_url ? (
+                <>
+                  <a className={LINK} href={latest.genie_space_url} target="_blank" rel="noreferrer">Open Genie space <ExternalLink size={12} /></a>
                   {genie.questions.length > 0 && (
                     <div>
-                      <p className="font-medium">{genie.source === 'space' ? 'Sample questions in the space' : 'Questions you asked for'}</p>
+                      <p className="font-medium text-text-primary">{genie.source === 'space' ? 'Sample questions in the space' : 'Questions you asked for'}</p>
                       <ul className="list-disc pl-5">{genie.questions.map((question, i) => (
                         <li key={question}>
                           <span>{question}</span>
-                          {genie.notes[i] && <p className="text-text-tertiary">{genie.notes[i]}</p>}
+                          {genie.notes[i] && <p className="text-text-secondary">{genie.notes[i]}</p>}
                         </li>
                       ))}</ul>
                     </div>
                   )}
                   {genieAsset.check_question && <p>Inspire checked the space with: {genieAsset.check_question}</p>}
-                  {genieAsset.check_sql && <pre className="text-[10px] font-mono text-text-secondary whitespace-pre-wrap border border-border rounded p-2">{genieAsset.check_sql}</pre>}
-                </div>
-              ) : <p className="text-[12px] text-text-tertiary">No Genie space on this version.</p>
-            )}
-            {tab === 'App' && (
-              latest?.app_url ? (
-                <div className="space-y-2 text-[12px]">
-                  <a className="text-sm text-db-red-fg inline-flex items-center gap-1" href={latest.app_url} target="_blank" rel="noreferrer">Open App <ExternalLink size={12} /></a>
+                  {genieAsset.check_sql && <pre className="text-[10px] font-mono text-text-secondary whitespace-pre-wrap border border-border rounded-lg bg-bg-subtle p-2">{genieAsset.check_sql}</pre>}
+                </>
+              ) : <p className="text-text-secondary">No Genie space on this version.</p>}
+            </TabCard>
+          )}
+          {tab === 'App' && (
+            <TabCard icon={AppWindow} title="App" hint="The Databricks App with the decision list, row detail and export">
+              {latest?.app_url ? (
+                <>
+                  <a className={LINK} href={latest.app_url} target="_blank" rel="noreferrer">Open App <ExternalLink size={12} /></a>
                   <table className="text-[12px]">
                     <tbody>
                       {appStatusRows(status?.app_status, latest?.asset_status?.app).map(([label, value]) => (
-                        <tr key={label}><td className="pr-3 py-0.5 text-text-tertiary">{label}</td><td>{value}</td></tr>
+                        <tr key={label}><td className="pr-3 py-0.5 text-text-secondary">{label}</td><td>{value}</td></tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
-              ) : <p className="text-[12px] text-text-tertiary">No App on this version.</p>
-            )}
-            {tab === 'Alert' && (
-              latest?.alert_url ? (
-                <div className="space-y-2 text-[12px]">
-                  <a className="text-sm text-db-red-fg inline-flex items-center gap-1" href={latest.alert_url} target="_blank" rel="noreferrer">Open alert <ExternalLink size={12} /></a>
+                </>
+              ) : <p className="text-text-secondary">No App on this version.</p>}
+            </TabCard>
+          )}
+          {tab === 'Alert' && (
+            <TabCard icon={BellRing} title="Alert" hint="Emails people when the latest run has rows to act on">
+              {latest?.alert_url ? (
+                <>
+                  <a className={LINK} href={latest.alert_url} target="_blank" rel="noreferrer">Open alert <ExternalLink size={12} /></a>
                   <p>Fires when: {alertAsset.trigger || '—'}</p>
-                  {alertAsset.condition_sql && <pre className="text-[10px] font-mono text-text-secondary whitespace-pre-wrap border border-border rounded p-2">{alertAsset.condition_sql}</pre>}
+                  {alertAsset.condition_sql && <pre className="text-[10px] font-mono text-text-secondary whitespace-pre-wrap border border-border rounded-lg bg-bg-subtle p-2">{alertAsset.condition_sql}</pre>}
                   <p>Notifies: {spec.outputs?.alert_recipients?.join(', ') || 'no email recipients'}
                     {(spec.outputs?.alert_destinations || []).length ? `; ${spec.outputs.alert_destinations.map((d) => d.name || d.id).join(', ')}` : ''}
                   </p>
                   <p>Subscribers on the job task: {alertAsset.subscribers ?? '—'}</p>
                   <p>Last check: {alertAsset.check_state || '—'}</p>
-                  <p className="text-text-tertiary">It runs after each scheduled or full run of the job and notifies once per run, only when the condition holds. Preview re-runs never send it.</p>
+                  <p className="text-text-secondary">It runs after each scheduled or full run of the job and notifies once per run, only when the condition holds. Preview re-runs never send it.</p>
+                </>
+              ) : <p className="text-text-secondary">No alert on this version.</p>}
+            </TabCard>
+          )}
+          {tab === 'History' && (
+            <TabCard icon={History} title="History" hint="Every spec version and every run of the job">
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Spec versions</div>
+              {(status?.history || []).map((entry) => (
+                <div key={entry.spec_version} className="border border-border rounded-lg bg-surface px-3 py-2 text-[12px]">
+                  <div>v{entry.spec_version} · {historyStatus(entry, latest, stalled)} · {entry.change_classes || 'initial'}</div>
+                  <div className="text-text-secondary">{entry.created_by} · {entry.updated_at}</div>
                 </div>
-              ) : <p className="text-[12px] text-text-tertiary">No alert on this version.</p>
-            )}
-            {tab === 'History' && (
-              <div className="space-y-2">
-                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Spec versions</div>
-                {(status?.history || []).map((row) => (
-                  <div key={row.spec_version} className="border border-border rounded-md px-3 py-2 text-[12px]">
-                    <div>v{row.spec_version} · {historyStatus(row, latest, stalled)} · {row.change_classes || 'initial'}</div>
-                    <div className="text-text-tertiary">{row.created_by} · {row.updated_at}</div>
+              ))}
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary pt-2">Job runs</div>
+              {status?.runs?.ok === false && <p className="text-[12px] text-error-fg">{status.runs.error}</p>}
+              {(status?.runs?.runs || []).map((run) => (
+                <div key={run.run_id} className="border border-border rounded-lg bg-surface px-3 py-2 text-[12px]">
+                  <div>{run.state || 'unknown'} · {runProfileText(run.profile)} · {run.trigger === 'PERIODIC' ? 'scheduled' : 'started by hand'}</div>
+                  <div className="text-text-secondary">
+                    {run.started} · {run.duration_s}s
+                    {run.url && <> · <a className="text-db-red-fg" href={run.url} target="_blank" rel="noreferrer">Open run</a></>}
                   </div>
-                ))}
-                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary pt-2">Job runs</div>
-                {status?.runs?.ok === false && <p className="text-[12px] text-error-fg">{status.runs.error}</p>}
-                {(status?.runs?.runs || []).map((run) => (
-                  <div key={run.run_id} className="border border-border rounded-md px-3 py-2 text-[12px]">
-                    <div>{run.state || 'unknown'} · {runProfileText(run.profile)} · {run.trigger === 'PERIODIC' ? 'scheduled' : 'started by hand'}</div>
-                    <div className="text-text-tertiary">
-                      {run.started} · {run.duration_s}s
-                      {run.url && <> · <a className="text-db-red-fg" href={run.url} target="_blank" rel="noreferrer">Open run</a></>}
-                    </div>
-                    {run.message && <div className="text-text-secondary">{run.message}</div>}
-                  </div>
-                ))}
-                {status?.runs?.ok && status.runs.runs.length === 0 && <p className="text-[12px] text-text-tertiary">No job runs yet.</p>}
-                {!status?.runs && <p className="text-[12px] text-text-tertiary">This use case has no job yet.</p>}
-              </div>
-            )}
-            {tab === 'Edit' && (
-              <section aria-label="Edit the PoC/MVP" className="max-w-sm space-y-3">
+                  {run.message && <div className="text-text-secondary">{run.message}</div>}
+                </div>
+              ))}
+              {status?.runs?.ok && status.runs.runs.length === 0 && <p className="text-[12px] text-text-secondary">No job runs yet.</p>}
+              {!status?.runs && <p className="text-[12px] text-text-secondary">This use case has no job yet.</p>}
+            </TabCard>
+          )}
+          {tab === 'Edit' && (
+            <section aria-label="Edit the PoC/MVP" className={`${PANEL_CLASS} max-w-md`}>
+              <SectionTitle icon={Pencil} title="Change this PoC/MVP" hint="Each change builds a new version" />
+              <div className="p-4 space-y-4">
                 <button
                   type="button"
                   disabled={active}
                   onClick={() => onEdit(null)}
-                  className="w-full inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold border border-border disabled:opacity-50"
+                  className={`w-full justify-center ${OUTLINE_BUTTON}`}
                 >
                   <Pencil size={12} /> {active ? 'Edit applies after this run' : 'Edit the PoC/MVP'}
                 </button>
                 <div>
-                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary mb-1">Quick re-run</div>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary mb-1">Quick re-run</div>
                   {widgets.map((w) => (
                     <label key={w.name} className="block text-[11px] mb-1">
                       {w.label || w.name}
                       {Array.isArray(w.choices) && w.choices.length > 0 ? (
                         <select
-                          className="mt-0.5 w-full px-2 py-1 border border-border rounded bg-surface"
+                          className="mt-0.5 w-full px-2 py-1 border border-border rounded-lg bg-surface"
                           value={overrides[w.name] ?? ''}
                           onChange={(e) => setOverrides((prev) => ({ ...prev, [w.name]: e.target.value }))}
                         >
@@ -588,22 +771,22 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                         </select>
                       ) : (
                         <input
-                          className="mt-0.5 w-full px-2 py-1 border border-border rounded bg-surface"
+                          className="mt-0.5 w-full px-2 py-1 border border-border rounded-lg bg-surface"
                           value={overrides[w.name] ?? ''}
                           placeholder={w.default == null ? '' : String(w.default)}
                           onChange={(e) => setOverrides((prev) => ({ ...prev, [w.name]: e.target.value }))}
                         />
                       )}
-                      {w.allowed && <span className="block text-[10px] text-text-tertiary">{w.allowed}</span>}
+                      {w.allowed && <span className="block text-[10px] text-text-secondary">{w.allowed}</span>}
                     </label>
                   ))}
-                  {widgets.length === 0 && <p className="text-[11px] text-text-tertiary">No widgets to change; the re-run uses the job's values.</p>}
-                  <p className="text-[10px] text-text-tertiary">A preview of the notebook only. Blank fields keep the job's values, and the alert never fires on a preview.</p>
+                  {widgets.length === 0 && <p className="text-[11px] text-text-secondary">No widgets to change; the re-run uses the job&apos;s values.</p>}
+                  <p className="text-[10px] text-text-secondary">A preview of the notebook only. Blank fields keep the job&apos;s values, and the alert never fires on a preview.</p>
                   <button
                     type="button"
                     disabled={rerunBusy || !latest?.job_id}
                     onClick={rerun}
-                    className="mt-2 w-full inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
+                    className={`mt-2 w-full justify-center ${PRIMARY_BUTTON}`}
                   >
                     {rerunBusy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Preview re-run
                   </button>
@@ -614,7 +797,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                 </label>
                 {failedOutputs.length > 0 && (
                   <div className="space-y-1">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Failed outputs</div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Failed outputs</div>
                     {failedOutputs.map((o) => (
                       <button
                         key={o.id}
@@ -622,7 +805,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                         disabled={active || submitBusy}
                         onClick={() => retryOutput(o.id)}
                         title={o.error}
-                        className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-error/40 text-error-fg disabled:opacity-50"
+                        className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-error/40 bg-surface text-error-fg disabled:opacity-50"
                       >
                         <RotateCcw size={12} /> Retry the {o.label}
                       </button>
@@ -631,27 +814,27 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                 )}
                 {builtOutputs.length > 0 && (
                   <div className="space-y-1">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Rebuild an output</div>
-                    <p className="text-[10px] text-text-tertiary">Genie writes it again from this version, for an output that was built but does not work.</p>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Rebuild an output</div>
+                    <p className="text-[10px] text-text-secondary">Genie writes it again from this version, for an output that was built but does not work.</p>
                     {builtOutputs.map((o) => (
                       <button
                         key={o.id}
                         type="button"
                         disabled={active || submitBusy}
                         onClick={() => retryOutput(o.id)}
-                        className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-border text-text-secondary disabled:opacity-50"
+                        className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-border bg-surface text-text-secondary disabled:opacity-50"
                       >
                         <RotateCcw size={12} /> Rebuild the {o.label}
                       </button>
                     ))}
                   </div>
                 )}
-              </section>
-            )}
-          </div>
+              </div>
+            </section>
+          )}
         </>
       )}
-    </div>
+    </>
   );
 }
 

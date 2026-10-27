@@ -1,11 +1,18 @@
 import { useState } from 'react';
-import { ExternalLink, Loader2, Pause, Play, RefreshCw, Square, Trash2, Eye, EyeOff, Ban } from 'lucide-react';
+import {
+  AppWindow, Ban, Bell, Briefcase, ExternalLink, Eye, EyeOff, Hammer, LayoutDashboard, Loader2, Pause, Play, Plus, Radar, RefreshCw, Square, Trash2,
+} from 'lucide-react';
 import BodyPortal from './BodyPortal';
+import GenieLogo from './GenieLogo';
 import ImplementStatusBadge from './ImplementStatusBadge';
-import { controlRows, controlActionText, removeConfirmed } from '../lib/implementControl';
+import { IconChip, PANEL_CLASS, SectionTitle } from './BuildUi';
+import { controlTiles, controlActionText, removeConfirmed } from '../lib/implementControl';
 import { formatWhen } from '../lib/formatWhen';
 
 const ACTION_ICONS = { stop: Square, start: Play, unpublish: EyeOff, publish: Eye, cancel: Ban };
+const ASSET_ICONS = { build: Hammer, job: Briefcase, dashboard: LayoutDashboard, genie_space: GenieLogo, app: AppWindow, alert: Bell };
+const TONE_CHIP = { success: 'success', error: 'error', warning: 'warning', busy: 'red', idle: 'idle' };
+const BUTTON = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-50';
 
 function RemoveDialog({ row, useCaseId, busy, onCancel, onConfirm }) {
   const [typed, setTyped] = useState('');
@@ -46,92 +53,175 @@ function RemoveDialog({ row, useCaseId, busy, onCancel, onConfirm }) {
   );
 }
 
-export default function ImplementControlTower({ live, liveError, latest, useCaseId, active, actionBusy, submitBusy, onAction, onRemove, onToggleSchedule, onRefresh }) {
+function RowControls({ row, active, actionBusy, submitBusy, onAction, onToggleSchedule, onRemove }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {row.url && (
+        <a href={row.url} target="_blank" rel="noreferrer" className={`${BUTTON} font-semibold text-white bg-db-red-solid hover:opacity-90`}>
+          Open <ExternalLink size={11} />
+        </a>
+      )}
+      {row.actions.map((a) => {
+        const Icon = ACTION_ICONS[a.action] || Square;
+        const key = `${a.asset}:${a.action}`;
+        const blocked = actionBusy !== '' || (active && a.asset !== 'build');
+        return (
+          <button
+            key={key}
+            type="button"
+            disabled={blocked}
+            title={blocked && active ? 'Wait for the build to finish, or stop the build first' : undefined}
+            onClick={() => onAction(a)}
+            className={`${BUTTON} border bg-surface ${a.danger ? 'border-error/40 text-error-fg' : 'border-border text-text-primary'}`}
+          >
+            {actionBusy === key ? <Loader2 size={11} className="animate-spin" /> : <Icon size={11} />} {a.label}
+          </button>
+        );
+      })}
+      {row.schedule && (
+        <button type="button" disabled={active || submitBusy} onClick={onToggleSchedule} className={`${BUTTON} border border-border bg-surface text-text-primary`}>
+          {row.schedule.on ? <Pause size={11} /> : <Play size={11} />} {row.schedule.label}
+        </button>
+      )}
+      {row.removable && (
+        <button type="button" disabled={active || submitBusy} onClick={() => onRemove(row)} className={`${BUTTON} border border-error/40 bg-surface text-error-fg`}>
+          <Trash2 size={11} /> Remove
+        </button>
+      )}
+    </div>
+  );
+}
+
+function StripRow({ row, controls }) {
+  return (
+    <li data-control={row.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-[12px]">
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        <IconChip icon={ASSET_ICONS[row.id] || Briefcase} tone={TONE_CHIP[row.state.tone] || 'idle'} />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-text-primary">{row.label}</span>
+            <span className="font-mono text-[11px] text-text-secondary truncate">{row.name}</span>
+            <ImplementStatusBadge state={row.state} />
+          </div>
+          {row.detail && <p data-control-detail="" className={row.state.tone === 'error' ? 'text-error-fg' : 'text-text-secondary'}>{row.detail}</p>}
+        </div>
+      </div>
+      {controls}
+    </li>
+  );
+}
+
+function LiveTile({ row, controls }) {
+  const tone = TONE_CHIP[row.state.tone] || 'idle';
+  return (
+    <li data-control={row.id} className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm">
+      <div className="flex items-start gap-3">
+        <IconChip icon={ASSET_ICONS[row.id]} tone={tone} size="md" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[13px] font-semibold text-text-primary">{row.label}</span>
+            <ImplementStatusBadge state={row.state} />
+          </div>
+          <p className="font-mono text-[11px] text-text-secondary truncate" title={row.name}>{row.name}</p>
+          {row.detail && <p data-control-detail="" className={`mt-1 ${row.state.tone === 'error' ? 'text-error-fg' : 'text-text-secondary'}`}>{row.detail}</p>}
+        </div>
+      </div>
+      {controls}
+    </li>
+  );
+}
+
+function PendingTile({ tile, liveError, active, onAddOutput }) {
+  const { output, kind } = tile;
+  const Icon = ASSET_ICONS[output.id];
+  if (kind === 'off') {
+    return (
+      <li className="flex flex-col gap-2 rounded-xl border border-dashed border-border bg-bg-subtle/50 p-3.5 text-[12px]">
+        <div className="flex items-start gap-3">
+          <IconChip icon={Icon} tone="idle" size="md" />
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-text-primary">{output.label}</p>
+            <p className="text-text-secondary">{output.blurb}</p>
+          </div>
+        </div>
+        {onAddOutput && (
+          <button type="button" disabled={active} onClick={onAddOutput} className={`${BUTTON} self-start border border-border bg-surface text-text-primary`}>
+            <Plus size={11} /> Add the {output.label.toLowerCase()}
+          </button>
+        )}
+      </li>
+    );
+  }
+  const look = {
+    building: { tone: 'red', text: tile.now ? 'Genie is building it now' : 'Waiting for its turn in this run' },
+    failed: { tone: 'error', text: tile.error ? `It failed: ${tile.error}` : 'It failed on this version' },
+    checking: { tone: 'idle', text: liveError ? 'Inspire cannot read its live status' : 'Reading its live status' },
+    missing: { tone: 'warning', text: 'Not built on this version' },
+  }[kind];
+  return (
+    <li className="relative flex flex-col gap-2 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm overflow-hidden" data-tile-kind={kind}>
+      <div className="flex items-start gap-3">
+        <IconChip icon={Icon} tone={look.tone} size="md" />
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-text-primary">{output.label}</p>
+          <p className={kind === 'failed' ? 'text-error-fg' : 'text-text-secondary'}>
+            {kind === 'building' && tile.now && <Loader2 size={11} className="inline mr-1 align-[-1px] motion-safe:animate-spin text-db-red-fg" aria-hidden />}
+            {look.text}
+          </p>
+        </div>
+      </div>
+      {kind === 'building' && (
+        <div className="relative h-1 rounded-full bg-bg-subtle overflow-hidden" aria-hidden>
+          <span className={`absolute inset-y-0 left-0 w-1/3 rounded-full ${tile.now ? 'bg-db-red motion-safe:animate-[shimmer_1.8s_ease-in-out_infinite]' : 'bg-border'}`} />
+        </div>
+      )}
+    </li>
+  );
+}
+
+export default function ImplementControlTower({
+  live, liveError, latest, useCaseId, active, buildingNow, actionBusy, submitBusy, onAction, onRemove, onToggleSchedule, onRefresh, onAddOutput,
+}) {
   const [removing, setRemoving] = useState(null);
-  const rows = controlRows(live, latest);
+  const { strips, tiles } = controlTiles(live, latest, { active, buildingNow });
   const actions = (live?.actions || []).slice(0, 5);
+  const hasRows = strips.length > 0 || tiles.some((t) => t.kind === 'live');
   const confirmRemove = async () => {
     const row = removing;
     await onRemove(row.id);
     setRemoving(null);
   };
+  const controls = (row) => (
+    <RowControls row={row} active={active} actionBusy={actionBusy} submitBusy={submitBusy} onAction={onAction} onToggleSchedule={onToggleSchedule} onRemove={setRemoving} />
+  );
   return (
-    <section role="region" aria-label="Control tower" className="mx-4 mt-3 border border-border rounded-lg bg-bg-subtle/40">
-      <header className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-border">
-        <div>
-          <h3 className="text-xs font-semibold text-text-primary">Control tower</h3>
-          <p className="text-[11px] text-text-tertiary">
-            {live?.checked_at ? `Live status checked ${formatWhen(live.checked_at, live.checked_at)}` : 'Reading the live status of every asset'}
-          </p>
-        </div>
-        <button type="button" onClick={onRefresh} aria-label="Check the live status now" className="p-1.5 rounded-md border border-border text-text-secondary">
-          <RefreshCw size={12} />
-        </button>
-      </header>
-      {liveError && <p className="px-3 py-2 text-[12px] text-error-fg">Inspire cannot read the live status: {liveError}</p>}
-      {live && rows.length === 0 && <p className="px-3 py-2 text-[12px] text-text-tertiary">This PoC/MVP has no job or outputs yet.</p>}
-      <ul className="divide-y divide-border">
-        {rows.map((row) => (
-          <li key={row.id} data-control={row.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[12px]">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium text-text-primary">{row.label}</span>
-                <span className="text-text-secondary truncate">{row.name}</span>
-                <ImplementStatusBadge state={row.state} />
-              </div>
-              {row.detail && <p data-control-detail="" className={row.state.tone === 'error' ? 'text-error-fg' : 'text-text-tertiary'}>{row.detail}</p>}
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {row.url && (
-                <a href={row.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border text-text-secondary">
-                  Open <ExternalLink size={11} />
-                </a>
-              )}
-              {row.actions.map((a) => {
-                const Icon = ACTION_ICONS[a.action] || Square;
-                const key = `${a.asset}:${a.action}`;
-                const blocked = actionBusy !== '' || (active && a.asset !== 'build');
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    disabled={blocked}
-                    title={blocked && active ? 'Wait for the build to finish, or stop the build first' : undefined}
-                    onClick={() => onAction(a)}
-                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-xs font-medium disabled:opacity-50 ${a.danger ? 'border-error/40 text-error-fg' : 'border-border text-text-primary'}`}
-                  >
-                    {actionBusy === key ? <Loader2 size={11} className="animate-spin" /> : <Icon size={11} />} {a.label}
-                  </button>
-                );
-              })}
-              {row.schedule && (
-                <button
-                  type="button"
-                  disabled={active || submitBusy}
-                  onClick={onToggleSchedule}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border text-xs font-medium disabled:opacity-50"
-                >
-                  {row.schedule.on ? <Pause size={11} /> : <Play size={11} />} {row.schedule.label}
-                </button>
-              )}
-              {row.removable && (
-                <button
-                  type="button"
-                  disabled={active || submitBusy}
-                  onClick={() => setRemoving(row)}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-error/40 text-error-fg text-xs font-medium disabled:opacity-50"
-                >
-                  <Trash2 size={11} /> Remove
-                </button>
-              )}
-            </div>
-          </li>
-        ))}
+    <section role="region" aria-label="Control tower" className={PANEL_CLASS}>
+      <SectionTitle
+        icon={Radar}
+        title="Control tower"
+        hint={live?.checked_at ? `Live status checked ${formatWhen(live.checked_at, live.checked_at)}` : 'Reading the live status of every asset'}
+        right={(
+          <button type="button" onClick={onRefresh} aria-label="Check the live status now" className="p-1.5 rounded-lg border border-border bg-surface text-text-secondary hover:text-text-primary">
+            <RefreshCw size={13} />
+          </button>
+        )}
+      />
+      {liveError && <p className="px-4 pt-3 text-[12px] text-error-fg">Inspire cannot read the live status: {liveError}</p>}
+      {live && !hasRows && <p className="px-4 pt-3 text-[12px] text-text-secondary">This PoC/MVP has no job or outputs yet.</p>}
+      {strips.length > 0 && (
+        <ul className="divide-y divide-border border-b border-border">
+          {strips.map((row) => <StripRow key={row.id} row={row} controls={controls(row)} />)}
+        </ul>
+      )}
+      <ul className="grid gap-3 p-4 sm:grid-cols-2">
+        {tiles.map((tile) => (tile.kind === 'live'
+          ? <LiveTile key={tile.output.id} row={tile.row} controls={controls(tile.row)} />
+          : <PendingTile key={tile.output.id} tile={tile} liveError={liveError} active={active} onAddOutput={onAddOutput} />))}
       </ul>
       {actions.length > 0 && (
-        <div className="px-3 py-2 border-t border-border">
-          <p className="text-[11px] font-semibold text-text-secondary">Recent actions</p>
-          <ul aria-label="Recent control actions" className="text-[11px] text-text-tertiary space-y-0.5">
+        <div className="px-4 py-3 border-t border-border bg-bg-subtle/50">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary">Recent actions</p>
+          <ul aria-label="Recent control actions" className="mt-1 text-[11px] text-text-secondary space-y-0.5">
             {actions.map((entry, i) => (
               <li key={`${entry.acted_at}-${i}`} className={entry.result === 'done' ? '' : 'text-error-fg'}>{controlActionText(entry)}</li>
             ))}

@@ -2,14 +2,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, Terminal, Info } from 'lucide-react';
 import GenieLogo from './GenieLogo';
 import { feedLine, feedKey, feedTypesOut, typedText, typingSchedule } from '../lib/pocProgress';
+import { reducedMotion } from '../lib/motion';
 
 const TONE_TEXT = { plain: 'text-text-primary', quiet: 'text-text-secondary', warning: 'text-warning-fg', error: 'text-error-fg' };
 const NEAR_BOTTOM_PX = 48;
 const TICK_MS = 60;
-
-function reducedMotion() {
-  return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
-}
 
 function clock(at) {
   const d = new Date(at);
@@ -59,8 +56,19 @@ export default function GenieFeed({ feed, arrivals, active, working }) {
     setReadCount(shown.length);
   };
 
+  const said = entries.filter((entry) => entry.line.who === 'genie' && feedTypesOut(entry.item)).length;
   return (
     <div className="relative" data-genie-feed="">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-2.5 border-b border-border bg-bg-subtle">
+        <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-secondary">
+          <GenieLogo size={13} /> Genie&apos;s messages
+        </span>
+        {Array.isArray(feed) && (
+          <span className="text-[11px] text-text-secondary">
+            {said} {said === 1 ? 'message' : 'messages'}{active ? ' · new ones appear as Genie works' : ''}
+          </span>
+        )}
+      </div>
       <div
         ref={boxRef}
         onScroll={onScroll}
@@ -69,7 +77,7 @@ export default function GenieFeed({ feed, arrivals, active, working }) {
         aria-busy={typing}
         aria-label="Genie's messages"
         tabIndex={0}
-        className="h-80 overflow-y-auto overscroll-contain rounded-lg border border-border bg-bg-subtle px-3 py-3 space-y-2.5 glow-focus"
+        className={`${active || entries.length ? 'h-80' : 'max-h-80'} overflow-y-auto overscroll-contain bg-panel px-4 py-4 space-y-3 glow-focus`}
       >
         {!Array.isArray(feed) && <p className="text-[12px] text-text-tertiary">Loading Genie&apos;s messages…</p>}
         {Array.isArray(feed) && shown.length === 0 && (
@@ -86,15 +94,17 @@ export default function GenieFeed({ feed, arrivals, active, working }) {
           if (entry.line.who === 'genie' && feedTypesOut(entry.item)) {
             return (
               <div key={entry.key} className="flex gap-2.5 animate-terminal-line" data-feed-kind={entry.item.kind}>
-                <span className="mt-0.5 shrink-0 w-6 h-6 rounded-full bg-db-red-50 text-db-red-fg flex items-center justify-center">
-                  <GenieLogo size={14} />
+                <span className="mt-0.5 shrink-0 w-7 h-7 rounded-full bg-db-red-50 text-db-red-fg ring-1 ring-inset ring-db-red/20 flex items-center justify-center">
+                  <GenieLogo size={15} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className={`text-[13px] leading-relaxed ${tone}`}>
-                    {text}
-                    {still && <span className="ml-0.5 inline-block w-1.5 h-3.5 align-[-2px] bg-db-red-fg animate-cursor-blink" aria-hidden />}
-                  </p>
-                  {time && <p className="text-[10px] text-text-tertiary">Genie · {time}</p>}
+                  <div className="inline-block max-w-full rounded-2xl rounded-tl-md px-3.5 py-2.5 bg-surface ring-1 ring-inset ring-border shadow-sm">
+                    <p className={`text-[13px] leading-relaxed break-words ${tone}`}>
+                      {text}
+                      {still && <span className="ml-0.5 inline-block w-1.5 h-3.5 align-[-2px] bg-db-red-fg animate-cursor-blink" aria-hidden />}
+                    </p>
+                  </div>
+                  {time && <p className="mt-1 text-[10px] text-text-tertiary">Genie · {time}</p>}
                 </div>
               </div>
             );
@@ -113,8 +123,8 @@ export default function GenieFeed({ feed, arrivals, active, working }) {
         })}
         {active && (
           <div className="flex items-center gap-2.5 pt-1" data-genie-working="">
-            <span className="shrink-0 w-6 h-6 rounded-full bg-db-red-50 text-db-red-fg flex items-center justify-center motion-safe:animate-pulse">
-              <GenieLogo size={14} />
+            <span className="shrink-0 w-7 h-7 rounded-full bg-db-red-50 text-db-red-fg ring-1 ring-inset ring-db-red/20 flex items-center justify-center motion-safe:animate-pulse">
+              <GenieLogo size={15} />
             </span>
             <span className="text-[12px] text-text-secondary">{working || 'Genie is working'}</span>
             <span className="flex gap-1" aria-hidden>
