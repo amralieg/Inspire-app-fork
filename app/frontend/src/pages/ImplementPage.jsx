@@ -491,10 +491,10 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
             {tab === 'Genie' && (
               latest?.genie_space_url ? (
                 <div className="space-y-2 text-[12px]">
-                  <a className="text-sm text-db-red-fg inline-flex items-center gap-1" href={latest.genie_space_url} target="_blank" rel="noreferrer">Open Genie space <ExternalLink size={12} /></a>
+                  <a className="text-sm text-db-red-fg inline-flex items-center gap-1" href={latest.genie_space_url} target="_blank" rel="noreferrer">Open Genie Agent <ExternalLink size={12} /></a>
                   {genie.questions.length > 0 && (
                     <div>
-                      <p className="font-medium">{genie.source === 'space' ? 'Sample questions in the space' : 'Questions you asked for'}</p>
+                      <p className="font-medium">{genie.source === 'space' ? 'Sample questions in the Genie Agent' : 'Questions you asked for'}</p>
                       <ul className="list-disc pl-5">{genie.questions.map((question, i) => (
                         <li key={question}>
                           <span>{question}</span>
@@ -503,10 +503,10 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                       ))}</ul>
                     </div>
                   )}
-                  {genieAsset.check_question && <p>Inspire checked the space with: {genieAsset.check_question}</p>}
+                  {genieAsset.check_question && <p>Inspire checked the Genie Agent with: {genieAsset.check_question}</p>}
                   {genieAsset.check_sql && <pre className="text-[10px] font-mono text-text-secondary whitespace-pre-wrap border border-border rounded p-2">{genieAsset.check_sql}</pre>}
                 </div>
-              ) : <p className="text-[12px] text-text-tertiary">No Genie space on this version.</p>
+              ) : <p className="text-[12px] text-text-tertiary">No Genie Agent on this version.</p>
             )}
             {tab === 'App' && (
               latest?.app_url ? (

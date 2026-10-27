@@ -555,11 +555,11 @@ test('the Implement page is about the delivery methods: every output and the job
     assert.equal(await page.getByRole('link', { name: 'Open dashboard' }).getAttribute('href'), 'https://workspace.example.com/dashboardsv3/d1/published');
 
     await studioTab(page, 'Genie');
-    await page.getByText('Sample questions in the space').waitFor();
+    await page.getByText('Sample questions in the Genie Agent').waitFor();
     assert.deepEqual(await page.locator('ul.list-disc li > span').allTextContents(), ['Which customers should we call first?', 'How many customers are in Act now?']);
     assert.deepEqual(await page.locator('ul.list-disc li').evaluateAll((items) => items.map((li) => li.querySelector('p')?.textContent || '')),
       ['', 'The rows are accounts, so it counts accounts in Act now.']);
-    await page.getByText('Inspire checked the space with: Which customers should we call first?').waitFor();
+    await page.getByText('Inspire checked the Genie Agent with: Which customers should we call first?').waitFor();
     await page.getByText(`SELECT entity_id FROM ${RESULT_TABLE} ORDER BY rank LIMIT 10`).waitFor();
 
     await studioTab(page, 'App');
@@ -740,7 +740,7 @@ test('the Progress tab keeps Genie\'s messages in a fixed box that scrolls as th
 test('a failed output offers its own retry, which submits the next version that rebuilds only that output', async () => {
   const assets = JSON.parse(built().asset_status);
   const warned = built({
-    spec_version: 2, status: 'ready_with_warnings', status_message: 'Genie space: space create 403',
+    spec_version: 2, status: 'ready_with_warnings', status_message: 'Genie Agent: space create 403',
     asset_status: JSON.stringify({ ...assets, genie_space: { state: 'failed', error: 'space create 403', spec_version: 1 } }),
   });
   const ui = await openUi('implement', { ...STUDIO_STATE, history: [warned] });
@@ -783,7 +783,7 @@ test('a failed output offers its own retry, which submits the next version that 
 test('an output that was built can be rebuilt on its own from the Edit tab, and a failed one stays under the retries', async () => {
   const assets = JSON.parse(built().asset_status);
   const warned = built({
-    spec_version: 2, status: 'ready_with_warnings', status_message: 'Genie space: space create 403',
+    spec_version: 2, status: 'ready_with_warnings', status_message: 'Genie Agent: space create 403',
     asset_status: JSON.stringify({ ...assets, genie_space: { state: 'failed', error: 'space create 403', spec_version: 2 } }),
   });
   const ui = await openUi('implement', { ...STUDIO_STATE, history: [warned] });
@@ -1151,7 +1151,7 @@ test('the control tower shows each asset live, stops the App through Inspire, an
     await tower.locator('[data-control="dashboard"]').getByText('Published', { exact: true }).waitFor();
     await tower.locator('[data-control="job"]').getByText('Scheduled: 0 0 6 * * ? (UTC)').waitFor();
     assert.equal(await tower.locator('[data-control="genie_space"]').getByRole('button', { name: /Stop|Start|Publish/ }).count(), 0,
-      'a Genie space has nothing to stop or start');
+      'a Genie Agent has nothing to stop or start');
 
     await tower.getByRole('button', { name: 'Stop the App' }).click();
     await until(() => made.fetches.some((f) => f.path === '/api/2.0/apps/churn-desk/stop' && f.opts.method === 'POST'), 'the App stop call');

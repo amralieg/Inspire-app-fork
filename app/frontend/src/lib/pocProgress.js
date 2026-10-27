@@ -9,6 +9,8 @@ export const POC_BUILD_STAGES = [
   { id: 'Preview run', label: 'Preview run', working: 'Inspire is running the notebook on a preview' },
 ];
 
+const EARLIER_PHASES = { genie_space: ['Genie space'] };
+
 const FINISH_STAGE = { id: 'Done', label: 'Done', working: 'Inspire is scheduling and sharing the PoC/MVP', phases: ['Schedule', 'Sharing', 'Done'] };
 
 const STEP_STATES = { started: 'running', ended_success: 'done', ended_warning: 'warning', ended_error: 'error' };
@@ -38,7 +40,7 @@ export function pocStages(steps, latest, { now = Date.now(), stalled = null } = 
   const outputs = latest?.spec_json?.outputs || {};
   const plan = [
     ...POC_BUILD_STAGES,
-    ...IMPLEMENT_OUTPUTS.filter((o) => outputs[o.id]).map((o) => ({ id: o.label, label: o.label, working: `Genie is building the ${o.label.toLowerCase()}` })),
+    ...IMPLEMENT_OUTPUTS.filter((o) => outputs[o.id]).map((o) => ({ id: o.label, label: o.label, phases: EARLIER_PHASES[o.id] || [], working: `Genie is building the ${o.label.toLowerCase()}` })),
     FINISH_STAGE,
   ];
   const stages = plan.map((stage) => ({ ...stage, state: 'waiting', started: null, ended: null }));

@@ -155,6 +155,9 @@ test('every user-visible output label and preflight label says Genie Agent', asy
     path.resolve(__dirname, '..', '..', 'frontend', 'src', 'pages', 'ImplementWizard.jsx'),
     path.resolve(__dirname, '..', 'lib', 'inspireImplement.js'),
     path.resolve(__dirname, '..', 'implementRoutes.js'),
+    path.resolve(__dirname, '..', '..', 'frontend', 'src', 'pages', 'ImplementPage.jsx'),
+    path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib', 'implementControl.js'),
+    path.resolve(__dirname, '..', 'lib', 'implementControl.js'),
   ];
   for (const file of files) assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /Genie spaces?\b|Space name/, path.basename(file));
 });

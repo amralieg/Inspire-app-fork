@@ -119,7 +119,7 @@ function liveStatus(targets, got, ctx) {
   if (targets.genie_space) {
     out.genie_space = got.genie_space && got.genie_space.ok
       ? { ok: true, title: str(dataOf(got.genie_space).title) }
-      : { ok: false, error: got.genie_space && got.genie_space.status === 404 ? 'the Genie space no longer exists' : `Inspire cannot read the Genie space: ${errorOf(got.genie_space)}` };
+      : { ok: false, error: got.genie_space && got.genie_space.status === 404 ? 'the Genie Agent no longer exists' : `Inspire cannot read the Genie Agent: ${errorOf(got.genie_space)}` };
   }
   if (targets.alert) {
     const a = dataOf(got.alert);

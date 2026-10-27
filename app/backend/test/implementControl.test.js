@@ -131,7 +131,7 @@ test('live status reads every asset in one pass and says plainly what is gone or
   assert.deepEqual(gone.app, { ok: false, error: 'the App no longer exists' });
   assert.deepEqual(gone.job, { ok: false, error: 'the job is not an Inspire PoC/MVP job' });
   assert.deepEqual(gone.dashboard, { ok: false, error: 'the dashboard no longer exists' });
-  assert.deepEqual(gone.genie_space, { ok: false, error: 'the Genie space no longer exists' });
+  assert.deepEqual(gone.genie_space, { ok: false, error: 'the Genie Agent no longer exists' });
   assert.deepEqual(gone.alert, { ok: false, error: 'Inspire cannot read the alert: PERMISSION_DENIED' });
   const unread = C.liveStatus({ job: '77' }, { job: ok(POC_JOB), runs: { ok: false, status: 403, data: { message: 'no runs access' } } }, CTX);
   assert.equal(unread.job.active_runs, null, 'unreadable runs are not shown as zero runs');
@@ -340,7 +340,7 @@ test('each App state offers only the action that makes sense, and a crashed App 
   assert.equal(appRow(undefined).detail, 'Inspire has not read it yet');
 });
 
-test('the dashboard, Genie space, alert and job rows read their live state and offer only their own actions', async () => {
+test('the dashboard, Genie Agent, alert and job rows read their live state and offer only their own actions', async () => {
   const v = await view();
   const one = (id, entry, latest = LATEST) => row(v.controlRows({ targets: { [id]: LIVE_TARGETS[id] }, assets: { [id]: entry } }, latest), id);
   assert.deepEqual(actionsOf(one('dashboard', { ok: true, published: true, published_at: '2026-10-26' })), ['dashboard:unpublish']);

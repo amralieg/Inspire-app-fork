@@ -162,7 +162,7 @@ test('the change summary never deletes an unticked output unless asked, and flag
   assert.deepEqual(implementChangeSummary(before, kept, assets).keep_unmanaged, ['dashboard']);
 });
 
-test('renaming a kept Genie space refreshes only that output without rebuilding the notebook', () => {
+test('renaming a kept Genie Agent refreshes only that output without rebuilding the notebook', () => {
   const before = spec().spec;
   const after = spec({ outputs: { ...VALID.outputs, genie_space_name: 'Churn questions' } }).spec;
   const summary = implementChangeSummary(before, after, { dashboard: 'd', genie_space: 'g', app: 'churn-desk' });
@@ -611,14 +611,14 @@ test('output access tells up front whether a new App could read the table, and s
   assert.deepEqual(I.shareWarnings(ACCESS_TABLE, LIVE_ACCESS, undefined), []);
 });
 
-test('sharing a dashboard or Genie space warns about the warehouse only when Inspire cannot grant CAN USE on it', () => {
+test('sharing a dashboard or Genie Agent warns about the warehouse only when Inspire cannot grant CAN USE on it', () => {
   const cannot = { ok: false, detail: 'Inspire cannot manage SQL' };
-  const both = ['the dashboard', 'the Genie space'];
+  const both = ['the dashboard', 'the Genie Agent'];
   assert.deepEqual(I.shareWarehouseWarnings(cannot, ['amr@x', { name: 'planners' }, '', null], both, 'SQL'),
-    ['amr@x and planners need CAN USE on SQL to open the dashboard and the Genie space, because they query with their own access, '
+    ['amr@x and planners need CAN USE on SQL to open the dashboard and the Genie Agent, because they query with their own access, '
       + 'and Inspire may not be able to grant it: ask the warehouse owner to give them CAN USE on SQL, or to give Inspire CAN MANAGE on it']);
-  assert.match(I.shareWarehouseWarnings(cannot, [{ name: 'amr@x' }], [false, 'the Genie space'], '')[0],
-    /^amr@x needs CAN USE on the SQL warehouse to open the Genie space, .*give it CAN USE/);
+  assert.match(I.shareWarehouseWarnings(cannot, [{ name: 'amr@x' }], [false, 'the Genie Agent'], '')[0],
+    /^amr@x needs CAN USE on the SQL warehouse to open the Genie Agent, .*give it CAN USE/);
   assert.deepEqual(I.shareWarehouseWarnings({ ok: true, detail: 'manages' }, ['amr@x'], both, 'SQL'), [], 'Inspire grants it itself');
   assert.deepEqual(I.shareWarehouseWarnings(cannot, [], both, 'SQL'), []);
   assert.deepEqual(I.shareWarehouseWarnings(cannot, ['amr@x'], [false, false], 'SQL'), [], 'an App or alert alone needs no viewer access');

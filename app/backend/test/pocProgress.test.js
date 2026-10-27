@@ -194,3 +194,12 @@ test('the Progress tab shows the stepper and Genie\'s scrolling messages, never 
   assert.doesNotMatch(routes, /log_lines/);
   assert.match(routes, /feed = I\.genieFeed\(text, useCaseId, history\[0\] && history\[0\]\.created_at\)/);
 });
+
+test('the Genie Agent stage follows the agent step, and a run recorded when it was called a Genie space keeps its state', async () => {
+  const { pocStages } = await lib('pocProgress.js');
+  for (const phase of ['Genie Agent', 'Genie space']) {
+    const steps = [...BUILT, row('Preview run', 'ended_success', '10:12:00'), row(phase, 'started', '10:12:05'), row(phase, 'ended_success', '10:14:00')];
+    const stage = pocStages(steps, latestOf('building_outputs', { genie_space: true }), { now: at('10:15:00') }).find((s) => s.id === 'Genie Agent');
+    assert.equal(stage.state, 'done', phase);
+  }
+});
