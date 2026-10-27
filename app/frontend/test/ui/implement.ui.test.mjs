@@ -684,6 +684,7 @@ test('the Progress tab keeps Genie\'s messages in a fixed box that scrolls as th
   const said = (i) => `Step ${i}: I'm checking the notebook instructions and the Databricks workflow before I build the dashboard.`;
   const first = Array.from({ length: 24 }, (_, i) => genieLogLine(i, said(i)));
   first.push(genieLogLine(30, JSON.stringify({ status: 'built', summary: 'Built the dashboard and checked every tile.', files: ['x.py'] })));
+  first.push(genieLogLine(31, 'I ran it once with `run_profile=preview` and the **preview run** passed.'));
   const building = built({ status: 'building_outputs', status_message: 'building outputs', implement_run_id: '1066484287074577', updated_at: new Date().toISOString() });
   const stepRow = (phase, status, time) => ({
     stage_name: 'Implement Use Cases', step_id: phase.length, step_name: `Inspire is working on ${phase.toLowerCase()}`, sub_step_name: 'Completed: n01-u01',
@@ -705,7 +706,9 @@ test('the Progress tab keeps Genie\'s messages in a fixed box that scrolls as th
     await page.locator('[data-stage-state="done"]', { hasText: '2m 45s' }).waitFor();
     const text = await box.innerText();
     assert.ok(text.includes(said(23)), 'messages already in the log show at once');
-    for (const raw of ['[GENIE', '[build]', 'Genie: ', '{"status"', '"summary"', 'x.py']) assert.ok(!text.includes(raw), `the box never shows ${raw}`);
+    for (const raw of ['[GENIE', '[build]', 'Genie: ', '{"status"', '"summary"', 'x.py', '`', '**']) assert.ok(!text.includes(raw), `the box never shows ${raw}`);
+    assert.equal(await box.locator('code', { hasText: 'run_profile=preview' }).count(), 1, "Genie's inline code reads as code");
+    assert.equal(await box.locator('strong', { hasText: 'preview run' }).count(), 1, "Genie's bold reads as bold");
     assert.ok(await box.locator('svg').count() >= 25, 'every Genie message carries the Genie logo');
     assert.equal(await page.getByRole('progressbar', { name: 'Build progress' }).isVisible(), true);
     assert.equal(await page.locator('[data-genie-working]').isVisible(), true, 'a working row shows while Genie builds');
@@ -833,7 +836,8 @@ test('a dropped source table stops the re-run with its name, and Edit opens the 
     await studioTab(page, 'Edit');
     await page.getByRole('button', { name: 'Preview re-run' }).click();
     await page.getByText(lostTablesText(missing)).waitFor();
-    await page.getByText('409: the preview cannot run because these source tables are missing or not readable: main.s.returns (not found).', { exact: false }).waitFor();
+    await page.getByText('the preview cannot run because these source tables are missing or not readable: main.s.returns (not found).', { exact: false }).waitFor();
+    assert.equal(await page.getByText('409:', { exact: false }).count(), 0, 'no HTTP status code reaches the screen');
     assert.ok(!made.fetches.some((f) => f.path === '/api/2.1/jobs/run-now'));
 
     await page.getByRole('button', { name: 'Edit the Data step' }).click();
@@ -993,8 +997,25 @@ test('Edit after notebook edits asks on Delivery whether to overwrite them, and 
       'an App built before the access choice existed shows the service principal it signs in with');
     await next(fresh.page);
     await onStep(fresh.page, 'App look');
-    await fresh.page.getByText('nothing changed since the last built version', { exact: false }).waitFor();
+    const note = fresh.page.getByRole('note', { name: 'Nothing to build' });
+    await note.waitFor();
+    assert.match(await note.innerText(), /Nothing changed since version 1, so there is nothing new to build\. Change a choice in any step to build version 2/);
     assert.equal(await fresh.page.getByRole('button', { name: 'Start PoC/MVP', exact: true }).isDisabled(), true, 'an edit with no change cannot submit');
+    assert.equal(await fresh.page.getByRole('alert').count(), 0, 'an unchanged edit is a note, never an error');
+    assert.equal(await fresh.page.getByText(/^\d{3}:/).count(), 0, 'no HTTP status code reaches the screen');
+    const mode = fresh.page.getByRole('region', { name: 'App look' }).getByRole('group', { name: 'Light or dark' });
+    await mode.getByRole('button', { name: 'Dark' }).click();
+    await note.waitFor({ state: 'detached' });
+    await fresh.page.waitForFunction(() => {
+      const start = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Start PoC/MVP');
+      return start && !start.disabled;
+    });
+    await mode.getByRole('button', { name: 'Light' }).click();
+    await note.waitFor();
+    await note.getByRole('button', { name: 'Go to the Build page' }).click();
+    await fresh.page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
+    assert.equal(fresh.made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO')).length, 0, 'an unchanged edit records no new version');
+    assert.deepEqual(fresh.pageErrors, []);
   } finally {
     await fresh.close();
   }

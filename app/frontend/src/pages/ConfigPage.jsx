@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { normalizeDatabricksHost } from '../lib/normalizeDatabricksHost';
+import { responseError } from '../lib/apiClient';
 import {
   Key,
   Server,
@@ -36,7 +37,7 @@ export default function ConfigPage({ settings, update, onConfigured }) {
       if (token) { headers['Authorization'] = `Bearer ${token}`; headers['X-DB-PAT-Token'] = token; }
       if (databricksHost) headers['X-Databricks-Host'] = databricksHost;
       const resp = await fetch(url, { ...opts, headers });
-      if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text()}`);
+      if (!resp.ok) throw await responseError(resp);
       return resp.json();
     },
     [token, databricksHost]
@@ -60,7 +61,7 @@ export default function ConfigPage({ settings, update, onConfigured }) {
       const msg = e.message || '';
       if (msg.includes('not configured') || msg.includes('DATABRICKS_HOST')) {
         setAuthError('Databricks Host URL is missing. Please set it above.');
-      } else if (msg.includes('401')) {
+      } else if (e.status === 401) {
         setAuthError('Invalid token. Please check your PAT.');
       } else if (msg.includes('Network error') || msg.includes('fetch')) {
         setAuthError('Cannot reach Databricks. Verify the Host URL.');

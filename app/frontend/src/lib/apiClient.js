@@ -1,3 +1,5 @@
+import { apiErrorDetail, parseApiErrorMessage } from './ucPermissionErrors.js';
+
 function requestHeaders(token, databricksHost, extra = {}) {
   const headers = { ...extra };
   if (token) {
@@ -8,17 +10,17 @@ function requestHeaders(token, databricksHost, extra = {}) {
   return headers;
 }
 
-async function responseError(resp) {
+export async function responseError(resp) {
   const errText = await resp.text().catch(() => '');
-  let msg = errText || `${resp.status}`;
-  let parsed = null;
+  let parsed;
   try {
     parsed = JSON.parse(errText);
-    if (parsed && parsed.error) msg = typeof parsed.error === 'string' ? parsed.error : JSON.stringify(parsed.error);
   } catch {
-    parsed = null;
+    parsed = undefined;
   }
-  const err = new Error(`${resp.status}: ${msg}`);
+  const message = parsed === undefined || typeof parsed === 'string' ? parseApiErrorMessage(errText) : apiErrorDetail(parsed);
+  const err = new Error(message || `The request failed (HTTP ${resp.status})`);
+  err.status = resp.status;
   err.body = parsed && typeof parsed === 'object' ? parsed : null;
   return err;
 }

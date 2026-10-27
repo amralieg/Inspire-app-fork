@@ -41,6 +41,7 @@ import UcPermissionErrorHelp from '../components/UcPermissionErrorHelp';
 import { parseDocumentLanguages, formatDocumentLanguages } from '../constants/documentLanguages';
 import { interpretUcPermissionError, parseApiErrorMessage } from '../lib/ucPermissionErrors';
 import { formatWhen } from '../lib/formatWhen';
+import { responseError } from '../lib/apiClient';
 
 /* ─── Constants — notebook v1.2.0 widget `05_use_cases_quality` ─── */
 const QUALITY_OPTIONS = ['Good', 'High', 'Ultra High'];
@@ -249,11 +250,7 @@ export default function LaunchPage({ settings, update, onLaunched, onOpenResults
       }
       if (databricksHost) headers['X-Databricks-Host'] = databricksHost;
       const resp = await fetch(url, { ...opts, headers });
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => '');
-        const message = parseApiErrorMessage(errText) || `${resp.status}`;
-        throw new Error(message);
-      }
+      if (!resp.ok) throw await responseError(resp);
       return resp.json();
     },
     [token, databricksHost]

@@ -466,6 +466,7 @@ test('plan returns the change list for the pending edit without writing or launc
     assert.deepEqual(got.data.summary.classes, ['outputs']);
     assert.deepEqual(got.data.summary.build, ['genie_space']);
     assert.equal(got.data.summary.refill, false);
+    assert.equal(got.data.unchanged, false);
     assert.equal(jobs.length, 0);
     assert.ok(!sqlCalls.some((c) => /INSERT INTO|CREATE TABLE/.test(String(c.sql))));
   } finally {
@@ -473,18 +474,22 @@ test('plan returns the change list for the pending edit without writing or launc
   }
 });
 
-test('plan reports the same refusals submit would', async () => {
+test('plan reports the same refusals submit would, and says when nothing changed without refusing', async () => {
   const built = { spec_version: 2, status: 'ready', use_case_id: 'N01-U01', dashboard_id: 'd1', notebook_path: '/W/nb',
     spec_json: { ...SPEC, outputs: { dashboard: true } } };
-  const { app } = makeApp({ useCase: TWO_TABLES, history: [built] });
+  const { app, jobs, sqlCalls } = makeApp({ useCase: TWO_TABLES, history: [built] });
   const srv = await listen(app);
   try {
-    const same = await call(srv.url, '/api/inspire/implement/plan', {
-      method: 'POST',
-      body: { inspire_database: 'main.inspire', warehouse_id: 'wh1', session_id: '42', spec: { ...SPEC, based_on_version: 2 } },
-    });
-    assert.equal(same.status, 400);
-    assert.match(same.data.error, /nothing changed since the last built version/);
+    const body = { inspire_database: 'main.inspire', warehouse_id: 'wh1', session_id: '42', spec: { ...SPEC, based_on_version: 2 } };
+    const same = await call(srv.url, '/api/inspire/implement/plan', { method: 'POST', body });
+    assert.equal(same.status, 200, JSON.stringify(same.data));
+    assert.equal(same.data.unchanged, true);
+    assert.equal(same.data.based_on_version, 2);
+    const refused = await call(srv.url, '/api/inspire/implement/submit', { method: 'POST', body });
+    assert.equal(refused.status, 400);
+    assert.match(refused.data.error, /^nothing changed since version 2, the last built version, so there is nothing new to build/);
+    assert.equal(jobs.length, 0);
+    assert.ok(!sqlCalls.some((c) => /INSERT INTO/.test(String(c.sql))), 'an unchanged spec writes no version');
     const primary = await call(srv.url, '/api/inspire/implement/plan', {
       method: 'POST',
       body: { inspire_database: 'main.inspire', warehouse_id: 'wh1', session_id: '42',

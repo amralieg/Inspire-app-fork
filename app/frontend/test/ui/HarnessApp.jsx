@@ -108,6 +108,7 @@ function WizardOnly({ discoveryType, onImplemented }) {
       focus={null}
       onClose={() => setClosed(true)}
       onImplemented={onImplemented}
+      onOpenBuild={(useCaseId) => onImplemented({ use_case_id: useCaseId })}
     />
   );
 }

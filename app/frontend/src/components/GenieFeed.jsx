@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { ArrowDown, Terminal, Info } from 'lucide-react';
 import GenieLogo from './GenieLogo';
 import { feedLine, feedKey, feedTypesOut, typedText, typingSchedule } from '../lib/pocProgress';
@@ -7,6 +8,13 @@ import { reducedMotion } from '../lib/motion';
 const TONE_TEXT = { plain: 'text-text-primary', quiet: 'text-text-secondary', warning: 'text-warning-fg', error: 'text-error-fg' };
 const NEAR_BOTTOM_PX = 48;
 const TICK_MS = 60;
+const FEED_MARKDOWN = ['p', 'strong', 'em', 'code', 'ul', 'ol', 'li'];
+const FEED_COMPONENTS = {
+  p: ({ children }) => <p className="[&+*]:mt-1.5">{children}</p>,
+  ul: ({ children }) => <ul className="list-disc pl-5 space-y-0.5">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal pl-5 space-y-0.5">{children}</ol>,
+  code: ({ children }) => <code className="px-1 py-px rounded bg-bg-subtle ring-1 ring-inset ring-border font-mono text-[12px]">{children}</code>,
+};
 
 function clock(at) {
   const d = new Date(at);
@@ -99,10 +107,10 @@ export default function GenieFeed({ feed, arrivals, active, working }) {
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="inline-block max-w-full rounded-2xl rounded-tl-md px-3.5 py-2.5 bg-surface ring-1 ring-inset ring-border shadow-sm">
-                    <p className={`text-[13px] leading-relaxed break-words ${tone}`}>
-                      {text}
+                    <div className={`text-[13px] leading-relaxed break-words ${tone} ${still ? '[&>p:last-of-type]:inline' : ''}`}>
+                      <ReactMarkdown allowedElements={FEED_MARKDOWN} unwrapDisallowed components={FEED_COMPONENTS}>{text}</ReactMarkdown>
                       {still && <span className="ml-0.5 inline-block w-1.5 h-3.5 align-[-2px] bg-db-red-fg animate-cursor-blink" aria-hidden />}
-                    </p>
+                    </div>
                   </div>
                   {time && <p className="mt-1 text-[10px] text-text-tertiary">Genie · {time}</p>}
                 </div>

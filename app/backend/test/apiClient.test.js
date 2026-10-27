@@ -43,40 +43,43 @@ test('without a token or host no auth headers are sent', async () => {
   });
 });
 
-test('an error keeps the status, the server error text and the parsed body with its details', async () => {
+test('an error keeps the status and the parsed body apart from the message, which is the server error text alone', async () => {
   const { makeApiFetch, makeApiPostJson } = await load();
   const body = { missing_tables: [{ table: 'main.s.orders', reason: 'not found' }], error: 'the preview cannot run' };
   await withFetch(() => ({ status: 409, text: JSON.stringify(body) }), async () => {
     const postErr = await makeApiPostJson({ token: 't' })('/api/x', {}).catch((e) => e);
-    assert.equal(postErr.message, '409: the preview cannot run');
+    assert.equal(postErr.message, 'the preview cannot run');
+    assert.equal(postErr.status, 409);
     assert.deepEqual(postErr.body, body);
     const getErr = await makeApiFetch({ token: 't' })('/api/x').catch((e) => e);
-    assert.equal(getErr.message, '409: the preview cannot run');
+    assert.equal(getErr.message, 'the preview cannot run');
+    assert.equal(getErr.status, 409);
     assert.deepEqual(getErr.body, body);
   });
 });
 
-test('a structured error is stringified, plain text is kept as the message, and an empty reply shows the status', async () => {
+test('a structured error is stringified, message and error_message are read too, plain text is kept, and a reply with no detail says the request failed with its status', async () => {
   const { makeApiPostJson } = await load();
   const post = makeApiPostJson({ token: 't' });
-  await withFetch(() => ({ status: 400, text: '{"error":{"code":"BAD","why":"x"}}' }), async () => {
-    const err = await post('/api/x', {}).catch((e) => e);
-    assert.equal(err.message, '400: {"code":"BAD","why":"x"}');
-    assert.deepEqual(err.body, { error: { code: 'BAD', why: 'x' } });
-  });
-  await withFetch(() => ({ status: 502, text: 'Bad Gateway' }), async () => {
-    const err = await post('/api/x', {}).catch((e) => e);
-    assert.equal(err.message, '502: Bad Gateway');
-    assert.equal(err.body, null);
-  });
-  await withFetch(() => ({ status: 500, text: '' }), async () => {
-    const err = await post('/api/x', {}).catch((e) => e);
-    assert.equal(err.message, '500: 500');
-    assert.equal(err.body, null);
-  });
-  await withFetch(() => ({ status: 500, text: 'null' }), async () => {
-    const err = await post('/api/x', {}).catch((e) => e);
-    assert.equal(err.message, '500: null');
-    assert.equal(err.body, null);
-  });
+  const cases = [
+    [400, '{"error":{"code":"BAD","why":"x"}}', '{"code":"BAD","why":"x"}', { error: { code: 'BAD', why: 'x' } }],
+    [403, '{"message":"PERMISSION_DENIED: no USE CATALOG"}', 'PERMISSION_DENIED: no USE CATALOG', { message: 'PERMISSION_DENIED: no USE CATALOG' }],
+    [404, '{"error_code":"NOT_FOUND","error_message":"no such job"}', 'no such job', { error_code: 'NOT_FOUND', error_message: 'no such job' }],
+    [502, 'Bad Gateway', 'Bad Gateway', null],
+    [400, '"quoted text"', 'quoted text', null],
+    [500, '', 'The request failed (HTTP 500)', null],
+    [500, 'null', 'The request failed (HTTP 500)', null],
+    [500, '{}', 'The request failed (HTTP 500)', {}],
+    [500, '{"error":""}', 'The request failed (HTTP 500)', { error: '' }],
+    [503, '42', 'The request failed (HTTP 503)', null],
+  ];
+  for (const [status, text, message, body] of cases) {
+    await withFetch(() => ({ status, text }), async () => {
+      const err = await post('/api/x', {}).catch((e) => e);
+      assert.equal(err.message, message, `${status} ${text}`);
+      assert.equal(err.status, status);
+      assert.deepEqual(err.body, body);
+      assert.doesNotMatch(err.message, /^\d{3}:/, 'no status prefix in the message');
+    });
+  }
 });

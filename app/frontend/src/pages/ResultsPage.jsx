@@ -285,8 +285,8 @@ export default function ResultsPage({
         setFeedbackRefresh((n) => n + 1);
       } catch (err) {
         const message = String(err?.message || err);
-        if (message.startsWith('409')) setFeedbackState((prev) => ({ ...prev, available: false }));
-        setFeedbackError({ key: info.useCaseKey, message: message.replace(/^\d{3}:\s*/, '') });
+        if (err?.status === 409) setFeedbackState((prev) => ({ ...prev, available: false }));
+        setFeedbackError({ key: info.useCaseKey, message });
       } finally {
         setFeedbackBusyKey('');
       }
@@ -2304,6 +2304,11 @@ export default function ResultsPage({
             setImplementRefresh((n) => n + 1);
             onOpenImplement?.(String(selectedSessionId), data.use_case_id);
           }}
+          onOpenBuild={onOpenImplement ? (useCaseId) => {
+            setImplementUc(null);
+            setImplementFocus(null);
+            onOpenImplement(String(selectedSessionId), useCaseId);
+          } : null}
         />
       )}
 

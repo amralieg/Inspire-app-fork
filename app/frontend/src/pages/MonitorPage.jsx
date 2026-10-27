@@ -21,6 +21,7 @@ import {
 import ResultsPage from './ResultsPage';
 import { countEntries, parseStrategicContext, treeDepth } from '../lib/strategyContext';
 import { formatDuration } from '../lib/formatWhen';
+import { responseError } from '../lib/apiClient';
 
 // Run lifecycle phases
 const PHASE_PENDING = 'PENDING';
@@ -77,7 +78,7 @@ export default function MonitorPage({ settings, update, sessionId, runId, onComp
       }
       if (databricksHost) headers['X-Databricks-Host'] = databricksHost;
       const resp = await fetch(url, { ...opts, headers });
-      if (!resp.ok) throw new Error(`${resp.status}`);
+      if (!resp.ok) throw await responseError(resp);
       return resp.json();
     },
     [token, databricksHost]

@@ -174,6 +174,7 @@ export default function ImplementWizard({
   apiPostJson,
   onClose,
   onImplemented,
+  onOpenBuild = null,
   focus = null,
 }) {
   const warehouseId = settings.warehouseId;
@@ -603,7 +604,9 @@ export default function ImplementWizard({
     ...errors,
     ...(buildStep ? [lastStep ? planError : '', preflightError, ...deliveryChecks, ...earlierGaps] : []),
   ].filter(Boolean))];
-  const implementBlocked = busy || checksBusy || (!ownErrors.length && (!preflight || !preflight.ok || !plan || Boolean(planError)));
+  const unchanged = lastStep && !checksBusy && Boolean(plan?.unchanged);
+  const implementBlocked = busy || checksBusy || Boolean(plan?.unchanged)
+    || (!ownErrors.length && (!preflight || !preflight.ok || !plan || Boolean(planError)));
   const mergeFresh = defaultSpecFromUseCase(ucRow).outputs.app_name;
   const appTarget = mergeTargetOf(targets, 'app', spec.outputs.app ? spec.outputs.merge.app : '');
   const palette = (look?.palette_colors || []).find((p) => p.id === spec.outputs.app_look.palette) || null;
@@ -1234,6 +1237,19 @@ export default function ImplementWizard({
       </div>
 
       <footer className="border-t border-border px-6 py-3 space-y-2">
+        {unchanged && (
+          <div role="note" aria-label="Nothing to build" className="bg-bg-subtle border border-border rounded-md px-3 py-2 flex items-center justify-between gap-3">
+            <p className="text-xs text-text-secondary">
+              Nothing changed since version {plan.based_on_version}, so there is nothing new to build. Change a choice in any step to
+              build version {plan.spec_version}, or go to the Build page to rebuild an output or preview a re-run.
+            </p>
+            {onOpenBuild && (
+              <button type="button" className="shrink-0 text-xs font-semibold text-db-red-fg hover:underline" onClick={() => onOpenBuild(plan.use_case_id)}>
+                Go to the Build page
+              </button>
+            )}
+          </div>
+        )}
         {footerErrors.length > 0 && (
           <div role="alert" className="bg-error-bg border border-error/20 rounded-md px-3 py-2 space-y-0.5">
             {footerErrors.map((e) => <p key={e} className="text-xs text-error-fg">{e}</p>)}

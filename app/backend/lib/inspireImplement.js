@@ -874,10 +874,15 @@ function planSubmission(history, spec, stalled = null) {
     throw badRequest(`choose whether to delete or keep ${summary.undecided.map((n) => IMPLEMENT_OUTPUT_LABELS[n]).join(' and ')}, `
       + 'which you unticked; Inspire never deletes an output without asking');
   }
-  if (summary.nothing_to_do && latest && IMPLEMENT_DONE_STATUSES.includes(latest.status)) {
-    throw badRequest('nothing changed since the last built version');
+  const unchanged = Boolean(summary.nothing_to_do && latest && IMPLEMENT_DONE_STATUSES.includes(latest.status));
+  return { nextVersion: latest ? latest.spec_version + 1 : 1, latest, built, summary, unchanged };
+}
+
+function refuseUnchanged(plan) {
+  if (plan.unchanged) {
+    throw badRequest(`nothing changed since version ${plan.latest.spec_version}, the last built version, so there is nothing new to build; `
+      + 'change a choice, or use the Build page to rebuild an output or preview a re-run');
   }
-  return { nextVersion: latest ? latest.spec_version + 1 : 1, latest, built, summary };
 }
 
 function implementJobParams(baseParams, useCaseId, specVersion) {
@@ -1768,6 +1773,7 @@ module.exports = {
   parseImplementRow,
   carriedAssets,
   planSubmission,
+  refuseUnchanged,
   implementJobParams,
   widgetsFromInstruction,
   implementWidgets,

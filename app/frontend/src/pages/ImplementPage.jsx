@@ -334,6 +334,7 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
           focus={wizard.focus}
           onClose={() => setWizard(null)}
           onImplemented={onImplemented}
+          onOpenBuild={() => setWizard(null)}
         />
       )}
     </div>

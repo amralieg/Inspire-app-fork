@@ -181,7 +181,7 @@ test('a version built before the access choice keeps its service principal when 
 test('an Edit that only states the service principal an older App already had is no change', () => {
   const legacy = { spec_version: 1, status: 'ready', spec_json: { ...BASE, outputs: { dashboard: true, app: true, app_name: 'churn-desk' } } };
   const same = check({ app_access: 'sp' }).spec;
-  assert.throws(() => I.planSubmission([legacy], { ...same, based_on_version: 1 }), /nothing changed since the last built version/);
+  assert.equal(I.planSubmission([legacy], { ...same, based_on_version: 1 }).unchanged, true);
   const plan = I.planSubmission([legacy], { ...check({ app_access: 'user' }).spec, based_on_version: 1 });
   assert.deepEqual([plan.summary.classes, plan.summary.build, plan.summary.refresh], [['outputs'], ['dashboard', 'genie_space', 'app'], []]);
 });

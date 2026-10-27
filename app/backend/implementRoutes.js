@@ -689,7 +689,7 @@ function registerImplementRoutes(app, deps) {
     try {
       const { useCaseId, plan } = await prepareSubmission(req);
       res.json({ use_case_id: useCaseId, spec_version: plan.nextVersion, based_on_version: plan.built ? plan.built.spec_version : null,
-        summary: plan.summary });
+        summary: plan.summary, unchanged: plan.unchanged });
     } catch (err) {
       sendError(res, err);
     }
@@ -698,6 +698,7 @@ function registerImplementRoutes(app, deps) {
   app.post('/api/inspire/implement/submit', requireToken, async (req, res) => {
     try {
       const { sid, warehouseId, inspire_database, catalog, schema, spec, useCaseId, session, plan } = await prepareSubmission(req);
+      I.refuseUnchanged(plan);
       if (spec.config.result_table) {
         const output = await checkOutput(req, warehouseId, spec.config.result_table, useCaseId);
         if (!output.ok) throw I.badRequest(output.write.ok ? output.safety.detail : output.write.detail, 403);

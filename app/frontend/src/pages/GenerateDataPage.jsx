@@ -9,6 +9,7 @@ import {
   AlertCircle,
   CheckCircle2,
 } from 'lucide-react';
+import { responseError } from '../lib/apiClient';
 
 export default function GenerateDataPage({ settings, onBack, onLaunched }) {
   const { databricksHost, token, inspireDatabase, serverEnvHasPat } = settings;
@@ -29,17 +30,7 @@ export default function GenerateDataPage({ settings, onBack, onLaunched }) {
       }
       if (databricksHost) headers['X-Databricks-Host'] = databricksHost;
       const resp = await fetch(url, { ...opts, headers });
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => '');
-        let msg = errText || `${resp.status}`;
-        try {
-          const j = JSON.parse(errText);
-          if (j.error) msg = j.error;
-        } catch {
-          /* ignore */
-        }
-        throw new Error(msg);
-      }
+      if (!resp.ok) throw await responseError(resp);
       return resp.json();
     },
     [token, databricksHost],

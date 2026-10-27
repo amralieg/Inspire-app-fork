@@ -18,6 +18,7 @@ const {
   parseImplementRow,
   carriedAssets,
   planSubmission,
+  refuseUnchanged,
   implementJobParams,
   widgetsFromInstruction,
   groupWidgets,
@@ -250,8 +251,18 @@ test('an unticked output must be decided before submit, and an unchanged spec is
   const after = { ...VALID.outputs, dashboard: false };
   assert.throws(() => planSubmission([row(1, 'ready', { dashboard_id: 'd1' })], spec({ outputs: after, based_on_version: 1 }).spec),
     (err) => err.statusCode === 400 && /choose whether to delete or keep Dashboard/.test(err.message));
-  assert.throws(() => planSubmission([row(1, 'ready')], spec({ based_on_version: 1 }).spec), /nothing changed/);
-  assert.equal(planSubmission([row(1, 'failed')], spec({ based_on_version: 1 }).spec).nextVersion, 2, 'a failed version can be retried as is');
+  const same = planSubmission([row(1, 'ready')], spec({ based_on_version: 1 }).spec);
+  assert.equal(same.unchanged, true, 'the plan says nothing changed instead of refusing, so the wizard can explain it');
+  assert.throws(() => refuseUnchanged(same), (err) => err.statusCode === 400
+    && err.message.startsWith('nothing changed since version 1, the last built version, so there is nothing new to build')
+    && /rebuild an output or preview a re-run/.test(err.message));
+  const failed = planSubmission([row(1, 'failed')], spec({ based_on_version: 1 }).spec);
+  assert.equal(failed.nextVersion, 2, 'a failed version can be retried as is');
+  assert.equal(failed.unchanged, false);
+  assert.doesNotThrow(() => refuseUnchanged(failed));
+  const changed = planSubmission([row(1, 'ready')], spec({ based_on_version: 1, data: { run_profile: 'full' } }).spec);
+  assert.equal(changed.unchanged, false);
+  assert.doesNotThrow(() => refuseUnchanged(changed));
 });
 
 test('assets carry from failed versions and stop at a delete', () => {
