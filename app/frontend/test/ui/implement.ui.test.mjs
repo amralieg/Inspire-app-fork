@@ -161,7 +161,7 @@ test('the wizard walks Choose, Data, Results and Delivery, adds App access and A
     assert.equal(spec.outputs.app_name, 'predict-churn');
     assert.equal(spec.outputs.app_access, 'sp');
     assert.deepEqual(spec.outputs.app_look, { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' });
-    assert.deepEqual(spec.outputs.app_options, { download: false, modify: false, replace_edits: false, decisions: false });
+    assert.deepEqual(spec.outputs.app_options, { modify: false, replace_edits: false, decisions: false });
     assert.deepEqual(spec.outputs.merge, { app: '', dashboard: '', genie_space: '' });
     assert.deepEqual(spec.outputs.alert_recipients, [OWNER]);
     assert.deepEqual([spec.schedule.enabled, spec.schedule.cron], [true, '0 0 6 ? * MON']);
@@ -823,6 +823,43 @@ test('an output that was built can be rebuilt on its own from the Edit tab, and 
     assert.deepEqual(busy.pageErrors, []);
   } finally {
     await busy.close();
+  }
+});
+
+test('a version saved while the App offered downloads rebuilds and opens in Edit without them', async () => {
+  const saved = builtSpec();
+  const withDownloads = built({ spec_json: JSON.stringify({ ...saved, outputs: { ...saved.outputs, app_access: 'sp',
+    app_options: { download: true, modify: true, replace_edits: false, decisions: false } } }) });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [withDownloads] });
+  try {
+    await ui.page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
+    await studioTab(ui.page, 'Edit');
+    await editPane(ui.page).getByRole('button', { name: 'Rebuild the App' }).click();
+    await until(() => ui.made.jobs.length === 1, 'the rebuild implement run');
+    const spec = submittedSpec(ui.made);
+    assert.deepEqual(spec.retry_outputs, ['app']);
+    assert.deepEqual(spec.outputs.app_options, { modify: true, replace_edits: false, decisions: false });
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+  const edit = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' }, history: [withDownloads] });
+  try {
+    await toData(edit.page);
+    await toDelivery(edit.page);
+    await next(edit.page);
+    await onStep(edit.page, 'App access');
+    const access = edit.page.getByRole('region', { name: 'App access' });
+    assert.equal(await access.getByRole('checkbox', { name: /^Let people edit data/ }).isChecked(), true, 'the saved choices come back');
+    await access.getByRole('checkbox', { name: /^Record decisions/ }).check();
+    await next(edit.page);
+    await onStep(edit.page, 'App look');
+    await implementWhenReady(edit.page);
+    await edit.page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
+    assert.deepEqual(submittedSpec(edit.made).outputs.app_options, { modify: true, replace_edits: false, decisions: true });
+    assert.deepEqual(edit.pageErrors, []);
+  } finally {
+    await edit.close();
   }
 });
 

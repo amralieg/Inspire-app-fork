@@ -22,7 +22,8 @@ test('the bundled agent notebook carries the App shell, and its lists and palett
   assert.deepEqual(SHELL.layouts, ['sidebar', 'tabs', 'home']);
   assert.deepEqual(SHELL.auths, ['user', 'sp']);
   assert.deepEqual(SHELL.themes, ['light', 'dark']);
-  assert.deepEqual(SHELL.options, I.IMPLEMENT_APP_OPTION_KEYS, 'the C1 option keys are the shell OPTIONS');
+  assert.equal(I.IMPLEMENT_APP_OPTION_KEYS.includes('download'), false, 'the App offers no data downloads');
+  assert.deepEqual(SHELL.options.filter((o) => o !== 'download'), I.IMPLEMENT_APP_OPTION_KEYS, 'the C1 option keys are the shell OPTIONS, less the download it no longer offers');
   assert.equal(SHELL.palettes.length, 13);
   assert.equal(SHELL.palettes[0], 'default');
   assert.deepEqual(SHELL.palette_colors.map((p) => p.id), SHELL.palettes);
@@ -39,8 +40,10 @@ test('the bundled agent notebook carries the App shell, and its lists and palett
   }
   const core = S.appShellPayload(S.bundledNotebookText()).files['shell_core.py'];
   assert.deepEqual(S.pythonTuple(core, 'PALETTES'), SHELL.palettes);
-  if (SHELL.user_off) assert.deepEqual(SHELL.user_off, I.IMPLEMENT_PER_USER_OFF, 'the options a per-user App turns off are the shell\'s');
-  const userOff = S.appShellLook({ version: 1, files: { 'shell_core.py': `${core}\nUSER_OFF = ("download", "decisions")\n`, 'static/assets/app.js': S.appShellPayload(S.bundledNotebookText()).files['static/assets/app.js'] } });
+  if (SHELL.user_off) {
+    assert.deepEqual(SHELL.user_off.filter((o) => o !== 'download'), I.IMPLEMENT_PER_USER_OFF, 'the options a per-user App turns off are the shell\'s');
+  }
+  const userOff = S.appShellLook({ version: 1, files: { 'shell_core.py': `${core.replace(/^USER_OFF = .*$/m, '')}\nUSER_OFF = ("decisions",)\n`, 'static/assets/app.js': S.appShellPayload(S.bundledNotebookText()).files['static/assets/app.js'] } });
   assert.deepEqual(userOff.user_off, I.IMPLEMENT_PER_USER_OFF);
 });
 
@@ -56,7 +59,7 @@ test('the palettes come from the payload when the notebook carries them, and fro
   assert.throws(() => S.palettesFromBundle(js, ['default', 'mono', 'neon']), /holds no colours for the palettes default, mono, neon/);
   assert.throws(() => S.palettesFromBundle('const a={default:1}', ids), /holds no colours/);
   const core = 'STYLES = ("a", "b", "c")\nLAYOUTS = ("sidebar", "tabs", "home")\nAUTHS = ("user", "sp")\nTHEMES = ("light", "dark")\n'
-    + 'PALETTES = ("default", "mono")\nOPTIONS = ("download", "modify", "replace_edits", "decisions")\n';
+    + 'PALETTES = ("default", "mono")\nOPTIONS = ("modify", "replace_edits", "decisions")\n';
   const viaPayload = S.appShellLook({ version: 1, files: { 'shell_core.py': core, 'static/assets/app.js': 'nothing here' }, palettes: { default: one('#abcdef'), mono: one('#fedcba') } });
   assert.equal(viaPayload.palette_source, 'payload');
   assert.deepEqual(viaPayload.palette_colors.map((p) => p.light.base.bg), ['#abcdef', '#fedcba']);
@@ -81,7 +84,7 @@ test('a notebook without the App shell, or with a broken one, is refused with th
     'a spec without an App never needs the shell');
 });
 
-test('an App needs its access chosen: a missing or unknown app_access is an error, and per-user turns download and decisions off', () => {
+test('an App needs its access chosen: a missing or unknown app_access is an error, and per-user turns record decisions off', () => {
   const choose = "choose who the App reads its data as: 'user' (each person sees only the rows and columns their Unity Catalog grants allow) or 'sp' (everyone sees the same data through the App's service principal)";
   const missing = check({ app_access: undefined });
   assert.ok(missing.errors.includes(choose), JSON.stringify(missing.errors));
@@ -89,27 +92,34 @@ test('an App needs its access chosen: a missing or unknown app_access is an erro
   assert.ok(check({ app_access: '  ' }).errors.includes(choose));
   assert.ok(check({ app_access: 'everyone' }).errors.includes(`${choose}, not 'everyone'`));
   assert.ok(check({ app_access: 3 }).errors.includes(`${choose}, not 3`));
-  const all = { download: true, modify: true, replace_edits: true, decisions: true };
+  const all = { modify: true, replace_edits: true, decisions: true };
   const sp = check({ app_options: all });
   assert.deepEqual(sp.errors, []);
   assert.deepEqual(sp.spec.outputs.app_options, all);
   const user = check({ app_access: 'USER', app_options: all });
   assert.deepEqual(user.errors, []);
   assert.equal(user.spec.outputs.app_access, 'user');
-  assert.deepEqual(user.spec.outputs.app_options, { download: false, modify: true, replace_edits: true, decisions: false });
+  assert.deepEqual(user.spec.outputs.app_options, { modify: true, replace_edits: true, decisions: false });
   assert.deepEqual(check({ app_options: { replace_edits: true } }).spec.outputs.app_options,
-    { download: false, modify: false, replace_edits: false, decisions: false }, 'replacing edits means nothing while edits are off');
+    { modify: false, replace_edits: false, decisions: false }, 'replacing edits means nothing while edits are off');
   const off = I.validateImplementSpec({ ...BASE, outputs: { dashboard: true, app: false, app_access: 'nobody', app_options: { download: 'yes' } } });
   assert.deepEqual(off.errors, [], 'App settings are not checked while the App is unticked');
-  assert.deepEqual([off.spec.outputs.app_access, off.spec.outputs.app_options.download], ['', false]);
+  assert.deepEqual([off.spec.outputs.app_access, off.spec.outputs.app_options], ['', { modify: false, replace_edits: false, decisions: false }]);
 });
 
-test('App options are true or false only, and an unknown option is an error', () => {
-  assert.ok(check({ app_options: { download: 'yes' } }).errors.includes("the App option download must be true or false, not 'yes'"));
-  assert.ok(check({ app_options: { modify: 1 } }).errors.includes('the App option modify must be true or false, not 1'));
-  assert.ok(check({ app_options: { export: true } }).errors.includes("the App has no option 'export'; its options are download, modify, replace_edits, decisions"));
-  assert.ok(check({ app_options: ['download'] }).errors.includes('outputs.app_options must be an object'));
-  assert.deepEqual(check({ app_options: { download: null } }).errors, []);
+test('App options are true or false only, and an unknown option, download among them, is an error', () => {
+  const unknown = (key) => `the App has no option '${key}'; its options are modify, replace_edits, decisions`;
+  assert.ok(check({ app_options: { modify: 'yes' } }).errors.includes("the App option modify must be true or false, not 'yes'"));
+  assert.ok(check({ app_options: { decisions: 1 } }).errors.includes('the App option decisions must be true or false, not 1'));
+  assert.ok(check({ app_options: { export: true } }).errors.includes(unknown('export')));
+  for (const value of [true, false, 'yes', null]) {
+    const got = check({ app_options: { download: value, modify: true } });
+    assert.deepEqual(got.errors, [unknown('download')], `download ${JSON.stringify(value)} is refused as an option the App does not have`);
+    assert.deepEqual(got.spec.outputs.app_options, { modify: true, replace_edits: false, decisions: false });
+  }
+  assert.deepEqual(check({ app_access: 'user', app_options: { download: false } }).errors, [unknown('download')], 'per-user refuses it too');
+  assert.ok(check({ app_options: ['modify'] }).errors.includes('outputs.app_options must be an object'));
+  assert.deepEqual(check({ app_options: { modify: null } }).errors, []);
 });
 
 test('the App look defaults to style A, sidebar, the default palette and light, and an unknown value is an error', () => {
@@ -351,6 +361,39 @@ test('the App look endpoint serves the shell\'s 13 palettes, and preflight check
     assert.ok(joined.data.checks.app_access, 'the joined App must read the result table');
     assert.equal(joined.data.checks.app_name, undefined, 'joining an App never checks its name as a new one');
     assert.equal(joined.data.checks.genie_spaces.detail, 'you can create Genie Agents');
+  } finally {
+    await srv.close();
+  }
+});
+
+test('a version saved while the App offered downloads is read without them, so Edit and every re-submission of it are accepted', async () => {
+  const saved = (options) => withOutputs({ app_options: options });
+  const old = { spec_version: '1', status: 'ready', use_case_id: 'N01-U01', app_name: 'churn-desk',
+    spec_json: JSON.stringify(saved({ download: true, modify: true, replace_edits: false, decisions: false })) };
+  const parsed = I.parseImplementRow(old);
+  assert.deepEqual(parsed.spec_json.outputs.app_options, { modify: true, replace_edits: false, decisions: false });
+  assert.deepEqual(I.validateImplementSpec(parsed.spec_json).errors, []);
+  assert.deepEqual(I.parseImplementRow({ spec_json: JSON.stringify({ outputs: { app_options: 'odd' } }) }).spec_json, { outputs: { app_options: 'odd' } },
+    'a saved value that is not an object is left for the check to report');
+  assert.deepEqual(I.parseImplementRow({ spec_json: JSON.stringify({ outputs: { dashboard: true } }) }).spec_json, { outputs: { dashboard: true } });
+  assert.equal(I.parseImplementRow({ spec_json: null }).spec_json, null);
+  const offRow = I.parseImplementRow({ ...old, spec_json: JSON.stringify(saved({ download: false, modify: false, replace_edits: false, decisions: false })) });
+  assert.equal(I.planSubmission([offRow], { ...check({}).spec, based_on_version: 1 }).unchanged, true, 'the same choices without the download are no change');
+
+  const { app, sqlCalls, jobs } = makeApp({ history: [old] });
+  const srv = await listen(app);
+  try {
+    const context = await call(srv.url, `/api/inspire/implement/context?${Q}`);
+    assert.equal(context.status, 200, JSON.stringify(context.data));
+    assert.deepEqual(context.data.latest.spec_json.outputs.app_options, { modify: true, replace_edits: false, decisions: false });
+    const rebuild = await call(srv.url, '/api/inspire/implement/submit', {
+      inspire_database: 'main.inspire', warehouse_id: 'wh1', session_id: '42',
+      spec: { ...context.data.latest.spec_json, based_on_version: 1, retry_outputs: ['app'] },
+    });
+    assert.equal(rebuild.status, 200, JSON.stringify(rebuild.data));
+    const insert = sqlCalls.find((c) => String(c.sql).includes('INSERT INTO'));
+    assert.deepEqual(JSON.parse(insert.parameters.find((p) => p.name === 'spec').value).outputs.app_options, { modify: true, replace_edits: false, decisions: false });
+    assert.equal(jobs.length, 1);
   } finally {
     await srv.close();
   }

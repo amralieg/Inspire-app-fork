@@ -40,20 +40,23 @@ export const APP_ACCESS_CHOICES = [
     blurb: 'Everyone sees the same rows, read with the App\'s own access. Inspire grants it read access to the result table.' },
 ];
 
-export const APP_OPTION_KEYS = ['download', 'modify', 'replace_edits', 'decisions'];
-export const PER_USER_OFF = ['download', 'decisions'];
+export const APP_OPTION_KEYS = ['modify', 'replace_edits', 'decisions'];
+export const PER_USER_OFF = ['decisions'];
 export const APP_OPTIONS = [
-  { id: 'download', label: 'Let people download data', blurb: 'A Download button on the decision list, each chart and each Genie answer, as CSV.' },
-  { id: 'modify', label: 'Let people edit data', blurb: 'People can change records in the App, and Inspire keeps who changed what.' },
+  { id: 'modify', label: 'Let people edit data',
+    blurb: 'People can change records in the App, and Inspire keeps who changed what. It also lets people own, track and dismiss each flagged record (the action tracker).' },
   { id: 'decisions', label: 'Record decisions', blurb: 'People can record what they decided on each record, with who decided and when.' },
 ];
+export const APP_NO_DOWNLOADS = 'The App offers no data downloads.';
+export const APP_REFRESH_NOTE = 'Refresh now: in a shared App anyone who can open it can refresh it; in an App where each person sees only their own data, only you can. '
+  + 'One refresh runs at a time.';
 export const REPLACE_EDITS_QUESTION = 'Should a new run replace edited records?';
 export const REPLACE_EDITS_CHOICES = [
   { id: false, label: 'No', blurb: 'Edited records stay as people left them; a new run updates only the records nobody edited.' },
   { id: true, label: 'Yes', blurb: 'A new run writes its own results over edited records.' },
 ];
 export const PER_USER_REASON = 'Each person signs in as themselves, so the App keeps every row inside their own access: '
-  + 'it offers no downloads, no recorded decisions and no chart image export.';
+  + 'it offers no recorded decisions and no chart image export.';
 
 export const APP_LOOK_DEFAULT = { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' };
 export const APP_STYLES = [

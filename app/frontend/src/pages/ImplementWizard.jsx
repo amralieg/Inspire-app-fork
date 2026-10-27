@@ -53,6 +53,8 @@ import {
   BUILD_STEP_IDS,
   APP_ACCESS_CHOICES,
   APP_OPTIONS,
+  APP_NO_DOWNLOADS,
+  APP_REFRESH_NOTE,
   REPLACE_EDITS_QUESTION,
   REPLACE_EDITS_CHOICES,
   PER_USER_REASON,
@@ -1558,6 +1560,10 @@ function AppAccessStep({ spec, target, onAccess, onOption }) {
           ))}
         </div>
         {access === 'user' && <p className="text-[11px] text-text-secondary" role="note" aria-label="Why some options are hidden">{PER_USER_REASON}</p>}
+        <div className="text-[11px] text-text-secondary space-y-0.5" role="note" aria-label="What every App offers">
+          <p>{APP_REFRESH_NOTE}</p>
+          <p>{APP_NO_DOWNLOADS}</p>
+        </div>
       </fieldset>
     </section>
   );

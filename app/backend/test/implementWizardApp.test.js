@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const backend = require('../lib/inspireImplement');
-const { appShellCatalog } = require('../lib/appShell');
+const { appShellCatalog, appShellPayload, bundledNotebookText } = require('../lib/appShell');
 
 const libUrl = pathToFileURL(path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib', 'implementWizard.js')).href;
 const load = () => import(libUrl);
@@ -27,13 +27,21 @@ test('the wizard offers exactly the App choices the backend and the App shell ac
   assert.deepEqual(w.APP_STYLES.map((s) => s.id), SHELL.styles);
   assert.deepEqual(w.APP_LAYOUTS.map((l) => l.id), SHELL.layouts);
   assert.deepEqual(w.APP_THEMES.map((t) => t.id), SHELL.themes);
-  assert.deepEqual(w.APP_OPTIONS.map((o) => o.id), SHELL.options.filter((o) => o !== 'replace_edits'));
+  assert.deepEqual(w.APP_OPTIONS.map((o) => o.id), backend.IMPLEMENT_APP_OPTION_KEYS.filter((o) => o !== 'replace_edits'));
   assert.deepEqual(w.APP_ACCESS_CHOICES.map((c) => c.label), [
     'Sensitive data: each person signs in as themselves (per-user)',
     'Internal data: the App uses its own service principal',
   ]);
   assert.equal(w.LAKEVIEW_STYLE_NOTE, 'Only style A matches the Lakeview dashboard look.');
-  assert.deepEqual(w.APP_OPTIONS.map((o) => o.label), ['Let people download data', 'Let people edit data', 'Record decisions']);
+  assert.deepEqual(w.APP_OPTIONS.map((o) => o.label), ['Let people edit data', 'Record decisions']);
+  assert.match(w.APP_OPTIONS.find((o) => o.id === 'modify').blurb, /It also lets people own, track and dismiss each flagged record \(the action tracker\)\.$/);
+  assert.equal(w.APP_NO_DOWNLOADS, 'The App offers no data downloads.');
+  assert.equal(w.APP_REFRESH_NOTE, 'Refresh now: in a shared App anyone who can open it can refresh it; in an App where each person sees only their own data, '
+    + 'only you can. One refresh runs at a time.');
+  for (const text of [...w.APP_OPTIONS.flatMap((o) => [o.label, o.blurb]), w.PER_USER_REASON, w.APP_REFRESH_NOTE, w.APP_NO_DOWNLOADS]) {
+    assert.doesNotMatch(text, /\u2014|\u2013/, `no dashes: ${text}`);
+  }
+  assert.doesNotMatch(w.APP_OPTIONS.map((o) => `${o.label} ${o.blurb}`).join(' '), /download|export|csv/i, 'no option offers a download');
   assert.equal(w.REPLACE_EDITS_QUESTION, 'Should a new run replace edited records?');
   assert.deepEqual(w.REPLACE_EDITS_CHOICES.map((c) => [c.id, c.label]), [[false, 'No'], [true, 'Yes']], 'No comes first, as the default');
 });
@@ -43,7 +51,7 @@ test('a new spec has no App access, the default look, every option off and no me
   const fresh = w.defaultSpecFromUseCase(UC, {});
   assert.equal(fresh.outputs.app_access, '');
   assert.deepEqual(fresh.outputs.app_look, { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' });
-  assert.deepEqual(fresh.outputs.app_options, { download: false, modify: false, replace_edits: false, decisions: false });
+  assert.deepEqual(fresh.outputs.app_options, { modify: false, replace_edits: false, decisions: false });
   assert.deepEqual(fresh.outputs.merge, { app: '', dashboard: '', genie_space: '' });
   assert.ok(backend.validateImplementSpec(spec).errors.some((e) => e.startsWith('choose who the App reads its data as')));
   const chosen = w.withAppAccess(spec, 'sp');
@@ -51,13 +59,16 @@ test('a new spec has no App access, the default look, every option off and no me
   assert.deepEqual(backend.validateImplementSpec(chosen).spec.outputs.app_look, fresh.outputs.app_look);
 });
 
-test('per-user sign-in hides and clears download and record decisions, and the replace question shows only while edits are on', async () => {
-  const { w, spec } = await appSpec({ app_access: 'sp', app_options: { download: true, modify: false, replace_edits: false, decisions: true } });
-  assert.deepEqual(['download', 'modify', 'decisions', 'replace_edits'].map((k) => w.appOptionShown(spec, k)), [true, true, true, false]);
+test('per-user sign-in hides and clears record decisions, and the replace question shows only while edits are on', async () => {
+  const { w, spec } = await appSpec({ app_access: 'sp', app_options: { modify: false, replace_edits: false, decisions: true } });
+  assert.deepEqual(['modify', 'decisions', 'replace_edits'].map((k) => w.appOptionShown(spec, k)), [true, true, false]);
   const perUser = w.withAppAccess(spec, 'user');
-  assert.deepEqual(perUser.outputs.app_options, { download: false, modify: false, replace_edits: false, decisions: false });
-  assert.deepEqual(['download', 'modify', 'decisions'].map((k) => w.appOptionShown(perUser, k)), [false, true, false]);
-  assert.match(w.PER_USER_REASON, /no downloads, no recorded decisions and no chart image export/);
+  assert.deepEqual(perUser.outputs.app_options, { modify: false, replace_edits: false, decisions: false });
+  assert.deepEqual(['modify', 'decisions'].map((k) => w.appOptionShown(perUser, k)), [true, false]);
+  assert.match(w.PER_USER_REASON, /: it offers no recorded decisions and no chart image export\.$/);
+  assert.doesNotMatch(w.PER_USER_REASON, /download/i);
+  const core = appShellPayload(bundledNotebookText()).files['shell_core.py'];
+  if (/image_export/.test(core)) assert.match(core, /"image_export": s\["auth"\] == "sp"/, 'the App shell offers chart image export only to a shared App');
   const editing = w.withAppOption(perUser, 'modify', true);
   assert.equal(w.appOptionShown(editing, 'replace_edits'), true);
   assert.equal(editing.outputs.app_options.replace_edits, false, 'a new run keeps edits unless asked');
@@ -140,7 +151,7 @@ test('Edit of a version the old wizard saved gets every new App setting with its
     app_look: { palette: 'mono' }, app_options: { modify: true }, merge: 'bad' } } }, fallback);
   assert.equal(saved.outputs.app_access, 'user');
   assert.deepEqual(saved.outputs.app_look, { ...w.APP_LOOK_DEFAULT, palette: 'mono' });
-  assert.deepEqual(saved.outputs.app_options, { download: false, modify: true, replace_edits: false, decisions: false });
+  assert.deepEqual(saved.outputs.app_options, { modify: true, replace_edits: false, decisions: false });
   assert.deepEqual(saved.outputs.merge, { app: '', dashboard: '', genie_space: '' }, 'a merge that is not an object is dropped');
 });
 

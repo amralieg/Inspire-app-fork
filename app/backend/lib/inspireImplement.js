@@ -28,8 +28,8 @@ const IMPLEMENT_OUTPUT_OPTIONS = {
 };
 const IMPLEMENT_APP_LOOK_DEFAULT = { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' };
 const IMPLEMENT_APP_LOOK_LISTS = { style: 'styles', layout: 'layouts', palette: 'palettes', theme: 'themes' };
-const IMPLEMENT_APP_OPTION_KEYS = ['download', 'modify', 'replace_edits', 'decisions'];
-const IMPLEMENT_PER_USER_OFF = ['download', 'decisions'];
+const IMPLEMENT_APP_OPTION_KEYS = ['modify', 'replace_edits', 'decisions'];
+const IMPLEMENT_PER_USER_OFF = ['decisions'];
 const IMPLEMENT_MERGE_OUTPUTS = ['app', 'dashboard', 'genie_space'];
 const IMPLEMENT_MERGE_NOUNS = { app: 'an App', dashboard: 'a dashboard', genie_space: 'a Genie Agent' };
 const IMPLEMENT_MERGE_LABELS = { app: 'App', dashboard: 'dashboard', genie_space: 'Genie Agent' };
@@ -894,7 +894,15 @@ function parseImplementRow(row) {
   for (const name of ['spec_version', 'based_on_version']) {
     out[name] = out[name] == null || out[name] === '' ? null : Number.parseInt(out[name], 10);
   }
+  out.spec_json = withOfferedAppOptions(out.spec_json);
   return out;
+}
+
+function withOfferedAppOptions(spec) {
+  const outputs = isPlainObject(spec) && isPlainObject(spec.outputs) ? spec.outputs : null;
+  if (!outputs || !isPlainObject(outputs.app_options)) return spec;
+  const options = Object.fromEntries(Object.entries(outputs.app_options).filter(([key]) => IMPLEMENT_APP_OPTION_KEYS.includes(key)));
+  return { ...spec, outputs: { ...outputs, app_options: options } };
 }
 
 function carriedAssets(history) {

@@ -53,7 +53,7 @@ const rgb = (hex) => {
   return `rgb(${parseInt(full.slice(0, 2), 16)}, ${parseInt(full.slice(2, 4), 16)}, ${parseInt(full.slice(4, 6), 16)})`;
 };
 
-test('ticking the App locks the Genie Agent on, App access must be chosen, per-user hides download and decisions, and App look previews every style, layout and palette', async () => {
+test('ticking the App locks the Genie Agent on, App access must be chosen, per-user hides record decisions, and App look previews every style, layout and palette', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
@@ -71,16 +71,24 @@ test('ticking the App locks the Genie Agent on, App access must be chosen, per-u
     const internal = access.getByRole('radio', { name: /^Internal data: the App uses its own service principal/ });
     assert.deepEqual([await perUser.isChecked(), await internal.isChecked()], [false, false], 'no access is chosen for the person');
     assert.deepEqual(await access.getByRole('checkbox').evaluateAll((boxes) => boxes.map((b) => [b.closest('label').querySelector('span span').textContent, b.checked])),
-      [['Let people download data', false], ['Let people edit data', false], ['Record decisions', false]], 'every option starts off');
+      [['Let people edit data', false], ['Record decisions', false]], 'every option starts off, and none is a download');
+    await access.locator('label', { hasText: 'Let people edit data' })
+      .getByText('It also lets people own, track and dismiss each flagged record (the action tracker).', { exact: false }).waitFor();
+    const offers = access.getByRole('note', { name: 'What every App offers' });
+    await offers.getByText('Refresh now: in a shared App anyone who can open it can refresh it; in an App where each person sees only their own data, only you can. '
+      + 'One refresh runs at a time.', { exact: true }).waitFor();
+    await offers.getByText('The App offers no data downloads.', { exact: true }).waitFor();
     await next(page);
     await page.locator('[role="alert"]').waitFor();
     assert.deepEqual(await footerErrors(page), ['choose who the App signs people in as: each person (per-user) or its own service principal']);
     await onStep(page, 'App access');
-    await access.getByRole('checkbox', { name: /^Let people download data/ }).check();
+    await access.getByRole('checkbox', { name: /^Record decisions/ }).check();
     await perUser.check();
-    assert.equal(await access.getByRole('checkbox', { name: /^Let people download data/ }).count(), 0, 'per-user hides download');
-    assert.equal(await access.getByRole('checkbox', { name: /^Record decisions/ }).count(), 0, 'and record decisions');
-    await access.getByRole('note', { name: 'Why some options are hidden' }).getByText(/no downloads, no recorded decisions and no chart image export/).waitFor();
+    assert.equal(await access.getByRole('checkbox', { name: /^Record decisions/ }).count(), 0, 'per-user hides record decisions');
+    const hidden = access.getByRole('note', { name: 'Why some options are hidden' });
+    await hidden.getByText(/: it offers no recorded decisions and no chart image export\.$/).waitFor();
+    assert.doesNotMatch(await hidden.textContent(), /download/i);
+    await offers.getByText('The App offers no data downloads.', { exact: true }).waitFor();
     const replace = access.getByRole('radiogroup', { name: 'Should a new run replace edited records?' });
     assert.equal(await replace.count(), 0, 'the replace question waits for edits');
     await access.getByRole('checkbox', { name: /^Let people edit data/ }).check();
@@ -112,7 +120,7 @@ test('ticking the App locks the Genie Agent on, App access must be chosen, per-u
     const spec = submittedSpec(made);
     assert.deepEqual([spec.outputs.app, spec.outputs.genie_space, spec.outputs.app_access], [true, true, 'user']);
     assert.deepEqual(spec.outputs.app_look, { style: 'c', layout: 'home', palette: 'nordic', theme: 'dark' });
-    assert.deepEqual(spec.outputs.app_options, { download: false, modify: true, replace_edits: false, decisions: false });
+    assert.deepEqual(spec.outputs.app_options, { modify: true, replace_edits: false, decisions: false });
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
