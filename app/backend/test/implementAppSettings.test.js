@@ -104,7 +104,7 @@ test('an App needs its access chosen: a missing or unknown app_access is an erro
     { modify: false, replace_edits: false, decisions: false }, 'replacing edits means nothing while edits are off');
   const off = I.validateImplementSpec({ ...BASE, outputs: { dashboard: true, app: false, app_access: 'nobody', app_options: { download: 'yes' } } });
   assert.deepEqual(off.errors, [], 'App settings are not checked while the App is unticked');
-  assert.deepEqual([off.spec.outputs.app_access, off.spec.outputs.app_options], ['', { modify: false, replace_edits: false, decisions: false }]);
+  assert.deepEqual([off.spec.outputs.app_access, off.spec.outputs.app_look, off.spec.outputs.app_options], ['', {}, {}]);
 });
 
 test('App options are true or false only, and an unknown option, download among them, is an error', () => {
@@ -156,7 +156,7 @@ test('a merge names an existing App, dashboard or Genie Agent, "" creates a new 
   assert.ok(check({ merge: { app: 'Churn_Desk' } }).errors.includes("outputs.merge.app 'Churn_Desk' must name an existing Inspire App"));
   assert.ok(check({ merge: { dashboard: 'a b' } }).errors.includes("outputs.merge.dashboard 'a b' must name an existing Inspire dashboard"));
   assert.ok(check({ merge: { genie_space: 'x'.repeat(65) } }).errors.includes(`outputs.merge.genie_space '${'x'.repeat(65)}' must name an existing Inspire Genie Agent`));
-  assert.ok(check({ merge: { alert: 'a1' } }).errors.includes('outputs.merge.alert is not one of app, dashboard, genie_space'));
+  assert.ok(check({ merge: { alert: 'a1' } }).errors.includes('outputs.merge.alert is not one of dashboard, genie_space, app'));
   for (const [name, label] of [['app', 'App'], ['dashboard', 'dashboard'], ['genie_space', 'Genie Agent']]) {
     for (const value of [7, true, ['d1']]) {
       assert.ok(check({ merge: { [name]: value } }).errors.includes(`outputs.merge.${name} must be text: the ${label} to add to, or "" for a new one`), `${name} ${JSON.stringify(value)}`);

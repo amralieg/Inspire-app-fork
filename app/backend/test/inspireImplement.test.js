@@ -879,6 +879,56 @@ test('every shared invalid case is rejected with the shared message', () => {
   }
 });
 
+const PARITY = require('./fixtures/implement_spec_parity.json');
+
+function specLeaves(value, at = [], out = new Map()) {
+  if (value && typeof value === 'object' && Object.keys(value).length) {
+    for (const [key, item] of Object.entries(value)) specLeaves(item, [...at, Array.isArray(value) ? Number(key) : key], out);
+  } else {
+    out.set(JSON.stringify(at), JSON.stringify(value));
+  }
+  return out;
+}
+
+function withEdits(spec, edits) {
+  const out = JSON.parse(JSON.stringify(spec));
+  for (const [at, value] of edits) {
+    let node = out;
+    for (const key of at.slice(0, -1)) node = node[key];
+    Object.defineProperty(node, at[at.length - 1], { value: JSON.parse(JSON.stringify(value)), enumerable: true, writable: true, configurable: true });
+  }
+  return out;
+}
+
+test('the validator gives the agent errors and cleaned spec on every parity case', () => {
+  const first = validateImplementSpec(PARITY.base);
+  assert.deepEqual(first.errors, []);
+  const base = specLeaves(PARITY.clean);
+  assert.deepEqual(specLeaves(first.spec), base);
+  assert.ok(PARITY.cases.length >= 400);
+  for (const c of PARITY.cases) {
+    const { spec, errors } = validateImplementSpec(withEdits(PARITY.base, c.set));
+    const expected = new Map(base);
+    for (const at of c.removed) expected.delete(JSON.stringify(at));
+    for (const [at, value] of c.changes) expected.set(JSON.stringify(at), JSON.stringify(value));
+    assert.deepEqual([...errors].sort(), [...c.errors].sort(), c.name);
+    assert.deepEqual(specLeaves(spec), expected, c.name);
+  }
+});
+
+test('the contract tables are the ones the agent holds', () => {
+  const APP_NAMES = {
+    IMPLEMENT_OUTPUTS: 'IMPLEMENT_CONTRACT_OUTPUTS',
+    IMPLEMENT_VIBES_MAX_CHARS: 'IMPLEMENT_VIBES_MAX',
+    IMPLEMENT_APP_LOOK: 'IMPLEMENT_APP_LOOK_DEFAULT',
+  };
+  assert.ok(FIXTURE.contract_tables.IMPLEMENT_OUTPUT_OPTIONS && FIXTURE.contract_tables.IMPLEMENT_ALERT_BASELINE_DIRECTIONS);
+  for (const [name, value] of Object.entries(FIXTURE.contract_tables)) {
+    const mine = I[APP_NAMES[name] || name];
+    assert.deepEqual(mine instanceof RegExp ? mine.source : mine, value, name);
+  }
+});
+
 test('a removed table is normalized, deduplicated and kept apart from the swaps', () => {
   const base = FIXTURE.cases.find((c) => c.name === 'first submission').current;
   const { spec, errors } = validateImplementSpec(merged(base, { data: { removed_tables: ['`main`.`s`.`returns`', 'main.s.returns', 'main.s.web'] } }));

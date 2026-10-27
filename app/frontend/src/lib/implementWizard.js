@@ -73,7 +73,7 @@ export const APP_LAYOUTS = [
 export const APP_THEMES = [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }];
 export const GENIE_FOR_APP_NOTE = 'Ask Genie in the App needs a Genie Agent.';
 export const RESULT_TABLE_MOVE_NOTE = 'Moving the table later copies its history to the new table and keeps the old one.';
-export const MERGE_OUTPUTS = ['app', 'dashboard', 'genie_space'];
+export const MERGE_OUTPUTS = ['dashboard', 'genie_space', 'app'];
 
 export const FRESHNESS_OPTIONS = [
   { id: 'off', label: 'Off' },
@@ -127,6 +127,19 @@ export const ALERT_TIER_OPTIONS = [
 ];
 
 export const ALERT_OPERATORS = ['>=', '>', '=', '!=', '<', '<='];
+
+export const ALERT_THRESHOLD_BASES = [
+  { id: 'fixed', label: 'a fixed count' },
+  { id: 'baseline', label: 'earlier runs' },
+];
+
+export const ALERT_BASELINE_DIRECTIONS = { '>=': '+', '>': '+', '<=': '-', '<': '-' };
+
+export const ALERT_BASELINE = { sigmas: 2, runs: 30, minRuns: 5 };
+
+export function baselineOperatorOk(operator) {
+  return Object.prototype.hasOwnProperty.call(ALERT_BASELINE_DIRECTIONS, operator || '>=');
+}
 
 export const APP_NAME_RE = /^[a-z][a-z0-9-]{1,28}[a-z0-9]$/;
 const APP_NAME_MAX = 30;
@@ -387,6 +400,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
       alert_tiers: 'act_now',
       alert_operator: '>=',
       alert_threshold: 1,
+      alert_threshold_basis: 'fixed',
       alert_condition_text: '',
       alert_recipients: [],
       alert_destinations: [],
@@ -865,7 +879,15 @@ export function defaultAlertRecipients(spec) {
 export function alertTriggerText(outputs) {
   const tiers = (ALERT_TIER_OPTIONS.find((t) => t.id === outputs?.alert_tiers) || ALERT_TIER_OPTIONS[0]).label;
   const threshold = outputs?.alert_threshold === '' || outputs?.alert_threshold == null ? 1 : outputs.alert_threshold;
-  const text = `${tiers} rows in the latest run ${outputs?.alert_operator || '>='} ${numberText(threshold)}`;
+  const operator = outputs?.alert_operator || '>=';
+  const rule = `${operator} ${numberText(threshold)}`;
+  let text = `${tiers} rows in the latest run ${rule}`;
+  if (outputs?.alert_threshold_basis === 'baseline') {
+    const rise = ALERT_BASELINE_DIRECTIONS[operator] === '+';
+    text = `${tiers} rows in the latest run ${rise ? 'rise above' : 'fall below'} the mean ${rise ? '+' : '-'} `
+      + `${ALERT_BASELINE.sigmas} standard deviations of up to ${ALERT_BASELINE.runs} earlier runs `
+      + `(${rule} until ${ALERT_BASELINE.minRuns} earlier runs exist)`;
+  }
   return outputs?.alert_condition_text ? `${text}, or ${outputs.alert_condition_text}` : text;
 }
 
@@ -960,6 +982,9 @@ export function sectionErrors(section, spec, extras = {}) {
     const threshold = spec.outputs.alert_threshold;
     if (threshold !== '' && threshold != null && !(Number.isFinite(Number(threshold)) && Number(threshold) >= 0)) {
       errors.push('the alert threshold must be a number of rows, 0 or more');
+    }
+    if (spec.outputs.alert_threshold_basis === 'baseline' && !baselineOperatorOk(spec.outputs.alert_operator)) {
+      errors.push(`compared with earlier runs, the alert fires on a rise or a fall, so pick one of ${Object.keys(ALERT_BASELINE_DIRECTIONS).join(' ')}`);
     }
   }
   return errors;

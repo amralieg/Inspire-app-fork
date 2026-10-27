@@ -164,6 +164,24 @@ test('the Delivery step accepts an alert on its own and blocks one nobody would 
   assert.deepEqual(w.sectionErrors('alert', only({ alert: false, alert_recipients: ['nope'] })), [], 'an alert that is off is never checked');
 });
 
+test('a baseline alert fires only on a rise or a fall, like the agent checks', async () => {
+  const w = await load();
+  const base = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire' });
+  const alert = (outputs) => ({ ...base, outputs: { ...base.outputs, alert: true, alert_recipients: ['a@example.com'], ...outputs } });
+  assert.equal(base.outputs.alert_threshold_basis, 'fixed');
+  for (const op of ['>=', '>', '<=', '<']) {
+    assert.deepEqual(w.sectionErrors('alert', alert({ alert_threshold_basis: 'baseline', alert_operator: op })), [], op);
+  }
+  for (const op of ['=', '!=']) {
+    assert.deepEqual(w.sectionErrors('alert', alert({ alert_threshold_basis: 'baseline', alert_operator: op })),
+      ['compared with earlier runs, the alert fires on a rise or a fall, so pick one of >= > <= <'], op);
+    assert.deepEqual(w.sectionErrors('alert', alert({ alert_threshold_basis: 'fixed', alert_operator: op })), [], `fixed ${op}`);
+    assert.equal(w.baselineOperatorOk(op), false, op);
+  }
+  assert.equal(w.baselineOperatorOk(''), true);
+  assert.equal(w.baselineOperatorOk('constructor'), false);
+});
+
 test('each Full PoC step runs the checks of every section it shows, and only those', async () => {
   const w = await load();
   assert.deepEqual(w.IMPLEMENT_STEPS.map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['results', 'Results'], ['delivery', 'Delivery']]);

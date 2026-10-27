@@ -10,6 +10,9 @@ import {
   IMPLEMENT_OUTPUTS,
   ALERT_TIER_OPTIONS,
   ALERT_OPERATORS,
+  ALERT_THRESHOLD_BASES,
+  ALERT_BASELINE_DIRECTIONS,
+  baselineOperatorOk,
   FRESHNESS_OPTIONS,
   defaultSpecFromUseCase,
   caseNameOf,
@@ -1112,10 +1115,24 @@ export default function ImplementWizard({
                     </select>
                     <span>rows in the latest run are</span>
                     <select className={`${inputCls} w-auto`} value={spec.outputs.alert_operator} onChange={(e) => patch('outputs.alert_operator', e.target.value)}>
-                      {ALERT_OPERATORS.map((op) => <option key={op} value={op}>{op}</option>)}
+                      {(spec.outputs.alert_threshold_basis === 'baseline' ? Object.keys(ALERT_BASELINE_DIRECTIONS) : ALERT_OPERATORS).map((op) => <option key={op} value={op}>{op}</option>)}
                     </select>
                     <input type="number" min="0" step="1" className={`${inputCls} w-24`} value={spec.outputs.alert_threshold} onChange={(e) => patch('outputs.alert_threshold', e.target.value)} />
+                    <span>compared with</span>
+                    <select
+                      className={`${inputCls} w-auto`}
+                      value={spec.outputs.alert_threshold_basis || 'fixed'}
+                      onChange={(e) => {
+                        patch('outputs.alert_threshold_basis', e.target.value);
+                        if (e.target.value === 'baseline' && !baselineOperatorOk(spec.outputs.alert_operator)) {
+                          patch('outputs.alert_operator', '>=');
+                        }
+                      }}
+                    >
+                      {ALERT_THRESHOLD_BASES.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+                    </select>
                   </div>
+                  <p className="text-[11px] text-text-tertiary">Fires when {alertTriggerText(spec.outputs)}.</p>
                   <textarea
                     className={inputCls}
                     rows={2}

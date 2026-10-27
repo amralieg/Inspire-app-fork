@@ -23,14 +23,14 @@ const IMPLEMENT_OUTPUT_OPTIONS = {
   dashboard: ['dashboard_name', 'dashboard_filters', 'dashboard_vibes'],
   genie_space: ['genie_space_name', 'genie_questions', 'genie_space_vibes'],
   app: ['app_purpose', 'app_access', 'app_look', 'app_options', 'app_vibes'],
-  alert: ['alert_name', 'alert_tiers', 'alert_operator', 'alert_threshold', 'alert_condition_text', 'alert_recipients',
-    'alert_destinations', 'alert_vibes'],
+  alert: ['alert_name', 'alert_tiers', 'alert_operator', 'alert_threshold', 'alert_threshold_basis', 'alert_condition_text',
+    'alert_recipients', 'alert_destinations', 'alert_vibes'],
 };
 const IMPLEMENT_APP_LOOK_DEFAULT = { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' };
 const IMPLEMENT_APP_LOOK_LISTS = { style: 'styles', layout: 'layouts', palette: 'palettes', theme: 'themes' };
 const IMPLEMENT_APP_OPTION_KEYS = ['modify', 'replace_edits', 'decisions'];
 const IMPLEMENT_PER_USER_OFF = ['decisions'];
-const IMPLEMENT_MERGE_OUTPUTS = ['app', 'dashboard', 'genie_space'];
+const IMPLEMENT_MERGE_OUTPUTS = ['dashboard', 'genie_space', 'app'];
 const IMPLEMENT_MERGE_NOUNS = { app: 'an App', dashboard: 'a dashboard', genie_space: 'a Genie Agent' };
 const IMPLEMENT_MERGE_LABELS = { app: 'App', dashboard: 'dashboard', genie_space: 'Genie Agent' };
 const IMPLEMENT_APP_ACCESS_CHOICE = "choose who the App reads its data as: 'user' (each person sees only the rows and columns their Unity Catalog grants allow) or 'sp' (everyone sees the same data through the App's service principal)";
@@ -38,6 +38,8 @@ const IMPLEMENT_MERGE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const IMPLEMENT_MERGE_TARGET_CAP = 40;
 const IMPLEMENT_ALERT_TIER_SETS = { act_now: ['Act now'], act_now_review: ['Act now', 'Review'] };
 const IMPLEMENT_ALERT_OPERATORS = ['>=', '>', '=', '!=', '<', '<='];
+const IMPLEMENT_ALERT_THRESHOLD_BASES = ['fixed', 'baseline'];
+const IMPLEMENT_ALERT_BASELINE_DIRECTIONS = { '>=': '+', '>': '+', '<=': '-', '<': '-' };
 const IMPLEMENT_ALERT_MAX_SUBSCRIBERS = 100;
 const IMPLEMENT_NOTEBOOK_TASK_KEY = 'inspire_task';
 const IMPLEMENT_PRINCIPAL_TYPES = ['user', 'group', 'service_principal'];
@@ -50,6 +52,8 @@ const IMPLEMENT_USE_CASE_ID_RE = /^[a-zA-Z0-9_.-]+$/;
 const IMPLEMENT_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const IMPLEMENT_DESTINATION_ID_RE = /^[A-Za-z0-9-]{8,64}$/;
 const DECIMAL_RE = /^\s*[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?\s*$/;
+const IMPLEMENT_ROLE_REF_RE = /^[^.\s`]+(\.[^.\s`]+){3}$/;
+const IMPLEMENT_DATE_RE = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
 const IMPLEMENT_COLUMNS = [
   ['session_id', 'BIGINT'], ['use_case_id', 'STRING'], ['spec_version', 'INT'], ['based_on_version', 'INT'],
   ['spec_json', 'VARIANT'], ['status', 'STRING'], ['status_message', 'STRING'], ['change_classes', 'STRING'],
@@ -76,7 +80,52 @@ function str(value) {
 }
 
 function shownValue(value) {
-  return typeof value === 'string' ? `'${value}'` : JSON.stringify(value === undefined ? null : value);
+  return typeof value === 'string' ? `'${value}'` : sortedJson(value);
+}
+
+function textValue(value) {
+  if (value == null) return '';
+  return typeof value === 'string' ? value.trim() : null;
+}
+
+function textField(value, field, errors) {
+  const text = textValue(value);
+  if (text === null) {
+    errors.push(`${field} must be text, not ${shownValue(value)}`);
+    return '';
+  }
+  return text;
+}
+
+function textsField(values, field, errors) {
+  return listField(values, field, errors).map((item) => textField(item, `each item of ${field}`, errors)).filter(Boolean);
+}
+
+function tableText(value) {
+  const text = textValue(value);
+  return text === null ? null : plainTable(text);
+}
+
+function flagField(value, field, errors, fallback = false) {
+  if (value == null) return fallback;
+  if (typeof value === 'boolean') return value;
+  errors.push(`${field} must be true or false, not ${shownValue(value)}`);
+  return fallback;
+}
+
+function valueText(value) {
+  if (typeof value === 'string') return value;
+  const whole = typeof value === 'number' ? wholeNumber(value) : null;
+  return whole == null ? null : String(whole);
+}
+
+function clip(text, size) {
+  const chars = [...text];
+  return chars.length > size ? chars.slice(0, size).join('') : text;
+}
+
+function ownKey(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
 }
 
 function isPlainObject(value) {
@@ -88,7 +137,8 @@ function plainTable(name) {
 }
 
 function resultTableNameError(name) {
-  return IMPLEMENT_TABLE_NAME_RE.test(plainTable(name)) ? '' : `result_table '${str(name)}' must be catalog.schema.table`;
+  const table = tableText(name);
+  return table !== null && IMPLEMENT_TABLE_NAME_RE.test(table) ? '' : `result_table ${shownValue(name)} must be catalog.schema.table`;
 }
 
 const CRON_FIELDS = [
@@ -144,9 +194,10 @@ function cronProblem(cron) {
 }
 
 function wholeNumber(value) {
-  if (typeof value === 'number') return Number.isInteger(value) ? value : null;
-  if (typeof value === 'string' && /^\s*[-+]?\d+\s*$/.test(value)) return Number.parseInt(value, 10);
-  return null;
+  let number = null;
+  if (typeof value === 'number') number = Number.isInteger(value) ? value : null;
+  else if (typeof value === 'string' && /^\s*[-+]?\d+\s*$/.test(value)) number = Number.parseInt(value, 10);
+  return number != null && Number.isSafeInteger(number) ? number : null;
 }
 
 function decimalNumber(value) {
@@ -187,34 +238,33 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
   }
   if (!isPlainObject(spec)) return { spec: {}, errors: ['the spec must be a JSON object'] };
   const out = {
-    use_case_id: str(spec.use_case_id).trim(),
-    use_case_name: str(spec.use_case_name).trim(),
-    confirm_notebook_overwrite: Boolean(spec.confirm_notebook_overwrite),
+    use_case_id: textField(spec.use_case_id, 'use_case_id', errors),
+    use_case_name: textField(spec.use_case_name, 'use_case_name', errors),
+    confirm_notebook_overwrite: flagField(spec.confirm_notebook_overwrite, 'confirm_notebook_overwrite', errors),
   };
-  if (!out.use_case_id) errors.push('use_case_id is required');
+  if (textValue(spec.use_case_id) === '') errors.push('use_case_id is required');
   if (spec.based_on_version != null && spec.based_on_version !== '') {
     const based = wholeNumber(spec.based_on_version);
-    if (based == null) errors.push(`based_on_version ${JSON.stringify(spec.based_on_version)} must be an integer`);
+    if (based == null) errors.push(`based_on_version ${shownValue(spec.based_on_version)} must be an integer`);
     else out.based_on_version = based;
   }
 
   const framing = objectField(spec.use_case, 'use_case', errors);
-  const measures = listField(framing.success_measures, 'use_case.success_measures', errors)
-    .map((m) => str(m).trim()).filter(Boolean);
+  const measures = textsField(framing.success_measures, 'use_case.success_measures', errors);
   if (measures.length > 3) errors.push('at most 3 success measures are allowed');
   out.use_case = {
-    goal: str(framing.goal).trim().slice(0, 500),
-    decision_owner: str(framing.decision_owner).trim().slice(0, 200),
+    goal: clip(textField(framing.goal, 'use_case.goal', errors), 500),
+    decision_owner: clip(textField(framing.decision_owner, 'use_case.decision_owner', errors), 200),
     success_measures: measures.slice(0, 3),
   };
 
   const data = objectField(spec.data, 'data', errors);
   const tables = {};
   for (const [original, chosen] of Object.entries(objectField(data.tables, 'data.tables', errors))) {
-    const o = plainTable(original);
-    const c = plainTable(chosen);
-    if (!IMPLEMENT_TABLE_NAME_RE.test(o) || !IMPLEMENT_TABLE_NAME_RE.test(c)) {
-      errors.push(`table swap '${original}' -> '${chosen}' must name two catalog.schema.table tables`);
+    const o = tableText(original);
+    const c = tableText(chosen);
+    if (o === null || c === null || !IMPLEMENT_TABLE_NAME_RE.test(o) || !IMPLEMENT_TABLE_NAME_RE.test(c)) {
+      errors.push(`table swap ${shownValue(original)} -> ${shownValue(chosen)} must name two catalog.schema.table tables`);
       continue;
     }
     if (o.toLowerCase() !== c.toLowerCase()) tables[o] = c;
@@ -225,18 +275,20 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
       errors.push('each data filter must be an object');
       continue;
     }
-    const table = plainTable(item.table);
-    const column = str(item.column).trim();
-    const op = str(item.op).trim().toLowerCase();
-    let values;
-    if (Array.isArray(item.values)) values = item.values;
-    else values = item.values == null || item.values === '' ? [] : [item.values];
-    values = values.map((v) => str(v));
+    const table = tableText(item.table);
+    const column = textValue(item.column);
+    const opText = textValue(item.op);
+    const op = opText === null ? null : opText.toLowerCase();
+    const rawValues = Array.isArray(item.values) ? item.values : (item.values == null || item.values === '' ? [] : [item.values]);
+    const values = rawValues.map(valueText);
+    const bad = rawValues.filter((raw, i) => values[i] === null);
     const single = ['=', '!=', '>', '>=', '<', '<='];
-    if (!IMPLEMENT_TABLE_NAME_RE.test(table) || !IMPLEMENT_WIDGET_NAME_RE.test(column.replace(/-/g, '_'))) {
-      errors.push(`filter on '${str(item.table)}'.'${str(item.column)}' must name a catalog.schema.table table and a column`);
+    if (table === null || column === null || !IMPLEMENT_TABLE_NAME_RE.test(table) || !IMPLEMENT_WIDGET_NAME_RE.test(column.replace(/-/g, '_'))) {
+      errors.push(`filter on ${shownValue(item.table)}.${shownValue(item.column)} must name a catalog.schema.table table and a column`);
     } else if (!IMPLEMENT_FILTER_OPS.includes(op)) {
-      errors.push(`filter operator '${str(item.op)}' is not one of ${IMPLEMENT_FILTER_OPS.join(', ')}`);
+      errors.push(`filter operator ${shownValue(item.op)} is not one of ${IMPLEMENT_FILTER_OPS.join(', ')}`);
+    } else if (bad.length) {
+      errors.push(`filter ${table}.${column} value ${shownValue(bad[0])} must be text or a whole number`);
     } else if (!values.length || (op === 'between' && values.length !== 2) || (single.includes(op) && values.length !== 1)) {
       const need = op === 'between' ? 'two values' : (!['in', 'not in'].includes(op) ? 'one value' : 'at least one value');
       errors.push(`filter ${table}.${column} ${op} needs ${need}`);
@@ -244,24 +296,26 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
       filters.push({ table, column, op, values });
     }
   }
-  const profile = str(data.run_profile || 'preview').trim().toLowerCase();
+  const profileText = textValue(data.run_profile);
+  const profile = profileText === null ? '' : (profileText || 'preview').toLowerCase();
   if (!IMPLEMENT_RUN_PROFILES.includes(profile)) errors.push(`run_profile must be one of ${IMPLEMENT_RUN_PROFILES.join(', ')}`);
   const roles = {};
   for (const [role, refRaw] of Object.entries(objectField(data.column_roles, 'data.column_roles', errors))) {
-    const ref = str(refRaw).trim().replace(/^`+|`+$/g, '');
+    const refText = textValue(refRaw);
+    const ref = refText === null ? null : refText.replace(/^`+|`+$/g, '');
     if (!IMPLEMENT_COLUMN_ROLES.includes(role)) {
-      errors.push(`column role '${role}' is not one of ${IMPLEMENT_COLUMN_ROLES.join(', ')}`);
-    } else if (ref && !/^[^.\s`]+\.[^.\s`]+\.[^.\s`]+\.[^.\s`]+$/.test(ref)) {
-      errors.push(`column role ${role} must name catalog.schema.table.column, not '${ref}'`);
+      errors.push(`column role ${shownValue(role)} is not one of ${IMPLEMENT_COLUMN_ROLES.join(', ')}`);
+    } else if (ref === null || (ref && !IMPLEMENT_ROLE_REF_RE.test(ref))) {
+      errors.push(`column role ${role} must name catalog.schema.table.column, not ${shownValue(ref === null ? refRaw : ref)}`);
     } else if (ref) {
       roles[role] = ref;
     }
   }
   const removedTables = [];
   for (const raw of listField(data.removed_tables, 'data.removed_tables', errors)) {
-    const table = plainTable(raw);
-    if (!IMPLEMENT_TABLE_NAME_RE.test(table)) {
-      errors.push(`removed table '${str(raw)}' must be catalog.schema.table`);
+    const table = tableText(raw);
+    if (table === null || !IMPLEMENT_TABLE_NAME_RE.test(table)) {
+      errors.push(`removed table ${shownValue(raw)} must be catalog.schema.table`);
     } else if (Object.keys(tables).some((o) => o.toLowerCase() === table.toLowerCase())) {
       errors.push(`${table} cannot be swapped and removed at once`);
     } else if (!removedTables.some((r) => r.toLowerCase() === table.toLowerCase())) {
@@ -278,13 +332,17 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
     if (gone.has(item.table.toLowerCase())) errors.push(`the filter on ${item.table}.${item.column} reads a table you removed`);
   }
   const window = objectField(data.window, 'data.window', errors);
-  const start = str(window.start).trim();
-  const end = str(window.end).trim();
-  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-  for (const [label, value] of [['start', start], ['end', end]]) {
-    if (value && !dateRe.test(value)) errors.push(`the data window ${label} '${value}' must be a YYYY-MM-DD date`);
+  const dates = {};
+  for (const label of ['start', 'end']) {
+    const raw = window[label];
+    const value = textValue(raw);
+    if (value === null || (value && !IMPLEMENT_DATE_RE.test(value))) {
+      errors.push(`the data window ${label} ${shownValue(value === null ? raw : value)} must be a YYYY-MM-DD date`);
+    }
+    dates[label] = value || '';
   }
-  if (start && end && dateRe.test(start) && dateRe.test(end) && start > end) {
+  const { start, end } = dates;
+  if (start && end && IMPLEMENT_DATE_RE.test(start) && IMPLEMENT_DATE_RE.test(end) && start > end) {
     errors.push(`the data window starts (${start}) after it ends (${end})`);
   }
   out.data = {
@@ -295,11 +353,13 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
   const config = objectField(spec.config, 'config', errors);
   const widgets = {};
   for (const [name, value] of Object.entries(objectField(config.widgets, 'config.widgets', errors))) {
-    if (!IMPLEMENT_WIDGET_NAME_RE.test(name)) errors.push(`widget name '${name}' is not a valid widget name`);
-    else widgets[name] = value == null ? '' : String(value);
+    const text = value == null ? '' : valueText(value);
+    if (!IMPLEMENT_WIDGET_NAME_RE.test(name)) errors.push(`widget name ${shownValue(name)} is not a valid widget name`);
+    else if (text === null) errors.push(`widget ${name} must be text or a whole number, not ${shownValue(value)}`);
+    else widgets[name] = text;
   }
-  const resultTable = plainTable(config.result_table);
-  if (resultTable && resultTableNameError(config.result_table)) errors.push(resultTableNameError(config.result_table));
+  const resultTable = tableText(config.result_table);
+  if (resultTable === null || (resultTable && resultTableNameError(config.result_table))) errors.push(resultTableNameError(config.result_table));
   const profilesIn = objectField(config.profiles, 'config.profiles', errors);
   const profiles = {};
   for (const [name, fields] of [['training', ['window_days', 'sample_entities']], ['full_load', ['window_days']],
@@ -310,77 +370,78 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
       const value = section[field];
       if (value == null || value === '') continue;
       const number = wholeNumber(value);
-      if (number == null) errors.push(`${name} ${field} ${JSON.stringify(value)} must be a whole number`);
+      if (number == null) errors.push(`${name} ${field} ${shownValue(value)} must be a whole number`);
       else if (number < 1) errors.push(`${name} ${field} must be at least 1`);
       else clean[field] = number;
     }
-    if (name === 'training' && str(section.stratify_by).trim()) clean.stratify_by = str(section.stratify_by).trim();
+    if (name === 'training') {
+      const stratify = textField(section.stratify_by, 'config.profiles.training.stratify_by', errors);
+      if (stratify) clean.stratify_by = stratify;
+    }
     if (name === 'retrain' && section.drift_threshold != null && section.drift_threshold !== '') {
       const drift = decimalNumber(section.drift_threshold);
       if (drift == null || drift <= 0 || drift > 1) {
-        errors.push(`retrain drift_threshold ${JSON.stringify(section.drift_threshold)} must be a number above 0 and at most 1`);
+        errors.push(`retrain drift_threshold ${shownValue(section.drift_threshold)} must be a number above 0 and at most 1`);
       } else clean.drift_threshold = drift;
     }
     profiles[name] = clean;
   }
   out.config = {
     widgets,
-    result_table: resultTable,
-    ai_endpoint: str(config.ai_endpoint).trim(),
-    warehouse_id: str(config.warehouse_id).trim(),
+    result_table: resultTable || '',
+    ai_endpoint: textField(config.ai_endpoint, 'config.ai_endpoint', errors),
+    warehouse_id: textField(config.warehouse_id, 'config.warehouse_id', errors),
     profiles,
   };
 
   const schedule = objectField(spec.schedule, 'schedule', errors);
-  const cron = str(schedule.cron).trim();
-  const enabled = Boolean(schedule.enabled);
+  const cron = textField(schedule.cron, 'schedule.cron', errors);
+  const enabled = flagField(schedule.enabled, 'schedule.enabled', errors);
   const cronIssue = cron ? cronProblem(cron) : '';
-  if (cronIssue) errors.push(`schedule cron '${cron}' is not a valid Quartz cron: ${cronIssue}`);
-  if (enabled && !cron) errors.push('an enabled schedule needs a cron expression');
+  if (cronIssue) errors.push(`schedule cron ${shownValue(cron)} is not a valid Quartz cron: ${cronIssue}`);
+  if (enabled && !cron && textValue(schedule.cron) !== null) errors.push('an enabled schedule needs a cron expression');
   const emails = [];
   for (const raw of listField(schedule.failure_emails, 'schedule.failure_emails', errors)) {
-    const email = str(raw).trim();
-    if (!IMPLEMENT_EMAIL_RE.test(email)) errors.push(`failure email '${email}' is not an email address`);
+    const email = textValue(raw);
+    if (email === null || !IMPLEMENT_EMAIL_RE.test(email)) errors.push(`failure email ${shownValue(email === null ? raw : email)} is not an email address`);
     else if (!emails.some((e) => e.toLowerCase() === email.toLowerCase())) emails.push(email);
   }
-  out.schedule = { enabled, cron, timezone: str(schedule.timezone || 'UTC').trim() || 'UTC', failure_emails: emails };
+  out.schedule = { enabled, cron, timezone: textField(schedule.timezone, 'schedule.timezone', errors) || 'UTC', failure_emails: emails };
 
   const outputs = objectField(spec.outputs, 'outputs', errors);
   const chosen = {};
-  for (const name of IMPLEMENT_OUTPUTS) chosen[name] = Boolean(outputs[name]);
-  if (!Object.prototype.hasOwnProperty.call(spec, 'outputs')) chosen.dashboard = true;
+  for (const name of IMPLEMENT_OUTPUTS) chosen[name] = flagField(outputs[name], `outputs.${name}`, errors);
+  if (!ownKey(spec, 'outputs')) chosen.dashboard = true;
   if (chosen.app) chosen.genie_space = true;
   const app = appSettings(outputs, chosen.app, shell, errors, legacyAccess);
   const merge = mergeChoices(outputs, chosen, errors);
-  const appName = (merge.app || str(outputs.app_name)).trim().toLowerCase();
+  const appName = merge.app || (textValue(outputs.app_name) || '').toLowerCase();
   if (chosen.app && !IMPLEMENT_APP_NAME_RE.test(appName)) {
-    errors.push(`app_name '${str(outputs.app_name)}' must be 3-30 characters: lowercase letters, digits and dashes, starting with a letter`);
+    errors.push(`app_name ${shownValue(outputs.app_name)} must be 3-30 characters: lowercase letters, digits and dashes, starting with a letter`);
   }
-  if (Object.values(chosen).some(Boolean) && !out.config.warehouse_id) {
+  if (Object.values(chosen).some(Boolean) && !out.config.warehouse_id && textValue(config.warehouse_id) !== null) {
     errors.push('a SQL warehouse is required to build a dashboard, a Genie Agent, an App or an alert');
   }
-  const alert = chosen.alert ? alertOptions(outputs) : { options: alertOptions({}).options, errors: [] };
+  const alert = alertOptions(outputs, chosen.alert);
   errors.push(...alert.errors);
   const removed = {};
   for (const [name, action] of Object.entries(objectField(spec.removed_outputs, 'removed_outputs', errors))) {
-    const a = str(action).toLowerCase();
-    if (IMPLEMENT_OUTPUTS.includes(name) && (a === 'keep' || a === 'delete')) removed[name] = a;
+    const a = textValue(action);
+    if (IMPLEMENT_OUTPUTS.includes(name) && a !== null && ['keep', 'delete'].includes(a.toLowerCase())) removed[name] = a.toLowerCase();
   }
-  const questions = listField(outputs.genie_questions, 'outputs.genie_questions', errors)
-    .map((q) => str(q).trim().slice(0, 300)).filter(Boolean);
+  const questions = textsField(outputs.genie_questions, 'outputs.genie_questions', errors).map((q) => clip(q, 300));
   if (questions.length > 5) errors.push('at most 5 Genie Agent sample questions are allowed');
-  const dashFilters = listField(outputs.dashboard_filters, 'outputs.dashboard_filters', errors)
-    .map((w) => str(w).trim()).filter(Boolean);
+  const dashFilters = textsField(outputs.dashboard_filters, 'outputs.dashboard_filters', errors);
   const badFilters = dashFilters.filter((w) => !IMPLEMENT_WIDGET_NAME_RE.test(w));
   if (badFilters.length) errors.push(`dashboard filters must be widget names: ${badFilters.join(', ')}`);
   out.outputs = {
     ...chosen,
     app_name: chosen.app ? appName : '',
-    dashboard_name: chosen.dashboard ? str(outputs.dashboard_name).trim().slice(0, 200) : '',
+    dashboard_name: chosen.dashboard ? clip(textField(outputs.dashboard_name, 'outputs.dashboard_name', errors), 200) : '',
     dashboard_filters: chosen.dashboard ? dashFilters : [],
-    genie_space_name: chosen.genie_space ? str(outputs.genie_space_name).trim().slice(0, 200) : '',
+    genie_space_name: chosen.genie_space ? clip(textField(outputs.genie_space_name, 'outputs.genie_space_name', errors), 200) : '',
     genie_questions: chosen.genie_space ? questions.slice(0, 5) : [],
-    app_purpose: chosen.app ? str(outputs.app_purpose).trim().slice(0, 1500) : '',
+    app_purpose: chosen.app ? clip(textField(outputs.app_purpose, 'outputs.app_purpose', errors), 1500) : '',
     app_access: app.access,
     app_look: app.look,
     app_options: app.options,
@@ -391,21 +452,20 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
   out.removed_outputs = removed;
   const retry = [];
   for (const raw of listField(spec.retry_outputs, 'retry_outputs', errors)) {
-    const name = str(raw).trim();
-    if (!IMPLEMENT_RETRY_TARGETS.includes(name)) errors.push(`retry output '${name}' is not one of ${IMPLEMENT_RETRY_TARGETS.join(', ')}`);
-    else if (name !== IMPLEMENT_NOTEBOOK && !chosen[name]) errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} cannot be retried: it is not selected`);
+    const name = textValue(raw);
+    if (!IMPLEMENT_RETRY_TARGETS.includes(name)) {
+      errors.push(`retry output ${shownValue(name === null ? raw : name)} is not one of ${IMPLEMENT_RETRY_TARGETS.join(', ')}`);
+    } else if (name !== IMPLEMENT_NOTEBOOK && !chosen[name]) errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} cannot be retried: it is not selected`);
     else if (!retry.includes(name)) retry.push(name);
   }
   out.retry_outputs = retry;
   const rollback = {};
   for (const [name, value] of Object.entries(objectField(spec.rollback_outputs, 'rollback_outputs', errors))) {
-    const label = IMPLEMENT_OUTPUT_LABELS[name];
     const version = wholeNumber(value);
-    if (!IMPLEMENT_OUTPUTS.includes(name)) errors.push(`rollback output '${name}' is not one of ${IMPLEMENT_CONTRACT_OUTPUTS.join(', ')}`);
-    else if (!chosen[name]) errors.push(`the ${label} cannot be rolled back: it is not selected`);
-    else if (version == null || version < 1) {
-      errors.push(`rollback_outputs.${name} ${typeof value === 'string' ? value : JSON.stringify(value)} must be a version number, 1 or more`);
-    } else if (retry.includes(name)) errors.push(`the ${label} cannot be retried and rolled back in the same version`);
+    if (!IMPLEMENT_OUTPUTS.includes(name)) errors.push(`rollback output ${shownValue(name)} is not one of ${IMPLEMENT_CONTRACT_OUTPUTS.join(', ')}`);
+    else if (!chosen[name]) errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} cannot be rolled back: it is not selected`);
+    else if (version == null || version < 1) errors.push(`rollback_outputs.${name} ${shownValue(value)} must be a version number, 1 or more`);
+    else if (retry.includes(name)) errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} cannot be retried and rolled back in the same version`);
     else rollback[name] = version;
   }
   out.rollback_outputs = rollback;
@@ -414,10 +474,12 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
   const principals = [];
   const seen = new Set();
   for (const item of listField(sharing.principals, 'sharing.principals', errors)) {
-    const kind = str(item && item.type).trim().toLowerCase();
-    const name = str(item && item.name).trim();
+    const entry = isPlainObject(item) ? item : {};
+    const kindText = textValue(entry.type);
+    const kind = kindText === null ? null : kindText.toLowerCase();
+    const name = textValue(entry.name);
     if (!IMPLEMENT_PRINCIPAL_TYPES.includes(kind) || !name || name.includes('`')) {
-      errors.push(`principal ${JSON.stringify(item)} must have a type (${IMPLEMENT_PRINCIPAL_TYPES.join(', ')}) and a name without backticks`);
+      errors.push(`principal ${shownValue(item)} must have a type (${IMPLEMENT_PRINCIPAL_TYPES.join(', ')}) and a name without backticks`);
     } else if (!seen.has(`${kind}:${name.toLowerCase()}`)) {
       seen.add(`${kind}:${name.toLowerCase()}`);
       principals.push({ type: kind, name });
@@ -432,11 +494,7 @@ function vibesLength(text) {
 }
 
 function vibesText(raw, field, label, errors) {
-  if (raw != null && typeof raw !== 'string') {
-    errors.push(`${field} must be text`);
-    return '';
-  }
-  const text = str(raw).trim();
+  const text = textField(raw, field, errors);
   const length = vibesLength(text);
   if (length > IMPLEMENT_VIBES_MAX) errors.push(`the ${label} vibes are ${length} characters; at most ${IMPLEMENT_VIBES_MAX} are allowed`);
   return text;
@@ -451,40 +509,47 @@ function outputVibes(outputs, chosen, errors) {
   return vibes;
 }
 
-function alertOptions(outputs) {
+function choiceField(outputs, key, fallback, choices, separator, errors, lower = false) {
+  const raw = outputs[key];
+  let text = textValue(raw);
+  if (text !== null) text = (lower ? text.toLowerCase() : text) || fallback;
+  if (text === null || !choices.includes(text)) {
+    errors.push(`${key} ${shownValue(raw)} must be one of ${choices.join(separator)}`);
+    return fallback;
+  }
+  return text;
+}
+
+function alertOptions(given, on) {
   const errors = [];
-  const on = Boolean(outputs.alert);
-  let tiers = str(outputs.alert_tiers || 'act_now').trim().toLowerCase();
-  if (!Object.prototype.hasOwnProperty.call(IMPLEMENT_ALERT_TIER_SETS, tiers)) {
-    errors.push(`alert_tiers '${str(outputs.alert_tiers)}' must be one of ${Object.keys(IMPLEMENT_ALERT_TIER_SETS).join(', ')}`);
-    tiers = 'act_now';
-  }
-  let operator = str(outputs.alert_operator || '>=').trim();
-  if (!IMPLEMENT_ALERT_OPERATORS.includes(operator)) {
-    errors.push(`alert_operator '${str(outputs.alert_operator)}' must be one of ${IMPLEMENT_ALERT_OPERATORS.join(' ')}`);
-    operator = '>=';
-  }
+  const outputs = on ? given : {};
+  const tiers = choiceField(outputs, 'alert_tiers', 'act_now', Object.keys(IMPLEMENT_ALERT_TIER_SETS), ', ', errors, true);
+  const operator = choiceField(outputs, 'alert_operator', '>=', IMPLEMENT_ALERT_OPERATORS, ' ', errors);
   const raw = outputs.alert_threshold;
-  let threshold = 1;
-  if (raw != null && raw !== '') {
-    const number = decimalNumber(raw);
-    if (number != null && number >= 0) threshold = number;
-    else errors.push(`alert_threshold ${JSON.stringify(raw)} must be a number of rows, 0 or more`);
+  let threshold = raw == null || raw === '' ? 1 : decimalNumber(raw);
+  if (threshold == null || threshold < 0) {
+    errors.push(`alert_threshold ${shownValue(raw)} must be a number of rows, 0 or more`);
+    threshold = 1;
+  }
+  const basis = choiceField(outputs, 'alert_threshold_basis', 'fixed', IMPLEMENT_ALERT_THRESHOLD_BASES, ', ', errors, true);
+  if (basis === 'baseline' && !ownKey(IMPLEMENT_ALERT_BASELINE_DIRECTIONS, operator)) {
+    errors.push('a baseline threshold fires on a rise or a fall against earlier runs, so alert_operator must be one of '
+      + `${Object.keys(IMPLEMENT_ALERT_BASELINE_DIRECTIONS).join(' ')}, not ${shownValue(operator)}`);
   }
   const recipients = [];
   for (const rawEmail of listField(outputs.alert_recipients, 'outputs.alert_recipients', errors)) {
-    const email = str(rawEmail).trim();
-    if (!IMPLEMENT_EMAIL_RE.test(email)) errors.push(`alert recipient '${email}' is not an email address`);
+    const email = textValue(rawEmail);
+    if (email === null || !IMPLEMENT_EMAIL_RE.test(email)) errors.push(`alert recipient ${shownValue(email === null ? rawEmail : email)} is not an email address`);
     else if (!recipients.some((e) => e.toLowerCase() === email.toLowerCase())) recipients.push(email);
   }
   const destinations = [];
   for (const rawItem of listField(outputs.alert_destinations, 'outputs.alert_destinations', errors)) {
     const item = isPlainObject(rawItem) ? rawItem : { id: rawItem };
-    const id = str(item.id).trim();
-    if (!IMPLEMENT_DESTINATION_ID_RE.test(id)) {
-      errors.push(`alert destination ${JSON.stringify(rawItem)} needs the id of a workspace notification destination`);
+    const id = textValue(item.id);
+    if (id === null || !IMPLEMENT_DESTINATION_ID_RE.test(id)) {
+      errors.push(`alert destination ${shownValue(rawItem)} needs the id of a workspace notification destination`);
     } else if (!destinations.some((d) => d.id === id)) {
-      destinations.push({ id, name: str(item.name).trim().slice(0, 200) });
+      destinations.push({ id, name: clip(textField(item.name, 'the name of each alert destination', errors), 200) });
     }
   }
   if (on && !recipients.length && !destinations.length) {
@@ -495,11 +560,12 @@ function alertOptions(outputs) {
   }
   return {
     options: {
-      alert_name: on ? str(outputs.alert_name).trim().slice(0, 200) : '',
+      alert_name: on ? clip(textField(outputs.alert_name, 'outputs.alert_name', errors), 200) : '',
       alert_tiers: tiers,
       alert_operator: operator,
       alert_threshold: threshold,
-      alert_condition_text: on ? str(outputs.alert_condition_text).trim().slice(0, 500) : '',
+      alert_threshold_basis: basis,
+      alert_condition_text: on ? clip(textField(outputs.alert_condition_text, 'outputs.alert_condition_text', errors), 500) : '',
       alert_recipients: recipients,
       alert_destinations: destinations,
     },
@@ -510,29 +576,29 @@ function alertOptions(outputs) {
 function appSettings(outputs, on, shell, errors, legacyAccess = '') {
   const look = { ...IMPLEMENT_APP_LOOK_DEFAULT };
   const options = Object.fromEntries(IMPLEMENT_APP_OPTION_KEYS.map((key) => [key, false]));
-  if (!on) return { access: '', look, options };
+  if (!on) return { access: '', look: {}, options: {} };
   const catalog = shell || appShellCatalog();
   if (!catalog.ok) {
     errors.push(`the App cannot be built: ${catalog.error}`);
     return { access: '', look, options };
   }
   const rawAccess = outputs.app_access;
-  const access = str(rawAccess).trim().toLowerCase() || (rawAccess == null ? str(legacyAccess) : '');
-  if (!access) {
-    errors.push(IMPLEMENT_APP_ACCESS_CHOICE);
-  } else if (!catalog.auths.includes(access)) {
-    errors.push(`${IMPLEMENT_APP_ACCESS_CHOICE}, not ${shownValue(rawAccess)}`);
+  const text = textValue(rawAccess);
+  const access = text === null ? null : (text.toLowerCase() || (rawAccess == null ? str(legacyAccess) : ''));
+  if (!catalog.auths.includes(access)) {
+    errors.push(access === '' ? IMPLEMENT_APP_ACCESS_CHOICE : `${IMPLEMENT_APP_ACCESS_CHOICE}, not ${shownValue(rawAccess)}`);
   }
   for (const [key, value] of Object.entries(objectField(outputs.app_look, 'outputs.app_look', errors))) {
-    const list = IMPLEMENT_APP_LOOK_LISTS[key];
-    if (!list) {
+    if (!ownKey(IMPLEMENT_APP_LOOK_LISTS, key)) {
       errors.push(`the App look has no setting ${shownValue(key)}; it sets only ${Object.keys(IMPLEMENT_APP_LOOK_LISTS).join(', ')}`);
       continue;
     }
-    const chosen = str(value).trim().toLowerCase();
-    if (!chosen) continue;
-    if (catalog[list].includes(chosen)) look[key] = chosen;
-    else errors.push(`the App ${key} ${shownValue(value)} is not one Inspire offers; pick one of ${catalog[list].join(', ')}`);
+    const list = catalog[IMPLEMENT_APP_LOOK_LISTS[key]];
+    const chosenText = textValue(value);
+    const picked = chosenText === null ? null : chosenText.toLowerCase();
+    if (picked === '') continue;
+    if (picked !== null && list.includes(picked)) look[key] = picked;
+    else errors.push(`the App ${key} ${shownValue(value)} is not one Inspire offers; pick one of ${list.join(', ')}`);
   }
   for (const [key, value] of Object.entries(objectField(outputs.app_options, 'outputs.app_options', errors))) {
     if (!IMPLEMENT_APP_OPTION_KEYS.includes(key)) {
@@ -559,7 +625,7 @@ function mergeChoices(outputs, chosen, errors) {
       errors.push(`outputs.merge.${name} must be text: the ${IMPLEMENT_MERGE_LABELS[name]} to add to, or "" for a new one`);
       continue;
     }
-    const id = str(value).trim();
+    const id = textValue(value);
     if (!id || !chosen[name]) continue;
     const target = name === 'app' ? id.toLowerCase() : id;
     if ((name === 'app' ? IMPLEMENT_APP_NAME_RE : IMPLEMENT_MERGE_ID_RE).test(target)) out[name] = target;
@@ -1826,6 +1892,17 @@ module.exports = {
   vibesLength,
   IMPLEMENT_ALERT_TIER_SETS,
   IMPLEMENT_ALERT_OPERATORS,
+  IMPLEMENT_ALERT_THRESHOLD_BASES,
+  IMPLEMENT_ALERT_BASELINE_DIRECTIONS,
+  IMPLEMENT_ALERT_MAX_SUBSCRIBERS,
+  IMPLEMENT_CONTRACT_OUTPUTS,
+  IMPLEMENT_RUN_PROFILES,
+  IMPLEMENT_MERGE_LABELS,
+  IMPLEMENT_PRINCIPAL_TYPES,
+  IMPLEMENT_WIDGET_NAME_RE,
+  IMPLEMENT_TABLE_NAME_RE,
+  IMPLEMENT_READ_NEEDS,
+  IMPLEMENT_TRAVERSE_PRIVILEGES,
   IMPLEMENT_NOTEBOOK_TASK_KEY,
   IMPLEMENT_USE_CASE_PARAM,
   IMPLEMENT_SPEC_VERSION_PARAM,

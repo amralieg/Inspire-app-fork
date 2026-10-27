@@ -2303,6 +2303,87 @@
       "classes": [
         "data"
       ]
+    },
+    {
+      "name": "alert switched to a baseline threshold",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "alert": true,
+          "alert_recipients": [
+            "owner@example.com"
+          ],
+          "alert_threshold": 3
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "alert": true,
+          "alert_recipients": [
+            "owner@example.com"
+          ],
+          "alert_threshold": 3,
+          "alert_threshold_basis": "baseline"
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "outputs"
+      ]
     }
   ],
   "columns": [
@@ -3773,6 +3854,44 @@
         "alert_threshold": ""
       },
       "Act now rows in the latest run >= 1"
+    ],
+    [
+      {
+        "alert_threshold_basis": "fixed",
+        "alert_operator": "<="
+      },
+      "Act now rows in the latest run <= 1"
+    ],
+    [
+      {
+        "alert_threshold_basis": "baseline"
+      },
+      "Act now rows in the latest run rise above the mean + 2 standard deviations of up to 30 earlier runs (>= 1 until 5 earlier runs exist)"
+    ],
+    [
+      {
+        "alert_threshold_basis": "baseline",
+        "alert_operator": ">",
+        "alert_threshold": 2.5
+      },
+      "Act now rows in the latest run rise above the mean + 2 standard deviations of up to 30 earlier runs (> 2.5 until 5 earlier runs exist)"
+    ],
+    [
+      {
+        "alert_threshold_basis": "baseline",
+        "alert_operator": "<="
+      },
+      "Act now rows in the latest run fall below the mean - 2 standard deviations of up to 30 earlier runs (<= 1 until 5 earlier runs exist)"
+    ],
+    [
+      {
+        "alert_threshold_basis": "baseline",
+        "alert_operator": "<",
+        "alert_threshold": "3",
+        "alert_tiers": "act_now_review",
+        "alert_condition_text": "refunds above 10 today"
+      },
+      "Act now or Review rows in the latest run fall below the mean - 2 standard deviations of up to 30 earlier runs (< 3 until 5 earlier runs exist), or refunds above 10 today"
     ]
   ],
   "stopped_states": [
@@ -4024,6 +4143,198 @@
         "date_key": false,
         "fits": false
       }
+    ]
+  },
+  "contract_tables": {
+    "IMPLEMENT_OPERATION": "Implement Use Cases",
+    "IMPLEMENT_TABLE": "__inspire_implement",
+    "IMPLEMENT_STATUSES": [
+      "queued",
+      "filling",
+      "previewing",
+      "building_outputs",
+      "ready",
+      "ready_with_warnings",
+      "failed"
+    ],
+    "IMPLEMENT_DONE_STATUSES": [
+      "ready",
+      "ready_with_warnings"
+    ],
+    "IMPLEMENT_OUTPUTS": [
+      "genie_space",
+      "dashboard",
+      "app",
+      "alert"
+    ],
+    "IMPLEMENT_OUTPUT_LABELS": {
+      "dashboard": "Dashboard",
+      "genie_space": "Genie Agent",
+      "app": "App",
+      "alert": "Alert"
+    },
+    "IMPLEMENT_NOTEBOOK": "notebook",
+    "IMPLEMENT_RETRY_TARGETS": [
+      "notebook",
+      "genie_space",
+      "dashboard",
+      "app",
+      "alert"
+    ],
+    "IMPLEMENT_OUTPUT_ID_COLUMNS": {
+      "dashboard": "dashboard_id",
+      "genie_space": "genie_space_id",
+      "app": "app_name",
+      "alert": "alert_id"
+    },
+    "IMPLEMENT_CHANGE_CLASSES": [
+      "initial",
+      "data",
+      "config",
+      "schedule",
+      "outputs",
+      "deselect",
+      "sharing",
+      "retry",
+      "rollback"
+    ],
+    "IMPLEMENT_RUN_PROFILES": [
+      "preview",
+      "full"
+    ],
+    "IMPLEMENT_FILTER_OPS": [
+      "=",
+      "!=",
+      ">",
+      ">=",
+      "<",
+      "<=",
+      "in",
+      "not in",
+      "between"
+    ],
+    "IMPLEMENT_COLUMN_ROLES": [
+      "entity_id",
+      "event_date",
+      "measure",
+      "label",
+      "segment"
+    ],
+    "IMPLEMENT_VIBES_MAX_CHARS": 2000,
+    "IMPLEMENT_OUTPUT_OPTIONS": {
+      "dashboard": [
+        "dashboard_name",
+        "dashboard_filters",
+        "dashboard_vibes"
+      ],
+      "genie_space": [
+        "genie_space_name",
+        "genie_questions",
+        "genie_space_vibes"
+      ],
+      "app": [
+        "app_purpose",
+        "app_access",
+        "app_look",
+        "app_options",
+        "app_vibes"
+      ],
+      "alert": [
+        "alert_name",
+        "alert_tiers",
+        "alert_operator",
+        "alert_threshold",
+        "alert_threshold_basis",
+        "alert_condition_text",
+        "alert_recipients",
+        "alert_destinations",
+        "alert_vibes"
+      ]
+    },
+    "IMPLEMENT_APP_LOOK": {
+      "style": "a",
+      "layout": "sidebar",
+      "palette": "default",
+      "theme": "light"
+    },
+    "IMPLEMENT_MERGE_OUTPUTS": [
+      "dashboard",
+      "genie_space",
+      "app"
+    ],
+    "IMPLEMENT_MERGE_LABELS": {
+      "dashboard": "dashboard",
+      "genie_space": "Genie Agent",
+      "app": "App"
+    },
+    "IMPLEMENT_ALERT_TIER_SETS": {
+      "act_now": [
+        "Act now"
+      ],
+      "act_now_review": [
+        "Act now",
+        "Review"
+      ]
+    },
+    "IMPLEMENT_ALERT_OPERATORS": [
+      ">=",
+      ">",
+      "=",
+      "!=",
+      "<",
+      "<="
+    ],
+    "IMPLEMENT_ALERT_THRESHOLD_BASES": [
+      "fixed",
+      "baseline"
+    ],
+    "IMPLEMENT_ALERT_BASELINE_DIRECTIONS": {
+      ">=": "+",
+      ">": "+",
+      "<=": "-",
+      "<": "-"
+    },
+    "IMPLEMENT_ALERT_MAX_SUBSCRIBERS": 100,
+    "IMPLEMENT_PRINCIPAL_TYPES": [
+      "user",
+      "group",
+      "service_principal"
+    ],
+    "IMPLEMENT_USE_CASE_PARAM": "inspire_implement_use_case",
+    "IMPLEMENT_SPEC_VERSION_PARAM": "inspire_implement_spec_version",
+    "IMPLEMENT_APP_NAME_RE": "^[a-z][a-z0-9-]{1,28}[a-z0-9]$",
+    "IMPLEMENT_WIDGET_NAME_RE": "^[A-Za-z][A-Za-z0-9_]{0,40}$",
+    "IMPLEMENT_TABLE_NAME_RE": "^[A-Za-z0-9_`-]+\\.[A-Za-z0-9_`-]+\\.[A-Za-z0-9_`-]+$",
+    "IMPLEMENT_ALL_USERS": "account users",
+    "IMPLEMENT_READ_NEEDS": [
+      [
+        "USE CATALOG",
+        "catalog",
+        [
+          "catalog"
+        ]
+      ],
+      [
+        "USE SCHEMA",
+        "schema",
+        [
+          "catalog",
+          "schema"
+        ]
+      ],
+      [
+        "SELECT",
+        "table",
+        [
+          "catalog",
+          "schema",
+          "table"
+        ]
+      ]
+    ],
+    "IMPLEMENT_TRAVERSE_PRIVILEGES": [
+      "USE CATALOG",
+      "USE SCHEMA"
     ]
   }
 }

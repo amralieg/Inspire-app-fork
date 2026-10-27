@@ -73,8 +73,8 @@ test('vibes of 2000 characters pass and 2001 is an error that names the output a
 });
 
 test('vibes that are not text are refused with the shared message, and a missing value is no vibes', () => {
-  for (const bad of [5, true, ['a'], { ask: 'a' }]) {
-    assert.deepEqual(spec({ genie_space_vibes: bad }).errors, ['outputs.genie_space_vibes must be text'], JSON.stringify(bad));
+  for (const [bad, shown] of [[5, '5'], [true, 'true'], [['a'], '["a"]'], [{ ask: 'a' }, '{"ask":"a"}']]) {
+    assert.deepEqual(spec({ genie_space_vibes: bad }).errors, [`outputs.genie_space_vibes must be text, not ${shown}`], JSON.stringify(bad));
   }
   const missing = spec({ dashboard_vibes: null });
   assert.deepEqual(missing.errors, []);
@@ -101,7 +101,7 @@ test('rollback outputs validate with the shared messages and normalize to whole 
   const errorsOf = (rollback, top = {}, outputs = {}) => spec(outputs, { ...top, rollback_outputs: rollback }).errors;
   assert.deepEqual(errorsOf({ pdf: 1 }), ["rollback output 'pdf' is not one of genie_space, dashboard, app, alert"]);
   assert.deepEqual(errorsOf({ alert: 1 }, {}, { alert: false }), ['the Alert cannot be rolled back: it is not selected']);
-  for (const [value, shown] of [[0, '0'], [-1, '-1'], [1.5, '1.5'], ['abc', 'abc'], [true, 'true'], [null, 'null'], ['', ''], [[2], '[2]']]) {
+  for (const [value, shown] of [[0, '0'], [-1, '-1'], [1.5, '1.5'], ['abc', "'abc'"], [true, 'true'], [null, 'null'], ['', "''"], [[2], '[2]']]) {
     assert.deepEqual(errorsOf({ app: value }), [`rollback_outputs.app ${shown} must be a version number, 1 or more`], JSON.stringify(value));
   }
   assert.deepEqual(errorsOf({ dashboard: 1 }, { retry_outputs: ['dashboard'] }), ['the Dashboard cannot be retried and rolled back in the same version']);
@@ -320,7 +320,9 @@ test('the notebook vibes hold 2000 characters, and longer or non-text ones are e
   const long = noted('n'.repeat(2001));
   assert.deepEqual(long.errors, ['the notebook vibes are 2001 characters; at most 2000 are allowed']);
   assert.equal(long.spec.data.notes.length, 2001);
-  for (const bad of [5, ['a'], { a: 1 }, true]) assert.deepEqual(noted(bad).errors, ['data.notes must be text'], JSON.stringify(bad));
+  for (const [bad, shown] of [[5, '5'], [['a'], '["a"]'], [{ a: 1 }, '{"a":1}'], [true, 'true']]) {
+    assert.deepEqual(noted(bad).errors, [`data.notes must be text, not ${shown}`], JSON.stringify(bad));
+  }
   assert.equal(noted(null).spec.data.notes, '');
 });
 

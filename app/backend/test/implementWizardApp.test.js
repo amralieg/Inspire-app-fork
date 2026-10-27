@@ -23,6 +23,9 @@ test('the wizard offers exactly the App choices the backend and the App shell ac
   assert.deepEqual(w.APP_OPTION_KEYS, backend.IMPLEMENT_APP_OPTION_KEYS);
   assert.deepEqual(w.PER_USER_OFF, backend.IMPLEMENT_PER_USER_OFF);
   assert.deepEqual(w.MERGE_OUTPUTS, backend.IMPLEMENT_MERGE_OUTPUTS);
+  assert.deepEqual(w.ALERT_OPERATORS, backend.IMPLEMENT_ALERT_OPERATORS);
+  assert.deepEqual(w.ALERT_THRESHOLD_BASES.map((b) => b.id), backend.IMPLEMENT_ALERT_THRESHOLD_BASES);
+  assert.deepEqual(w.ALERT_BASELINE_DIRECTIONS, backend.IMPLEMENT_ALERT_BASELINE_DIRECTIONS);
   assert.deepEqual(w.APP_ACCESS_CHOICES.map((c) => c.id), SHELL.auths);
   assert.deepEqual(w.APP_STYLES.map((s) => s.id), SHELL.styles);
   assert.deepEqual(w.APP_LAYOUTS.map((l) => l.id), SHELL.layouts);
