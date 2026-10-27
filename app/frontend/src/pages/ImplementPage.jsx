@@ -426,8 +426,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     return () => clearInterval(id);
   }, [hasPoc, loadStatus, refreshKey]);
 
-  const latest = status?.latest;
-  const stalled = status?.stalled || null;
+  const latest = status ? status.latest : item.latest;
+  const stalled = (status ? status.stalled : item.latest?.stalled) || null;
   const chip = statusChip(latest?.status, stalled);
   const spec = latest?.spec_json || {};
   const widgets = Array.isArray(status?.rerun_widgets) ? status.rerun_widgets : [];
@@ -721,6 +721,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
           {tab === 'History' && (
             <TabCard icon={History} title="History" hint="Every spec version and every run of the job">
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Spec versions</div>
+              {!status && <p className="text-[12px] text-text-secondary">Loading the versions and job runs…</p>}
               {(status?.history || []).map((entry) => (
                 <div key={entry.spec_version} className="border border-border rounded-lg bg-surface px-3 py-2 text-[12px]">
                   <div>v{entry.spec_version} · {historyStatus(entry, latest, stalled)} · {entry.change_classes || 'initial'}</div>
@@ -740,7 +741,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                 </div>
               ))}
               {status?.runs?.ok && status.runs.runs.length === 0 && <p className="text-[12px] text-text-secondary">No job runs yet.</p>}
-              {!status?.runs && <p className="text-[12px] text-text-secondary">This use case has no job yet.</p>}
+              {status && !status.runs && <p className="text-[12px] text-text-secondary">This use case has no job yet.</p>}
             </TabCard>
           )}
           {tab === 'Edit' && (

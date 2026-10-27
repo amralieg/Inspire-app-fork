@@ -126,8 +126,11 @@ test('a retried output round is still running, names the next round, and never h
   const stages = pocStages(sentBack, latestOf('building_outputs', outputs), { now: at('10:20:30') });
   assert.deepEqual(states(stages).slice(6), [['App', 'running'], ['Done', 'waiting']]);
   const summary = pocProgressSummary(stages, latestOf('building_outputs', outputs), { now: at('10:20:30') });
-  assert.equal(summary.headline, 'Genie is building the app…');
+  assert.equal(summary.headline, 'Genie is building the App…');
   assert.equal(summary.detail, 'Round 2 of 3: Genie is fixing what failed in round 1');
+  const genie = pocStages([...base, row('Genie Agent', 'started', '10:15:02')], latestOf('building_outputs', { dashboard: true, genie_space: true }), { now: at('10:16:00') });
+  assert.equal(pocProgressSummary(genie, latestOf('building_outputs', { dashboard: true, genie_space: true }), { now: at('10:16:00') }).headline,
+    'Genie is building the Genie Agent…');
   const firstRound = pocStages(sentBack.slice(0, -1), latestOf('building_outputs', outputs), { now: at('10:16:00') });
   assert.equal(pocProgressSummary(firstRound, latestOf('building_outputs', outputs), { now: at('10:16:00') }).detail, '');
 });

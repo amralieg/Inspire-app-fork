@@ -157,7 +157,7 @@ function PendingTile({ tile, liveError, active, onAddOutput }) {
         </div>
         {onAddOutput && (
           <button type="button" disabled={active} onClick={onAddOutput} className={`${BUTTON} self-start border border-border bg-surface text-text-primary`}>
-            <Plus size={11} /> Add the {output.label.toLowerCase()}
+            <Plus size={11} /> Add the {output.label}
           </button>
         )}
       </li>

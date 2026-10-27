@@ -59,7 +59,7 @@ export function pocStages(steps, latest, { now = Date.now(), stalled = null } = 
   const outputs = latest?.spec_json?.outputs || {};
   const plan = [
     ...POC_BUILD_STAGES,
-    ...IMPLEMENT_OUTPUTS.filter((o) => outputs[o.id]).map((o) => ({ id: o.label, label: o.label, phases: EARLIER_PHASES[o.id] || [], working: `Genie is building the ${o.label.toLowerCase()}` })),
+    ...IMPLEMENT_OUTPUTS.filter((o) => outputs[o.id]).map((o) => ({ id: o.label, label: o.label, phases: EARLIER_PHASES[o.id] || [], working: `Genie is building the ${o.label}` })),
     FINISH_STAGE,
   ];
   const stages = plan.map((stage) => ({ ...stage, state: 'waiting', started: null, ended: null, round: null, rounds: null }));

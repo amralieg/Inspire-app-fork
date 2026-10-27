@@ -1178,6 +1178,53 @@ test('the control tower shows each asset live, stops the App through Inspire, an
   }
 });
 
+test('while its status loads, the Build page shows the built version from the rail, never an empty one', async () => {
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const ui = await openUi('implement', { ...STUDIO_STATE, hold: { '/status': held, '/live': held } });
+  const { page } = ui;
+  try {
+    await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
+    const tower = page.getByRole('region', { name: 'Control tower' });
+    await tower.locator('li').first().waitFor();
+    assert.equal(await tower.locator('[data-tile-kind="checking"]').count(), 4, 'every built output reads its live status');
+    assert.equal(await tower.getByRole('button', { name: /^Add the / }).count(), 0, 'no built output is offered as missing');
+    const bar = page.getByRole('progressbar', { name: 'Build progress' });
+    assert.equal(await bar.getAttribute('aria-valuenow'), '100', 'a ready version reads 100%, not 0%');
+    assert.equal(await page.locator('[data-stage-state="waiting"]').count(), 0, 'no stage reads not started');
+    await studioTab(page, 'Genie');
+    await page.getByRole('link', { name: /Open Genie Agent/ }).waitFor();
+    assert.equal(await page.getByText('No Genie Agent on this version.').count(), 0);
+    await studioTab(page, 'History');
+    await page.getByText('Loading the versions and job runs…').waitFor();
+    assert.equal(await page.getByText('This use case has no job yet.').count(), 0, 'loading is not read as no job');
+    release();
+    await page.getByText(/^v1 · /).waitFor();
+    assert.equal(await page.getByText('Loading the versions and job runs…').count(), 0);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    release();
+    await ui.close();
+  }
+});
+
+test('the control tower offers each output the version lacks by its name', async () => {
+  const spec = builtSpec();
+  const dashboardOnly = built({ spec_json: JSON.stringify({ ...spec, outputs: { ...spec.outputs, genie_space: false, app: false, alert: false } }),
+    genie_space_id: null, genie_space_url: null, app_name: null, app_url: null, alert_id: null, alert_url: null });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [dashboardOnly] });
+  const { page } = ui;
+  try {
+    const tower = page.getByRole('region', { name: 'Control tower' });
+    await tower.getByRole('button', { name: /^Add the / }).first().waitFor();
+    assert.deepEqual((await tower.getByRole('button', { name: /^Add the / }).allInnerTexts()).map((t) => t.trim()),
+      ['Add the Genie Agent', 'Add the App', 'Add the Alert']);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('the whole Implement page, the use case details and the wizard read at 4.5:1 or better in light and in dark', async () => {
   const ui = await openUi('implement', STUDIO_STATE);
   const { page } = ui;
