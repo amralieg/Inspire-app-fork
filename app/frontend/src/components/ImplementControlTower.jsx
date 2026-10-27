@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  AppWindow, Ban, Bell, Briefcase, ExternalLink, Eye, EyeOff, Hammer, LayoutDashboard, Loader2, Pause, Play, Plus, Radar, RefreshCw, Square, Trash2,
+  AlertTriangle, AppWindow, Ban, Bell, Briefcase, ExternalLink, Eye, EyeOff, Hammer, LayoutDashboard, Loader2, Pause, Play, Plus, Radar, RefreshCw, Square, Trash2,
 } from 'lucide-react';
 import BodyPortal from './BodyPortal';
 import GenieLogo from './GenieLogo';
@@ -112,7 +112,8 @@ function StripRow({ row, controls }) {
 }
 
 function LiveTile({ row, controls }) {
-  const tone = TONE_CHIP[row.state.tone] || 'idle';
+  const warned = row.warnings?.length > 0;
+  const tone = warned && row.state.tone === 'success' ? 'warning' : TONE_CHIP[row.state.tone] || 'idle';
   return (
     <li data-control={row.id} className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm">
       <div className="flex items-start gap-3">
@@ -126,6 +127,16 @@ function LiveTile({ row, controls }) {
           {row.detail && <p data-control-detail="" className={`mt-1 ${row.state.tone === 'error' ? 'text-error-fg' : 'text-text-secondary'}`}>{row.detail}</p>}
         </div>
       </div>
+      {warned && (
+        <ul aria-label={`${row.label} warnings`} className="space-y-1 rounded-lg bg-warning-bg px-2.5 py-2 ring-1 ring-inset ring-warning/40">
+          {row.warnings.map((warning) => (
+            <li key={warning} className="flex items-start gap-1.5 text-warning-fg">
+              <AlertTriangle size={12} className="mt-[2px] shrink-0" aria-hidden />
+              <span>{warning}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {controls}
     </li>
   );

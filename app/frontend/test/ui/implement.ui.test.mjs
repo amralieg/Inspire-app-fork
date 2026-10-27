@@ -1192,7 +1192,11 @@ test('the whole Implement page, the use case details and the wizard read at 4.5:
 test('the control tower and its Remove dialog read at 4.5:1 or better in light and in dark', async () => {
   const pocJob = { job_id: 77, settings: { tags: { dbx_inspire_ai_run_type: 'implement', dbx_inspire_ai_session_id: '42', dbx_inspire_ai_usecase_id: 'N01-U01' },
     schedule: { quartz_cron_expression: '0 0 6 * * ?', timezone_id: 'UTC', pause_status: 'UNPAUSED' } } };
-  const ui = await openUi('implement', { ...STUDIO_STATE, job: pocJob, spacesOk: true, alertsOk: true,
+  const note = "Ask Genie is off because this use case's Genie Agent is not ready: the space has no tables";
+  const assets = JSON.parse(built().asset_status);
+  const warned = built({ status: 'ready_with_warnings', status_message: `App: ${note}`,
+    asset_status: JSON.stringify({ ...assets, app: { ...assets.app, warnings: [note] } }) });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [warned], job: pocJob, spacesOk: true, alertsOk: true,
     controlLog: [{ asset: 'app', asset_id: 'churn-desk', action: 'stop', result: 'done', message: 'Stop the App: done', acted_by: OWNER, acted_at: '2026-10-26T10:00:00.000Z' },
       { asset: 'dashboard', asset_id: 'd1', action: 'unpublish', result: 'failed', message: 'Unpublish the dashboard: failed', acted_by: OWNER, acted_at: '2026-10-26T09:00:00.000Z' }],
     responses: { 'GET /api/2.0/lakeview/dashboards/d1/published': [{ embed_credentials: true, revision_create_time: '2026-10-26T08:00:00.000Z' }] } });
@@ -1203,6 +1207,8 @@ test('the control tower and its Remove dialog read at 4.5:1 or better in light a
     await tower.getByRole('list', { name: 'Recent control actions' }).waitFor();
     await tower.locator('[data-control="dashboard"]').getByText('Shares its publisher’s access', { exact: true }).waitFor();
     await tower.locator('[data-control="dashboard"]').getByRole('button', { name: 'Publish again' }).waitFor();
+    await tower.locator('[data-control="app"]').getByRole('list', { name: 'App warnings' }).getByText(note, { exact: true }).waitFor();
+    assert.equal(await tower.getByRole('list', { name: /warnings$/ }).count(), 1, 'only the App ended with a warning');
     for (const dark of [false, true]) {
       await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
       await page.waitForTimeout(400);

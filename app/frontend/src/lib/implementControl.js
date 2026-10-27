@@ -83,6 +83,11 @@ function jobRow(entry, spec) {
   };
 }
 
+function builtWarnings(latest, id) {
+  const warnings = latest?.asset_status?.[id]?.warnings;
+  return Array.isArray(warnings) ? warnings.map((w) => String(w ?? '').trim()).filter(Boolean) : [];
+}
+
 export function controlRows(live, latest) {
   const assets = live?.assets || {};
   const targets = live?.targets || {};
@@ -102,6 +107,7 @@ export function controlRows(live, latest) {
       name: OUTPUT_NAMES[output.id](entry) || String(targets[output.id]),
       url: latest?.[OUTPUT_URLS[output.id]] || entry?.url || '',
       removable: true,
+      warnings: builtWarnings(latest, output.id),
       ...OUTPUT_ROWS[output.id](entry),
     });
   }

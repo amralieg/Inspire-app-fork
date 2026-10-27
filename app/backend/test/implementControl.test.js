@@ -370,6 +370,19 @@ test('the control tower shows a tile for every output: live when built, building
   assert.deepEqual(kinds(v.controlTiles(live, null)), ['dashboard:live', 'genie_space:off', 'app:off', 'alert:off']);
 });
 
+test('a built output that ended with warnings lists them on its tile, and a clean or malformed one lists none', async () => {
+  const v = await view();
+  const live = { targets: { app: 'churn-desk', genie_space: 'g1' }, assets: { app: app('ACTIVE'), genie_space: { ok: true, title: 'Churn' } } };
+  const note = "Ask Genie is off because this use case's Genie Agent is not ready: the space has no tables";
+  const warned = (assets) => ({ ...LATEST, status: 'ready_with_warnings', asset_status: assets });
+  const rows = v.controlRows(live, warned({ app: { state: 'ready', warnings: [note, '  '] }, genie_space: { state: 'ready' } }));
+  assert.deepEqual([row(rows, 'app').warnings, row(rows, 'genie_space').warnings], [[note], []]);
+  assert.deepEqual(row(v.controlRows(live, LATEST), 'app').warnings, [], 'no asset status, no warnings');
+  assert.deepEqual(row(v.controlRows(live, warned({ app: { state: 'ready', warnings: note } })), 'app').warnings, [], 'warnings that are not a list are ignored');
+  const tile = v.controlTiles(live, warned({ app: { state: 'ready', warnings: [note] } })).tiles.find((t) => t.output.id === 'app');
+  assert.deepEqual([tile.kind, tile.row.warnings], ['live', [note]]);
+});
+
 test('each App state offers only the action that makes sense, and a crashed App on running compute reads as an error', async () => {
   const v = await view();
   const appRow = (entry) => row(v.controlRows({ targets: { app: 'churn-desk' }, assets: { app: entry } }, LATEST), 'app');
