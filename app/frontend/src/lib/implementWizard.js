@@ -1,7 +1,7 @@
 export const START_POC_LABEL = 'Start Use Case PoC/MVP with Genie';
 
 export const IMPLEMENT_MODES = [
-  { id: 'poc', label: 'Full PoC/MVP', blurb: 'Genie builds the result table, then the outputs you pick: dashboard, Genie space, App or alert.' },
+  { id: 'poc', label: 'Full PoC/MVP', blurb: 'Genie builds the result table, then the outputs you pick: dashboard, Genie Agent, App or alert.' },
   { id: 'notebook', label: 'Notebook only', blurb: 'Inspire writes the Genie Code notebook for this use case. Nothing else is built; you run the notebook yourself.' },
 ];
 
@@ -10,7 +10,13 @@ const CHOOSE_STEP = { id: 'choose', label: 'Choose', sections: [], advanced: [] 
 export const IMPLEMENT_STEPS = [
   CHOOSE_STEP,
   { id: 'data', label: 'Data', sections: ['use_case', 'data', 'configure'], advanced: ['use_case', 'data', 'configure'] },
+  { id: 'results', label: 'Results', sections: ['results'], advanced: [] },
   { id: 'delivery', label: 'Delivery', sections: ['use_it', 'alert', 'schedule'], advanced: ['alert', 'schedule'] },
+];
+
+export const APP_STEPS = [
+  { id: 'app_access', label: 'App access', sections: ['app_access'], advanced: [] },
+  { id: 'app_look', label: 'App look', sections: ['app_look'], advanced: [] },
 ];
 
 export const NOTEBOOK_STEPS = [
@@ -19,11 +25,52 @@ export const NOTEBOOK_STEPS = [
   { id: 'notebook', label: 'Notebook', sections: [], advanced: [] },
 ];
 
-export function wizardSteps(mode) {
-  if (mode === 'poc') return IMPLEMENT_STEPS;
+export function wizardSteps(mode, spec = null) {
+  if (mode === 'poc') return spec?.outputs?.app ? [...IMPLEMENT_STEPS, ...APP_STEPS] : IMPLEMENT_STEPS;
   if (mode === 'notebook') return NOTEBOOK_STEPS;
   throw new Error(`unknown implement mode '${mode}'`);
 }
+
+export const BUILD_STEP_IDS = ['delivery', ...APP_STEPS.map((s) => s.id)];
+
+export const APP_ACCESS_CHOICES = [
+  { id: 'user', label: 'Sensitive data: each person signs in as themselves (per-user)',
+    blurb: 'Each person sees only the rows their own access allows.' },
+  { id: 'sp', label: 'Internal data: the App uses its own service principal',
+    blurb: 'Everyone sees the same rows, read with the App\'s own access. Inspire grants it read access to the result table.' },
+];
+
+export const APP_OPTION_KEYS = ['download', 'modify', 'replace_edits', 'decisions'];
+export const PER_USER_OFF = ['download', 'decisions'];
+export const APP_OPTIONS = [
+  { id: 'download', label: 'Let people download data', blurb: 'A Download button on the decision list, each chart and each Genie answer, as CSV.' },
+  { id: 'modify', label: 'Let people edit data', blurb: 'People can change records in the App, and Inspire keeps who changed what.' },
+  { id: 'decisions', label: 'Record decisions', blurb: 'People can record what they decided on each record, with who decided and when.' },
+];
+export const REPLACE_EDITS_QUESTION = 'Should a new run replace edited records?';
+export const REPLACE_EDITS_CHOICES = [
+  { id: false, label: 'No', blurb: 'Edited records stay as people left them; a new run updates only the records nobody edited.' },
+  { id: true, label: 'Yes', blurb: 'A new run writes its own results over edited records.' },
+];
+export const PER_USER_REASON = 'Each person signs in as themselves, so the App keeps every row inside their own access: '
+  + 'it offers no downloads, no recorded decisions and no chart image export.';
+
+export const APP_LOOK_DEFAULT = { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' };
+export const APP_STYLES = [
+  { id: 'a', label: 'Style A', blurb: 'Flat cards with a colour line under each KPI.' },
+  { id: 'b', label: 'Style B', blurb: 'Tinted headers, rounded controls, KPIs with a colour edge.' },
+  { id: 'c', label: 'Style C', blurb: 'Serif headlines, large KPIs on a ruled strip.' },
+];
+export const LAKEVIEW_STYLE_NOTE = 'Only style A matches the Lakeview dashboard look.';
+export const APP_LAYOUTS = [
+  { id: 'sidebar', label: 'Sidebar', blurb: 'Pages in a left menu' },
+  { id: 'tabs', label: 'Top tabs', blurb: 'Pages as tabs on top' },
+  { id: 'home', label: 'Home cards', blurb: 'A home page of cards' },
+];
+export const APP_THEMES = [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }];
+export const GENIE_FOR_APP_NOTE = 'Ask Genie in the App needs a Genie Agent.';
+export const RESULT_TABLE_MOVE_NOTE = 'Moving the table later copies its history to the new table and keeps the old one.';
+export const MERGE_OUTPUTS = ['app', 'dashboard', 'genie_space'];
 
 export const FRESHNESS_OPTIONS = [
   { id: 'off', label: 'Off' },
@@ -33,8 +80,8 @@ export const FRESHNESS_OPTIONS = [
 
 export const IMPLEMENT_OUTPUTS = [
   { id: 'dashboard', label: 'Dashboard', blurb: 'Decision list, trend and run health. Selected by default.' },
-  { id: 'genie_space', label: 'Genie space', blurb: 'A space over the result and source tables, with 5 sample questions.' },
-  { id: 'app', label: 'App', blurb: 'A Databricks App with the decision list, row detail and export.' },
+  { id: 'genie_space', label: 'Genie Agent', blurb: 'An agent over the result and source tables, with 5 sample questions.' },
+  { id: 'app', label: 'App', blurb: 'A Databricks App with the decision list, row detail and Ask Genie. You pick its access and look next.' },
   { id: 'alert', label: 'Alert', blurb: 'Emails you when the latest run has rows to act on. Genie writes the check.' },
 ];
 
@@ -291,6 +338,10 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
       genie_questions: [],
       app_name: appNameOf(uc?.short_name || useCaseName, id),
       app_purpose: '',
+      app_access: '',
+      app_look: { ...APP_LOOK_DEFAULT },
+      app_options: Object.fromEntries(APP_OPTION_KEYS.map((key) => [key, false])),
+      merge: Object.fromEntries(MERGE_OUTPUTS.map((name) => [name, ''])),
       alert: false,
       alert_name: '',
       alert_tiers: 'act_now',
@@ -318,7 +369,12 @@ function idAppNameOf(id) {
 export function specFromLatest(latest, fallback, assets = {}) {
   const parsed = latest && latest.spec_json && typeof latest.spec_json === 'object' ? latest.spec_json : null;
   if (!parsed) return fallback;
-  const outputs = { ...fallback.outputs, ...(parsed.outputs || {}) };
+  const saved = parsed.outputs || {};
+  const outputs = { ...fallback.outputs, ...saved };
+  for (const key of ['app_look', 'app_options', 'merge']) {
+    outputs[key] = { ...fallback.outputs[key], ...(saved[key] && typeof saved[key] === 'object' && !Array.isArray(saved[key]) ? saved[key] : {}) };
+  }
+  if (saved.app && assets?.app && !Object.prototype.hasOwnProperty.call(saved, 'app_access')) outputs.app_access = 'sp';
   const idDefault = !assets?.app && outputs.app_name === idAppNameOf(fallback.use_case_id);
   if (!outputs.app || !outputs.app_name || idDefault) outputs.app_name = fallback.outputs.app_name;
   return {
@@ -708,9 +764,9 @@ export const PREFLIGHT_LABELS = {
   output: 'Output table',
   result_grant: 'Share the result table',
   app_name: 'App name',
-  app_access: 'App access',
+  app_access: 'App reads the data',
   apps: 'Apps quota',
-  genie_spaces: 'Genie spaces',
+  genie_spaces: 'Genie Agents',
   alerts: 'Alerts',
 };
 
@@ -802,10 +858,20 @@ export function sectionErrors(section, spec, extras = {}) {
     if (!spec.use_case.goal) errors.push('write the goal sentence');
     if (!spec.use_case.decision_owner) errors.push('name the decision owner');
   }
-  if (section === 'data') {
-    if (!spec.config.result_table || spec.config.result_table.split('.').length !== 3) {
-      errors.push('output location must be catalog.schema.table');
+  if (section === 'results') errors.push(...resultTableProblems(spec.config.result_table));
+  if (section === 'app_access' && spec.outputs.app) {
+    if (!APP_ACCESS_CHOICES.some((c) => c.id === spec.outputs.app_access)) {
+      errors.push('choose who the App signs people in as: each person (per-user) or its own service principal');
     }
+    const block = appMergeBlock(spec, mergeTargetOf(extras.mergeTargets, 'app', spec.outputs.merge?.app));
+    if (block) errors.push(block);
+  }
+  if (section === 'app_look' && spec.outputs.app && extras.appLook) {
+    for (const [key, list] of Object.entries(APP_LOOK_LISTS)) {
+      if (!(extras.appLook[list] || []).includes(spec.outputs.app_look?.[key])) errors.push(`pick one of the App's ${list}`);
+    }
+  }
+  if (section === 'data') {
     const roleProblems = columnRoleProblems(spec.data.column_roles, extras.columnsByTable, { trainsModel: extras.trainsModel !== false });
     errors.push(...roleProblems);
     if (roleProblems.length) errors.push(`${RESET_ROLES_LABEL}, under Advanced settings, sets every role back at once`);
@@ -833,6 +899,14 @@ export function sectionErrors(section, spec, extras = {}) {
     if (spec.outputs.app && !APP_NAME_RE.test(spec.outputs.app_name || '')) {
       errors.push('app name must be 3-30 lowercase letters, digits and dashes');
     }
+    if (spec.outputs.app && !spec.outputs.genie_space) errors.push(GENIE_FOR_APP_NOTE);
+    for (const name of MERGE_OUTPUTS) {
+      const id = spec.outputs.merge?.[name];
+      if (!spec.outputs[name] || !id || !extras.mergeTargets || extras.held?.[name] === id) continue;
+      if (!mergeTargetOf(extras.mergeTargets, name, id)) {
+        errors.push(`pick a ${IMPLEMENT_OUTPUTS.find((o) => o.id === name).label} Inspire built to add to, or choose Create new`);
+      }
+    }
   }
   if (section === 'alert' && spec.outputs.alert) {
     const recipients = spec.outputs.alert_recipients || [];
@@ -849,18 +923,91 @@ export function sectionErrors(section, spec, extras = {}) {
   return errors;
 }
 
-function stepOf(id, mode) {
-  const step = wizardSteps(mode).find((s) => s.id === id);
+function stepOf(id, mode, spec) {
+  const step = wizardSteps(mode, spec).find((s) => s.id === id);
   if (!step) throw new Error(`unknown wizard step '${id}'`);
   return step;
 }
 
 export function stepErrors(step, spec, extras = {}, mode = 'poc') {
-  return stepOf(step, mode).sections.flatMap((section) => sectionErrors(section, spec, extras));
+  return stepOf(step, mode, spec).sections.flatMap((section) => sectionErrors(section, spec, extras));
 }
 
 export function advancedErrors(step, spec, extras = {}, mode = 'poc') {
-  return stepOf(step, mode).advanced.flatMap((section) => sectionErrors(section, spec, extras));
+  return stepOf(step, mode, spec).advanced.flatMap((section) => sectionErrors(section, spec, extras));
+}
+
+const APP_LOOK_LISTS = { style: 'styles', layout: 'layouts', palette: 'palettes', theme: 'themes' };
+
+export function resultTableProblems(table) {
+  const parts = String(table || '').split('.');
+  if (parts.length !== 3 || parts.some((p) => !p.trim())) return ['pick a catalog and a schema, and name the result table'];
+  if (!parts.every((p) => /^[A-Za-z0-9_-]+$/.test(p))) return ['the result table can only use catalog, schema and table names of letters, digits, _ and -'];
+  return [];
+}
+
+export function resultTableParts(table) {
+  const [catalog = '', schema = '', ...rest] = String(table || '').split('.');
+  return { catalog, schema, table: rest.join('.') };
+}
+
+export function withResultTable(spec, { catalog, schema, table }) {
+  const name = [catalog, schema, table].map((p) => String(p ?? '').trim());
+  return { ...spec, config: { ...spec.config, result_table: name.some(Boolean) ? name.join('.') : '' } };
+}
+
+export function withOutput(spec, id, checked, assets = {}) {
+  if (id === 'genie_space' && !checked && spec.outputs.app) return spec;
+  const outputs = { ...spec.outputs, [id]: checked };
+  if (id === 'alert' && checked && !(outputs.alert_recipients || []).length) outputs.alert_recipients = defaultAlertRecipients(spec);
+  if (id === 'app' && checked) outputs.genie_space = true;
+  const removed = { ...spec.removed_outputs };
+  if (!checked && assets?.[id]) delete removed[id];
+  return { ...spec, outputs, removed_outputs: removed };
+}
+
+export function withAppAccess(spec, access) {
+  const options = { ...spec.outputs.app_options };
+  if (access === 'user') for (const key of PER_USER_OFF) options[key] = false;
+  return { ...spec, outputs: { ...spec.outputs, app_access: access, app_options: options } };
+}
+
+export function appOptionShown(spec, key) {
+  if (PER_USER_OFF.includes(key) && spec.outputs.app_access === 'user') return false;
+  return key !== 'replace_edits' || Boolean(spec.outputs.app_options?.modify);
+}
+
+export function withAppOption(spec, key, value) {
+  const options = { ...spec.outputs.app_options, [key]: Boolean(value) };
+  if (key === 'modify' && !value) options.replace_edits = false;
+  return { ...spec, outputs: { ...spec.outputs, app_options: options } };
+}
+
+export function withAppLook(spec, key, value) {
+  return { ...spec, outputs: { ...spec.outputs, app_look: { ...spec.outputs.app_look, [key]: value } } };
+}
+
+export function mergeTargetOf(targets, name, id) {
+  return id ? ((targets && targets[name]) || []).find((t) => t.id === id) || null : null;
+}
+
+export function appMergeBlock(spec, target) {
+  return spec?.outputs?.app_access === 'user' && target?.access === 'sp' ? String(target.per_user_block || '') : '';
+}
+
+export function withMergeTarget(spec, name, target, freshAppName = '') {
+  const outputs = { ...spec.outputs, merge: { ...spec.outputs.merge, [name]: target ? target.id : '' } };
+  if (name === 'app') {
+    outputs.app_name = target ? target.id : (freshAppName || outputs.app_name);
+    outputs.app_look = { ...APP_LOOK_DEFAULT, ...((target && target.look) || {}) };
+  }
+  return { ...spec, outputs };
+}
+
+export function mergeTargetText(target) {
+  const held = (target?.use_cases || []).map((u) => u.name || u.use_case_id);
+  const shown = held.slice(0, 3).join(', ');
+  return held.length > 3 ? `${shown} and ${held.length - 3} more` : shown;
 }
 
 export function freshnessOf(schedule) {
@@ -920,8 +1067,8 @@ export function lostTablesText(missing) {
     + 'Swap each for a table with the same role, or remove it.';
 }
 
-export function initialStepIndex(focus, mode = 'poc') {
-  const steps = wizardSteps(mode);
+export function initialStepIndex(focus, mode = 'poc', spec = null) {
+  const steps = wizardSteps(mode, spec);
   const want = focus?.step;
   if (want === 'review') return steps.length - 1;
   const index = steps.findIndex((s) => s.id === want || s.sections.includes(want));

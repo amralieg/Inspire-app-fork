@@ -55,6 +55,7 @@ function makeApp(overrides = {}) {
           { col_name: '', data_type: '' }, { col_name: '# Clustering Information', data_type: '' }, { col_name: 'session_id', data_type: '' }] };
       }
       if (sql.includes('__inspire_implement') && sql.includes('INSERT')) return { rows: [] };
+      if (sql.includes('__inspire_implement') && sql.includes('`app_name` IS NOT NULL')) return { rows: state.registry || [] };
       if (sql.includes('__inspire_implement') && sql.includes('UPDATE')) return { rows: [] };
       if (sql.includes('__inspire_implement')) {
         const unknown = IMPLEMENT_COLUMNS.map(([name]) => name)
@@ -162,6 +163,14 @@ function makeApp(overrides = {}) {
     });
   });
   app.get('/api/inspire/step-results', (_req, res) => res.json({ results: null }));
+  app.get('/api/catalogs', (_req, res) => {
+    if (state.catalogsError) return res.status(500).json({ error: state.catalogsError });
+    return res.json({ catalogs: (state.catalogs || ['main']).map((name) => ({ name })) });
+  });
+  app.get('/api/catalogs/:catalog/schemas', (req, res) => {
+    const names = (state.schemas || { main: ['inspire', 's'] })[req.params.catalog] || [];
+    return res.json({ schemas: names.map((name) => ({ name, full_name: `${req.params.catalog}.${name}` })) });
+  });
   app.get('/api/inspire/feedback', (_req, res) => res.json({ available: false, latest: [], message: '' }));
   app.get('/api/workspace/list', (_req, res) => res.json({ files: [] }));
   app.get('/api/inspire/usecases', (_req, res) => {

@@ -1421,6 +1421,235 @@
       "classes": [
         "data"
       ]
+    },
+    {
+      "name": "app access chosen",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": true,
+          "app_name": "churn-desk",
+          "app_access": "sp"
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": true,
+          "app_name": "churn-desk",
+          "app_access": "user"
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "outputs"
+      ]
+    },
+    {
+      "name": "app look changed",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": true,
+          "app_name": "churn-desk",
+          "app_access": "sp",
+          "app_look": {
+            "palette": "default"
+          }
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": true,
+          "app_name": "churn-desk",
+          "app_access": "sp",
+          "app_look": {
+            "palette": "ocean",
+            "theme": "dark"
+          }
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "outputs"
+      ]
+    },
+    {
+      "name": "dashboard joins an existing dashboard",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": true,
+          "app_name": "churn-desk",
+          "app_access": "sp",
+          "merge": {
+            "dashboard": ""
+          }
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": true,
+          "app_name": "churn-desk",
+          "app_access": "sp",
+          "merge": {
+            "dashboard": "01ef2a3b4c5d6e7f"
+          }
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "outputs"
+      ]
     }
   ],
   "columns": [
@@ -1918,6 +2147,58 @@
         }
       },
       "error": "must be a number of rows, 0 or more"
+    },
+    {
+      "name": "App without an access choice",
+      "patch": {
+        "outputs": {
+          "app": true,
+          "app_name": "churn-desk"
+        }
+      },
+      "error": "app_access is required when the App is ticked"
+    },
+    {
+      "name": "unknown App palette",
+      "patch": {
+        "outputs": {
+          "app": true,
+          "app_name": "churn-desk",
+          "app_access": "sp",
+          "app_look": {
+            "palette": "rainbow"
+          }
+        }
+      },
+      "error": "app_look.palette \"rainbow\" must be one of"
+    },
+    {
+      "name": "App option as text",
+      "patch": {
+        "outputs": {
+          "app": true,
+          "app_name": "churn-desk",
+          "app_access": "sp",
+          "app_options": {
+            "download": "yes"
+          }
+        }
+      },
+      "error": "app_options.download must be true or false"
+    },
+    {
+      "name": "merge into an App by a bad name",
+      "patch": {
+        "outputs": {
+          "app": true,
+          "app_name": "churn-desk",
+          "app_access": "sp",
+          "merge": {
+            "app": "Churn_Desk"
+          }
+        }
+      },
+      "error": "merge.app 'Churn_Desk' is not an App name"
     }
   ],
   "removal": [

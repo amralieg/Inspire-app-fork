@@ -166,16 +166,20 @@ test('the Delivery step accepts an alert on its own and blocks one nobody would 
 
 test('each Full PoC step runs the checks of every section it shows, and only those', async () => {
   const w = await load();
-  assert.deepEqual(w.IMPLEMENT_STEPS.map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['delivery', 'Delivery']]);
-  const shown = w.IMPLEMENT_STEPS.flatMap((s) => s.sections);
-  assert.deepEqual([...shown].sort(), ['alert', 'configure', 'data', 'schedule', 'use_case', 'use_it']);
-  for (const s of w.IMPLEMENT_STEPS) assert.ok(s.advanced.every((a) => s.sections.includes(a)), s.id);
+  assert.deepEqual(w.IMPLEMENT_STEPS.map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['results', 'Results'], ['delivery', 'Delivery']]);
+  assert.deepEqual(w.APP_STEPS.map((s) => [s.id, s.label]), [['app_access', 'App access'], ['app_look', 'App look']]);
+  const shown = [...w.IMPLEMENT_STEPS, ...w.APP_STEPS].flatMap((s) => s.sections);
+  assert.deepEqual([...shown].sort(), ['alert', 'app_access', 'app_look', 'configure', 'data', 'results', 'schedule', 'use_case', 'use_it']);
+  for (const s of [...w.IMPLEMENT_STEPS, ...w.APP_STEPS]) assert.ok(s.advanced.every((a) => s.sections.includes(a)), s.id);
   const spec = w.defaultSpecFromUseCase(UC, { warehouseId: '', inspireDatabase: 'main.inspire' });
   const bad = { ...spec, use_case: { ...spec.use_case, decision_owner: '' }, schedule: { ...spec.schedule, enabled: true, cron: '0 0 25 * * ?' },
+    config: { ...spec.config, result_table: 'main.inspire' },
     outputs: { ...spec.outputs, dashboard: false, app: true, app_name: 'X', alert: true } };
   assert.deepEqual(w.stepErrors('data', bad), ['name the decision owner', 'pick a SQL warehouse']);
+  assert.deepEqual(w.stepErrors('results', bad), ['pick a catalog and a schema, and name the result table']);
   assert.deepEqual(w.stepErrors('delivery', bad), [
     'app name must be 3-30 lowercase letters, digits and dashes',
+    w.GENIE_FOR_APP_NOTE,
     'an alert needs at least one recipient email or notification destination',
     "the cron is not valid: the hour value '25' is not 0 to 23",
   ]);
@@ -184,8 +188,17 @@ test('each Full PoC step runs the checks of every section it shows, and only tho
     "the cron is not valid: the hour value '25' is not 0 to 23",
   ], 'the App name lives on the main view, so it never opens Advanced');
   assert.deepEqual(w.advancedErrors('data', bad), w.stepErrors('data', bad));
+  assert.deepEqual(w.advancedErrors('results', bad), [], 'the result table lives on its own step, never under Advanced');
+  assert.deepEqual(w.stepErrors('app_access', bad), ['choose who the App signs people in as: each person (per-user) or its own service principal']);
+  assert.deepEqual(w.stepErrors('app_access', { ...bad, outputs: { ...bad.outputs, app_access: 'sp' } }), []);
+  assert.deepEqual(w.stepErrors('app_look', bad), [], 'the look is checked only against the looks the App shell offers, once they load');
+  const shell = { styles: ['a', 'b', 'c'], layouts: ['sidebar', 'tabs', 'home'], palettes: ['default', 'mono'], themes: ['light', 'dark'] };
+  assert.deepEqual(w.stepErrors('app_look', bad, { appLook: shell }), []);
+  assert.deepEqual(w.stepErrors('app_look', w.withAppLook(bad, 'palette', 'neon'), { appLook: shell }), ["pick one of the App's palettes"]);
   assert.throws(() => w.stepErrors('use_it', bad), /unknown wizard step 'use_it'/);
   assert.throws(() => w.advancedErrors('review', bad), /unknown wizard step 'review'/);
+  assert.throws(() => w.stepErrors('app_access', { ...bad, outputs: { ...bad.outputs, app: false } }), /unknown wizard step 'app_access'/,
+    'without an App the wizard has no App steps');
   assert.deepEqual(w.stepErrors('choose', bad), []);
 });
 
@@ -216,7 +229,7 @@ test('the App name is the use case name cut at a word inside the 30-character li
   const spec = w.defaultSpecFromUseCase({ ...UC, Name: 'Recommend Next-Best Products to Lift Basket Size' }, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
   assert.equal(spec.outputs.app_name, 'recommend-next-best-products');
   assert.equal(w.defaultSpecFromUseCase({ ...UC, short_name: 'Churn desk' }).outputs.app_name, 'churn-desk', 'a short name wins over the full name');
-  const withApp = { ...spec, outputs: { ...spec.outputs, app: true } };
+  const withApp = { ...spec, outputs: { ...spec.outputs, app: true, app_access: 'sp' } };
   assert.deepEqual(backend.validateImplementSpec(withApp).errors, []);
   assert.equal(backend.validateImplementSpec(withApp).spec.outputs.app_name, 'recommend-next-best-products');
 });
@@ -431,7 +444,7 @@ test('plan lines say what the edit builds, refreshes, deletes and keeps', async 
     delete: ['app'], keep_unmanaged: [], schedule: false }), [
     'Changes: outputs',
     'The built notebook is kept as it is',
-    'Builds: Genie space, Alert',
+    'Builds: Genie Agent, Alert',
     'Refreshes: Dashboard',
     'Deletes: App',
   ]);
@@ -662,9 +675,14 @@ test('the Implement page shows lost tables from a refused re-run first, else onl
 test('Edit opens the wizard on the step it was asked for, and on Choose otherwise', async () => {
   const w = await load();
   assert.equal(w.initialStepIndex({ step: 'data' }), 1);
-  assert.equal(w.initialStepIndex({ step: 'delivery' }), 2);
+  assert.equal(w.initialStepIndex({ step: 'results' }), 2);
+  assert.equal(w.initialStepIndex({ step: 'delivery' }), 3);
   for (const section of ['use_case', 'configure']) assert.equal(w.initialStepIndex({ step: section }), 1, section);
-  for (const section of ['use_it', 'alert', 'schedule', 'review']) assert.equal(w.initialStepIndex({ step: section }), 2, section);
+  for (const section of ['use_it', 'alert', 'schedule', 'review']) assert.equal(w.initialStepIndex({ step: section }), 3, section);
+  const withApp = { outputs: { app: true } };
+  assert.equal(w.initialStepIndex({ step: 'review' }, 'poc', withApp), 5, 'review lands on the last step, App look when the App is ticked');
+  assert.equal(w.initialStepIndex({ step: 'app_access' }, 'poc', withApp), 4);
+  assert.equal(w.initialStepIndex({ step: 'app_access' }), 0, 'no App, no App access step');
   assert.equal(w.initialStepIndex({ step: 'nope' }), 0);
   assert.equal(w.initialStepIndex(null), 0);
   assert.equal(w.initialStepIndex({ step: 'choose' }), 0);

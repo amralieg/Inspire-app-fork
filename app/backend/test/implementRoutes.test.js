@@ -650,9 +650,9 @@ test('preflight disables a new App up front when its service principal could not
     assert.equal(got.data.checks.result_grant.warn, `${I.accessGapMessage('planners', gaps)} ${warehouseWarning}`);
     assert.ok(made.fetches.some((f) => f.path === '/api/2.0/permissions/sql/warehouses/wh1'));
     const genie = await call(url, `/api/inspire/implement/preflight?${Q}&${OUT}&share=1&genie=1&principals=${principals}`);
-    assert.match(genie.data.checks.result_grant.warn, /to open the dashboard and the Genie space, because/);
+    assert.match(genie.data.checks.result_grant.warn, /to open the dashboard and the Genie Agent, because/);
     const appOnly = await call(url, `/api/inspire/implement/preflight?${Q}&${OUT}&share=1&dashboard=0&principals=${principals}`);
-    assert.equal(appOnly.data.checks.result_grant.warn, I.accessGapMessage('planners', gaps), 'no dashboard or Genie space, so no warehouse access to ask for');
+    assert.equal(appOnly.data.checks.result_grant.warn, I.accessGapMessage('planners', gaps), 'no dashboard or Genie Agent, so no warehouse access to ask for');
     const check = await call(url, CHECK);
     assert.equal(check.data.ok, true, 'App access never blocks the Data step');
     assert.equal(check.data.app.ok, false);

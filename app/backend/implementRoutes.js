@@ -4,6 +4,7 @@ const I = require('./lib/inspireImplement');
 const { createGenieJobGuard } = require('./lib/genieJobGuard');
 const { genieNotebookJobName, latestGenieNotebookRun } = require('./lib/genieNotebookJob');
 const C = require('./lib/implementControl');
+const { appShellCatalog } = require('./lib/appShell');
 
 function sendError(res, err) {
   const code = err && Number.isFinite(err.statusCode) ? err.statusCode : 500;
@@ -119,22 +120,37 @@ function registerImplementRoutes(app, deps) {
     if (missing.length) await ensureTableColumns(host, token, warehouseId, table, missing);
   }
 
-  async function loadHistory(host, token, warehouseId, catalog, schema, sid, useCaseId) {
-    const table = I.implementTableName(catalog, schema);
+  async function implementRows(host, token, warehouseId, table, statementFor) {
     try {
       let rows;
       try {
-        rows = await sqlRows(host, token, warehouseId, I.implementHistoryStatement(table, sid, useCaseId || null));
+        rows = await sqlRows(host, token, warehouseId, statementFor(null));
       } catch (err) {
         if (!I.isMissingColumnError(err)) throw err;
-        const existing = await implementColumnsOf(host, token, warehouseId, table);
-        rows = await sqlRows(host, token, warehouseId, I.implementHistoryStatement(table, sid, useCaseId || null, existing));
+        rows = await sqlRows(host, token, warehouseId, statementFor(await implementColumnsOf(host, token, warehouseId, table)));
       }
       return rows.map(I.parseImplementRow);
     } catch (err) {
       if (isMissingTableError(err)) return [];
       throw err;
     }
+  }
+
+  async function loadHistory(host, token, warehouseId, catalog, schema, sid, useCaseId) {
+    const table = I.implementTableName(catalog, schema);
+    return implementRows(host, token, warehouseId, table, (existing) => I.implementHistoryStatement(table, sid, useCaseId || null, existing));
+  }
+
+  async function loadMergeTargets(req, warehouseId, catalog, schema, sid, useCaseId, only = null) {
+    const table = I.implementTableName(catalog, schema);
+    const rows = await implementRows(req.dbHost, req.dbToken, warehouseId, table, (existing) => I.implementRegistryStatement(table, existing));
+    const registry = I.mergeRegistry(rows, { sessionId: sid, useCaseId, only });
+    const targets = {};
+    await Promise.all(I.IMPLEMENT_MERGE_OUTPUTS.map(async (name) => {
+      const got = await Promise.all(registry[name].map((entry) => jsonOf(dbFetch, req.dbHost, req.dbToken, I.mergeTargetPath(name, entry.id))));
+      targets[name] = registry[name].map((entry, i) => I.mergeTarget(name, entry, got[i], req.dbHost)).filter(Boolean);
+    }));
+    return targets;
   }
 
   async function loadUseCase(host, token, warehouseId, catalog, schema, sid, useCaseId) {
@@ -412,6 +428,24 @@ function registerImplementRoutes(app, deps) {
     }
   });
 
+  app.get('/api/inspire/implement/app-look', requireToken, (_req, res) => {
+    const catalog = appShellCatalog();
+    if (!catalog.ok) return res.status(503).json({ error: catalog.error });
+    return res.json(catalog);
+  });
+
+  app.get('/api/inspire/implement/merge-targets', requireToken, async (req, res) => {
+    try {
+      const sid = sessionIdOf(req);
+      const warehouseId = warehouseOf(req);
+      const { catalog, schema } = dbOf(req, splitInspireDatabase);
+      const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
+      res.json({ targets: await loadMergeTargets(req, warehouseId, catalog, schema, sid, useCaseId), cap: I.IMPLEMENT_MERGE_TARGET_CAP });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
   app.get('/api/inspire/implement/columns', requireToken, async (req, res) => {
     try {
       const warehouseId = warehouseOf(req);
@@ -526,6 +560,7 @@ function registerImplementRoutes(app, deps) {
       const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
       const resultTable = q(req, 'result_table');
       const appName = q(req, 'app_name');
+      const mergeApp = q(req, 'merge_app');
       const wantsAlert = q(req, 'alert') === '1';
       const wantsGenie = q(req, 'genie') === '1';
       const wantsDashboard = q(req, 'dashboard') !== '0';
@@ -542,7 +577,7 @@ function registerImplementRoutes(app, deps) {
       let output = null;
       let outputError = '';
       try {
-        const viewed = [wantsDashboard && 'the dashboard', wantsGenie && 'the Genie space'];
+        const viewed = [wantsDashboard && 'the dashboard', wantsGenie && 'the Genie Agent'];
         output = await checkOutput(req, warehouseId, resultTable, useCaseId, { principals, warehouseName, viewed });
       } catch (err) {
         outputError = err.message || String(err);
@@ -568,9 +603,11 @@ function registerImplementRoutes(app, deps) {
             ? { ok: false, detail: 'the Apps list is not available to you, so the App quota cannot be checked' }
             : I.appsQuotaCheck(count, limit, name.creates);
         }
+      } else if (mergeApp) {
+        checks.app_access = output ? output.app : { ok: false, detail: 'not checked, because the warehouse could not run the access check' };
       }
       if (wantsGenie) {
-        checks.genie_spaces = { ok: features.genie_spaces, detail: features.genie_spaces ? 'you can create Genie spaces' : 'you cannot create Genie spaces in this workspace' };
+        checks.genie_spaces = { ok: features.genie_spaces, detail: features.genie_spaces ? 'you can create Genie Agents' : 'you cannot create Genie Agents in this workspace' };
       }
       if (wantsAlert) {
         checks.alerts = { ok: features.alerts, detail: features.alerts ? 'you can create SQL alerts' : 'you cannot create SQL alerts in this workspace' };
@@ -619,13 +656,18 @@ function registerImplementRoutes(app, deps) {
     const sid = sessionIdOf(req);
     const warehouseId = warehouseOf(req);
     const { inspire_database, catalog, schema } = dbOf(req, splitInspireDatabase);
-    const { spec, errors } = I.validateImplementSpec(req.body?.spec || req.body);
+    const raw = req.body?.spec || req.body;
+    const draft = I.validateImplementSpec(raw);
+    const draftId = draft.spec.use_case_id;
+    const history = draftId && I.IMPLEMENT_USE_CASE_ID_RE.test(draftId)
+      ? await loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, draftId) : [];
+    const legacyAccess = I.legacyAppAccess(history);
+    const { spec, errors } = legacyAccess ? I.validateImplementSpec(raw, { legacyAccess }) : draft;
     if (errors.length) throw I.badRequest(errors.join('; '));
     const useCaseId = I.validateUseCaseId(spec.use_case_id);
-    const [session, useCase, history] = await Promise.all([
+    const [session, useCase] = await Promise.all([
       loadSession(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid),
       loadUseCase(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId),
-      loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId),
     ]);
     if (!useCase) throw I.badRequest(`No use case ${useCaseId} in this session.`, 404);
     const problems = I.removedTableProblems(spec, I.useCaseTables(useCase), I.primaryTableOf(useCase));
@@ -633,6 +675,11 @@ function registerImplementRoutes(app, deps) {
     const widgets = I.implementWidgets(history, useCase.genie_instruction || useCase.generate_genie_code_instruction || '');
     const widgetIssues = I.widgetProblems(widgets.widgets, spec.config.widgets);
     if (widgetIssues.length) throw I.badRequest(`widget values are out of range: ${widgetIssues.join('; ')}`);
+    if (I.IMPLEMENT_MERGE_OUTPUTS.some((name) => spec.outputs.merge[name])) {
+      const targets = await loadMergeTargets(req, warehouseId, catalog, schema, sid, useCaseId, spec.outputs.merge);
+      const mergeIssues = I.mergeProblems(spec, targets, I.carriedAssets(history));
+      if (mergeIssues.length) throw I.badRequest(mergeIssues.join('; '));
+    }
     const stalled = await stalledOf(req, history[0]);
     return { sid, warehouseId, inspire_database, catalog, schema, spec, useCaseId, session, history,
       plan: I.planSubmission(history, spec, stalled) };

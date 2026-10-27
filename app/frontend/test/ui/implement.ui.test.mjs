@@ -10,9 +10,10 @@ const GONE = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`s`.`returns` c
 
 const builtSpec = () => {
   const spec = defaultSpecFromUseCase(HARNESS_USE_CASE, { warehouseId: HARNESS_SETTINGS.warehouseId, inspireDatabase: HARNESS_SETTINGS.inspireDatabase, owner: OWNER });
+  const { app_access: _access, app_look: _look, app_options: _options, merge: _merge, ...beforeAppSettings } = spec.outputs;
   return {
     ...spec,
-    outputs: { ...spec.outputs, genie_space: true, app: true, app_name: 'churn-desk', alert: true, alert_recipients: [OWNER],
+    outputs: { ...beforeAppSettings, genie_space: true, app: true, app_name: 'churn-desk', alert: true, alert_recipients: [OWNER],
       genie_questions: ['Which customers should we call first?'] },
   };
 };
@@ -78,6 +79,20 @@ async function toData(page) {
   await next(page);
   await onStep(page, 'Data');
 }
+async function toDelivery(page) {
+  await next(page);
+  await onStep(page, 'Results');
+  await next(page);
+  await onStep(page, 'Delivery');
+}
+
+async function throughApp(page, access = /^Internal data/) {
+  await next(page);
+  await onStep(page, 'App access');
+  await page.getByRole('radio', { name: access }).check();
+  await next(page);
+  await onStep(page, 'App look');
+}
 const advanced = (page) => page.getByRole('button', { name: 'Advanced settings' });
 const footerErrors = (page) => page.locator('[role="alert"] p').allTextContents();
 
@@ -93,12 +108,12 @@ function submittedSpec(made) {
   return JSON.parse(inserts[0].parameters.find((p) => p.name === 'spec').value);
 }
 
-test('the wizard is three steps: Choose shows the summary with Full PoC as the default, Data shows Inspire\'s tables, Delivery picks the outputs, and Start PoC launches one run', async () => {
+test('the wizard walks Choose, Data, Results and Delivery, adds App access and App look once the App is ticked, and Start PoC launches one run', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
     await onStep(page, 'Choose');
-    assert.deepEqual(await page.locator('ol li').allTextContents(), ['1. Choose', '2. Data', '3. Delivery']);
+    assert.deepEqual(await page.locator('ol li').allTextContents(), ['1. Choose', '2. Data', '3. Results', '4. Delivery']);
     const summary = page.getByRole('region', { name: 'Executive summary' });
     await summary.getByText('Cut churn in the top segment').waitFor();
     await summary.getByText('Head of Retention').waitFor();
@@ -110,12 +125,12 @@ test('the wizard is three steps: Choose shows the summary with Full PoC as the d
     assert.deepEqual(await page.locator('[data-table]').evaluateAll((rows) => rows.map((r) => r.dataset.table)), ['main.s.orders', 'main.s.returns']);
     assert.equal(await advanced(page).getAttribute('aria-expanded'), 'false');
     assert.equal(await page.getByLabel('Goal sentence').count(), 0, 'every other setting waits under Advanced settings');
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
     assert.equal(await page.getByRole('checkbox', { name: /^Dashboard/ }).isChecked(), true, 'the dashboard is the default');
-    for (const name of [/^Genie space/, /^App /, /^Alert/]) assert.equal(await page.getByRole('checkbox', { name }).isChecked(), false, String(name));
-    await page.getByRole('checkbox', { name: /^Genie space/ }).check();
+    for (const name of [/^Genie Agent/, /^App /, /^Alert/]) assert.equal(await page.getByRole('checkbox', { name }).isChecked(), false, String(name));
+    await page.getByRole('checkbox', { name: /^Genie Agent/ }).check();
     await page.getByRole('checkbox', { name: /^App / }).check();
+    assert.deepEqual(await page.locator('ol li').allTextContents(), ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App access', '6. App look']);
     assert.equal(await page.getByLabel('App name').inputValue(), 'predict-churn', 'the App is named after the use case');
     await page.getByText("'predict-churn' is free").waitFor();
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
@@ -125,6 +140,8 @@ test('the wizard is three steps: Choose shows the summary with Full PoC as the d
     await fresh.getByRole('button', { name: 'Weekly' }).click();
     assert.equal(await fresh.getByRole('button', { name: 'Weekly' }).getAttribute('aria-pressed'), 'true');
     assert.equal(made.jobs.length, 0);
+    assert.equal(await page.getByRole('button', { name: 'Start PoC/MVP', exact: true }).count(), 0, 'with an App, Delivery leads on to App access');
+    await throughApp(page);
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
 
@@ -142,6 +159,10 @@ test('the wizard is three steps: Choose shows the summary with Full PoC as the d
       { dashboard: true, genie_space: true, app: true, alert: true },
     );
     assert.equal(spec.outputs.app_name, 'predict-churn');
+    assert.equal(spec.outputs.app_access, 'sp');
+    assert.deepEqual(spec.outputs.app_look, { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' });
+    assert.deepEqual(spec.outputs.app_options, { download: false, modify: false, replace_edits: false, decisions: false });
+    assert.deepEqual(spec.outputs.merge, { app: '', dashboard: '', genie_space: '' });
     assert.deepEqual(spec.outputs.alert_recipients, [OWNER]);
     assert.deepEqual([spec.schedule.enabled, spec.schedule.cron], [true, '0 0 6 ? * MON']);
     assert.deepEqual(spec.schedule.failure_emails, [OWNER]);
@@ -164,8 +185,7 @@ test('the wizard names the use case as the card the person clicked, while the da
     assert.equal(await page.getByRole('dialog').getByText('Keep customers who would leave').count(), 0, 'one name for the use case, the one on its card');
     await next(page);
     await onStep(page, 'Data');
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     assert.equal(submittedSpec(made).use_case_name, HARNESS_USE_CASE.Name);
@@ -206,8 +226,7 @@ test('Edit of a failed version the old wizard saved under the use case id names 
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' }, history: [failed] });
   try {
     await toData(ui.page);
-    await next(ui.page);
-    await onStep(ui.page, 'Delivery');
+    await toDelivery(ui.page);
     assert.equal(await ui.page.getByLabel('App name').inputValue(), 'predict-churn', 'the App is named after the use case, not its id');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
@@ -250,8 +269,7 @@ test('the signed-in person is the decision owner and is shared with by default, 
     await toData(page);
     await advanced(page).click();
     assert.equal(await page.getByLabel('Decision owner').inputValue(), OWNER);
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
     await advanced(page).click();
     const chip = page.getByRole('button', { name: `${OWNER} ×` });
     await chip.waitFor();
@@ -276,15 +294,14 @@ test('a new App that could not get access is disabled up front with the reason, 
   const { page, made } = ui;
   try {
     await toData(page);
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
     const appBox = page.getByRole('checkbox', { name: /^App / });
     await appBox.waitFor();
     assert.equal(await appBox.isDisabled(), true);
     const reason = await page.getByText('Inspire cannot create this App:', { exact: false }).textContent();
     assert.ok(reason.includes(`Inspire cannot create this App: a new App could not read ${RESULT_TABLE}: its service principal needs USE CATALOG on catalog \`main\` (owner admins)`), reason);
     assert.ok(reason.includes('Inspire cannot manage'), reason);
-    assert.equal(await page.getByRole('checkbox', { name: /^Genie space/ }).isDisabled(), false);
+    assert.equal(await page.getByRole('checkbox', { name: /^Genie Agent/ }).isDisabled(), false);
     const warn = page.locator('span.text-warning-fg', { hasText: `${OWNER} may not be able to read the result table` });
     await warn.waitFor();
     assert.equal(await warn.count(), 1, 'the warning shows on the main view, once');
@@ -306,8 +323,7 @@ test('a session that saves under /Shared says on Delivery that everyone can edit
   const { page } = ui;
   try {
     await toData(page);
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
     const note = page.getByRole('note', { name: 'Where Inspire saves the PoC/MVP' });
     await note.waitFor();
     assert.match(await note.textContent(), /^Inspire saves this PoC\/MVP under \/Workspace\/Shared\/demos\/acme_implemented\. Everyone in the workspace can edit/);
@@ -342,8 +358,7 @@ test('every column role starts as Inspire\'s choice, a picked column is type-che
     await role('event date').selectOption('main.s.orders.order_date');
     await role('entity id').selectOption('main.s.orders.order_id');
     await role('event date').selectOption('');
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     assert.deepEqual(submittedSpec(made).data.column_roles, { entity_id: 'main.s.orders.order_id' },
@@ -381,8 +396,8 @@ test('roles an older wizard guessed come back with the version, and one click se
       assert.equal(await role(name).inputValue(), '', `${name} is back to Inspire's choice`);
     }
     assert.equal(await reset.count(), 0, 'with every role on Inspire\'s choice there is nothing to reset');
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
+    await throughApp(page);
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     assert.deepEqual(submittedSpec(made).data.column_roles, {}, 'the reset sends no role');
@@ -416,8 +431,7 @@ test('Next stops when the data to work with has no rows and says what to widen, 
 
     made.state.readinessRows = [{ row_count: '1200' }];
     await eventDate().selectOption('main.s.returns.order_date');
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
     await page.getByText('Inspire found 1,200 rows to work with in main.s.orders. This count leaves out the date window on main.s.returns; the preview run applies it.').waitFor();
     assert.equal(made.jobs.length, 0);
     assert.deepEqual(ui.pageErrors, []);
@@ -440,8 +454,7 @@ test('what blocks a step shows in the footer, opens Advanced on the field to fix
     await page.waitForFunction(() => [...document.querySelectorAll('[role="alert"] p')].length === 1);
     assert.deepEqual(await footerErrors(page), ['name the decision owner']);
     await page.getByLabel('Decision owner').fill('Head of Retention');
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
     await page.getByText('Nobody gets it yet: add an email under Advanced settings.').waitFor();
     assert.equal(await advanced(page).getAttribute('aria-expanded'), 'false');
@@ -469,14 +482,19 @@ test('an App name another App already uses offers the next name, and Implement w
   const { page, made } = ui;
   try {
     await toData(page);
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
     await page.getByRole('checkbox', { name: /^App / }).check();
     await page.getByText("'predict-churn' is used by another App in this workspace; pick another name.", { exact: false }).waitFor();
+    await throughApp(page);
+    await page.locator('[role="alert"] p', { hasText: "App name: 'predict-churn' is used by another App in this workspace; pick another name (fix it on Delivery)" }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Start PoC/MVP', exact: true }).isDisabled(), true);
+    await page.getByRole('button', { name: 'Back' }).click();
+    await page.getByRole('button', { name: 'Back' }).click();
+    await onStep(page, 'Delivery');
     await page.getByRole('button', { name: 'Use predict-churn-2' }).click();
     assert.equal(await page.getByLabel('App name').inputValue(), 'predict-churn-2');
     await page.getByText("'predict-churn-2' is free").waitFor();
+    await throughApp(page);
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     assert.equal(submittedSpec(made).outputs.app_name, 'predict-churn-2');
@@ -508,8 +526,7 @@ test('Change swaps a table for a similar one or drops it, and never offers to dr
     await page.getByLabel('Table to use for main.s.returns').selectOption('__remove__');
     await page.getByText('Removed main.s.returns.', { exact: false }).waitFor();
     await row('main.s.returns').getByRole('button', { name: 'Use it again' }).waitFor();
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     const spec = submittedSpec(made);
@@ -730,9 +747,9 @@ test('a failed output offers its own retry, which submits the next version that 
   const { page, made } = ui;
   try {
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    await page.getByText('The Genie space failed.', { exact: false }).waitFor();
+    await page.getByText('The Genie Agent failed.', { exact: false }).waitFor();
     await studioTab(page, 'Genie');
-    await page.getByText('The Genie space failed on v1: space create 403').waitFor();
+    await page.getByText('The Genie Agent failed on v1: space create 403').waitFor();
     await studioTab(page, 'App');
     await page.locator('table tr').first().waitFor();
     assert.equal(await page.getByText(/failed on v1/).count(), 0);
@@ -741,7 +758,7 @@ test('a failed output offers its own retry, which submits the next version that 
     await page.getByRole('button', { name: 'Retry on the Edit tab' }).click();
     const retries = editPane(page).getByRole('button', { name: /^Retry the / });
     await retries.first().waitFor();
-    assert.deepEqual((await retries.allTextContents()).map((t) => t.trim()), ['Retry the Genie space']);
+    assert.deepEqual((await retries.allTextContents()).map((t) => t.trim()), ['Retry the Genie Agent']);
     assert.equal(await page.getByRole('button', { name: 'Retry on the Edit tab' }).count(), 0, 'the pointer goes once the retries are on screen');
     await retries.first().click();
     await until(() => made.jobs.length === 1, 'the retry implement run');
@@ -778,7 +795,7 @@ test('an output that was built can be rebuilt on its own from the Edit tab, and 
     await rebuilds.first().waitFor();
     assert.deepEqual((await rebuilds.allTextContents()).map((t) => t.trim()), ['Rebuild the App', 'Rebuild the Alert']);
     assert.deepEqual((await editPane(page).getByRole('button', { name: /^Retry the / }).allTextContents()).map((t) => t.trim()),
-      ['Retry the Genie space']);
+      ['Retry the Genie Agent']);
     await editPane(page).getByRole('button', { name: 'Rebuild the App' }).click();
     await until(() => made.jobs.length === 1, 'the rebuild implement run');
     const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
@@ -874,7 +891,7 @@ test('a use case with no PoC offers to start one, reads no result table, and the
     await onStep(never.page, 'Choose');
     assert.equal(await never.page.getByRole('region', { name: 'Executive summary' }).locator('h3').innerText(), HARNESS_USE_CASE.Name);
     const header = never.page.locator('[data-wizard-header]');
-    for (const label of ['Choose', 'Data', 'Delivery']) {
+    for (const label of ['Choose', 'Data', 'Results', 'Delivery']) {
       if (label !== 'Choose') {
         await next(never.page);
         await onStep(never.page, label);
@@ -943,8 +960,7 @@ test('Edit after notebook edits asks on Delivery whether to overwrite them, and 
   const { page, made } = ui;
   try {
     await toData(page);
-    await next(page);
-    await onStep(page, 'Delivery');
+    await toDelivery(page);
     const box = page.getByRole('checkbox', { name: /^Overwrite the edits made to the notebook on / });
     await box.waitFor();
     assert.equal(await box.isChecked(), false, 'an Edit never starts confirmed');
@@ -952,6 +968,7 @@ test('Edit after notebook edits asks on Delivery whether to overwrite them, and 
     await asks.waitFor();
     await box.check();
     await asks.waitFor({ state: 'detached' });
+    await throughApp(page);
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
@@ -966,12 +983,18 @@ test('Edit after notebook edits asks on Delivery whether to overwrite them, and 
   const fresh = await openUi('wizard', { ...STUDIO_STATE, me: { userName: OWNER, displayName: 'Owner' } });
   try {
     await toData(fresh.page);
-    await next(fresh.page);
-    await onStep(fresh.page, 'Delivery');
-    await fresh.page.getByText('nothing changed since the last built version', { exact: false }).waitFor();
-    assert.equal(await fresh.page.getByRole('button', { name: 'Start PoC/MVP', exact: true }).isDisabled(), true, 'an edit with no change cannot submit');
+    await toDelivery(fresh.page);
     assert.equal(await fresh.page.getByRole('checkbox', { name: /^Overwrite the edits/ }).count(), 0, 'no recorded edit, no question');
     assert.equal(await fresh.page.getByLabel('App name').inputValue(), 'churn-desk', 'an edit keeps the live App name');
+    assert.equal(await fresh.page.locator('[data-merge]').count(), 0, 'an output the use case already has is updated in place, never moved');
+    await next(fresh.page);
+    await onStep(fresh.page, 'App access');
+    assert.equal(await fresh.page.getByRole('radio', { name: /^Internal data/ }).isChecked(), true,
+      'an App built before the access choice existed shows the service principal it signs in with');
+    await next(fresh.page);
+    await onStep(fresh.page, 'App look');
+    await fresh.page.getByText('nothing changed since the last built version', { exact: false }).waitFor();
+    assert.equal(await fresh.page.getByRole('button', { name: 'Start PoC/MVP', exact: true }).isDisabled(), true, 'an edit with no change cannot submit');
   } finally {
     await fresh.close();
   }

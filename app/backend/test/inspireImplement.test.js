@@ -77,7 +77,7 @@ const VALID = {
   },
   config: { widgets: { top_k: 25 }, result_table: 'main.inspire.churn_out', warehouse_id: 'wh1' },
   schedule: { enabled: true, cron: '0 0 6 ? * MON', timezone: 'Asia/Dubai' },
-  outputs: { dashboard: true, genie_space: true, app: true, app_name: 'churn-desk' },
+  outputs: { dashboard: true, genie_space: true, app: true, app_name: 'churn-desk', app_access: 'sp' },
   sharing: { principals: [{ type: 'group', name: 'planners' }, { type: 'group', name: 'Planners' }] },
 };
 
@@ -133,7 +133,7 @@ const MUST_REJECT = [
   [{ config: { warehouse_id: 'w', profiles: { training: { window_days: 0 } } } }, 'at least 1'],
   [{ config: { warehouse_id: 'w', profiles: { retrain: { drift_threshold: 3 } } } }, 'drift_threshold'],
   [{ schedule: { failure_emails: ['not-an-email'] } }, 'not an email'],
-  [{ outputs: { genie_space: true, genie_questions: ['a', 'b', 'c', 'd', 'e', 'f'] } }, 'at most 5 Genie space'],
+  [{ outputs: { genie_space: true, genie_questions: ['a', 'b', 'c', 'd', 'e', 'f'] } }, 'at most 5 Genie Agent'],
 ];
 
 for (const [changes, needle] of MUST_REJECT) {
@@ -150,7 +150,7 @@ test('a spec that is not JSON is rejected', () => {
 
 test('the change summary never deletes an unticked output unless asked, and flags the undecided ones', () => {
   const before = spec().spec;
-  const after = spec({ outputs: { dashboard: false, genie_space: true, app: true, app_name: 'churn-desk' } }).spec;
+  const after = spec({ outputs: { dashboard: false, genie_space: true, app: true, app_name: 'churn-desk', app_access: 'sp' } }).spec;
   const assets = { dashboard: 'd1', genie_space: 'g1', app: 'churn-desk' };
   const summary = implementChangeSummary(before, after, assets);
   assert.deepEqual(summary.classes, ['deselect']);
@@ -763,7 +763,7 @@ test('alert options are not checked when the alert is not ticked', () => {
 
 test('the warehouse message names the alert too', () => {
   const { errors } = spec({ config: { widgets: {} }, outputs: { dashboard: false, ...ALERT } });
-  assert.ok(errors.includes('a SQL warehouse is required to build a dashboard, a Genie space, an App or an alert'), JSON.stringify(errors));
+  assert.ok(errors.includes('a SQL warehouse is required to build a dashboard, a Genie Agent, an App or an alert'), JSON.stringify(errors));
 });
 
 test('drift_threshold accepts decimals and rejects hex and booleans like the agent does', () => {

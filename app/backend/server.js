@@ -83,10 +83,7 @@ function hasDatabricksPlatformAuth() {
 
 // Path to the bundled notebook file — try several candidate locations
 // v47: switched from DBC archive to direct JUPYTER (.ipynb) format
-const NOTEBOOK_CANDIDATES = [
-  path.resolve(__dirname, '..', 'dbx_inspire_ai_agent.ipynb'),
-  path.resolve(__dirname, 'dbx_inspire_ai_agent.ipynb'),
-];
+const { NOTEBOOK_CANDIDATES } = require('./lib/appShell');
 let BUNDLED_NOTEBOOK_PATH = NOTEBOOK_CANDIDATES.find(p => fs.existsSync(p)) || '';
 const IS_IPYNB = BUNDLED_NOTEBOOK_PATH.endsWith('.ipynb');
 

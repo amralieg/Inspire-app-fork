@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check } from 'lucide-react';
+import { Loader2, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check, Lock, UserRound, KeyRound } from 'lucide-react';
 import BodyPortal from '../components/BodyPortal';
 import { generationFolder, sharedFolderWarning } from '../lib/workspaceLinks';
 import { catalogRow } from '../lib/useCaseFacets';
@@ -29,7 +29,6 @@ import {
   tableOfRef as refTable,
   columnOfRef as refColumn,
   VALUE_LIMIT,
-  defaultAlertRecipients,
   withDecisionOwner,
   cronInWords,
   cronProblem,
@@ -50,9 +49,35 @@ import {
   APP_NAME_RE,
   START_POC_LABEL,
   RESET_ROLES_LABEL,
+  BUILD_STEP_IDS,
+  APP_ACCESS_CHOICES,
+  APP_OPTIONS,
+  REPLACE_EDITS_QUESTION,
+  REPLACE_EDITS_CHOICES,
+  PER_USER_REASON,
+  APP_STYLES,
+  APP_LAYOUTS,
+  APP_THEMES,
+  LAKEVIEW_STYLE_NOTE,
+  GENIE_FOR_APP_NOTE,
+  RESULT_TABLE_MOVE_NOTE,
+  MERGE_OUTPUTS,
+  resultTableParts,
+  withResultTable,
+  withOutput,
+  withAppAccess,
+  withAppOption,
+  withAppLook,
+  appOptionShown,
+  mergeTargetOf,
+  appMergeBlock,
+  withMergeTarget,
+  mergeTargetText,
 } from '../lib/implementWizard';
 
 const ICONS = { dashboard: LayoutDashboard, genie_space: Sparkles, app: AppWindow, alert: Bell };
+const ASSET_NOUNS = { dashboard: 'a dashboard', genie_space: 'a Genie Agent', app: 'an App', alert: 'an alert' };
+const ACCESS_ICONS = { user: UserRound, sp: KeyRound };
 const NO_WIDGET_GROUPS = { business: [], model: [], ai: [], extras: [], extras_kept_default: [] };
 const COLUMN_ROLES = ['entity_id', 'event_date', 'measure', 'label', 'segment'];
 const ALL_FEATURES = { apps: true, genie_spaces: true, alerts: true };
@@ -186,9 +211,18 @@ export default function ImplementWizard({
   const [endpoints, setEndpoints] = useState([]);
   const [destinations, setDestinations] = useState(null);
   const [destinationsError, setDestinationsError] = useState('');
+  const [targets, setTargets] = useState(null);
+  const [targetsError, setTargetsError] = useState('');
+  const [look, setLook] = useState(null);
+  const [lookError, setLookError] = useState('');
+  const [catalogs, setCatalogs] = useState(null);
+  const [catalogsError, setCatalogsError] = useState('');
+  const [schemas, setSchemas] = useState({});
   const bodyRef = useRef(null);
-  const steps = wizardSteps(mode);
-  const stepId = steps[step].id;
+  const steps = wizardSteps(mode, spec);
+  const stepIndex = Math.min(step, steps.length - 1);
+  const stepId = steps[stepIndex].id;
+  const lastStep = stepIndex === steps.length - 1;
 
   const q = useMemo(() => {
     const p = new URLSearchParams({
@@ -241,6 +275,7 @@ export default function ImplementWizard({
         const next = specFromLatest(data.latest, fallback, data.assets);
         if (!next.config.warehouse_id) next.config.warehouse_id = warehouseId;
         setSpec(next);
+        if (focus?.step === 'review') setStep(initialStepIndex(focus, 'poc', next));
         const lost = (focus?.missingTables || []).map((m) => tablesOf(row)
           .find((t) => [t, next.data.tables[t]].some((n) => String(n || '').toLowerCase() === String(m.table).toLowerCase())))
           .filter(Boolean);
@@ -292,7 +327,7 @@ export default function ImplementWizard({
   const groups = context?.widget_groups || NO_WIDGET_GROUPS;
   const segmentRef = spec.data.column_roles.segment || '';
   const exclusionRefs = (spec.data.filters || []).filter((f) => f.op === 'not in').map((f) => `${f.table}.${f.column}`);
-  const extras = { columnsByTable, widgets: context?.widgets || [], trainsModel };
+  const extras = { columnsByTable, widgets: context?.widgets || [], trainsModel, mergeTargets: targets, held: context?.assets || {}, appLook: look };
   const ownErrors = stepErrors(stepId, spec, extras, mode);
 
   const primaryOriginal = primaryTableOf(ucRow);
@@ -329,20 +364,12 @@ export default function ImplementWizard({
   const goNext = async () => {
     setErrors([]);
     if (stepId === 'choose' || mode === 'notebook') {
-      setStep(step + 1);
+      setStep(stepIndex + 1);
       return;
     }
-    if (blockedBy('data')) return;
-    setChecking('Checking you can write the result table');
+    if (blockedBy(stepId)) return;
     try {
-      const check = await apiFetch(`/api/inspire/implement/output-check?${q}&table=${encodeURIComponent(spec.config.result_table)}`);
-      setOutputCheck(check);
-      if (!check.ok) {
-        setErrors([check.write?.ok ? check.safety?.detail : check.write?.detail].filter(Boolean));
-        setAdvanced((prev) => ({ ...prev, data: true }));
-        return;
-      }
-      if (discoveryType && discoveryType !== 'Standard') {
+      if (stepId === 'data' && discoveryType && discoveryType !== 'Standard') {
         const scope = readinessScope(spec, ucRow);
         if (scope.table) {
           setChecking('Checking the data');
@@ -361,7 +388,16 @@ export default function ImplementWizard({
           }
         }
       }
-      setStep(2);
+      if (stepId === 'results') {
+        setChecking('Checking you can write the result table');
+        const check = await apiFetch(`/api/inspire/implement/output-check?${q}&table=${encodeURIComponent(spec.config.result_table)}`);
+        setOutputCheck(check);
+        if (!check.ok) {
+          setErrors([check.write?.ok ? check.safety?.detail : check.write?.detail].filter(Boolean));
+          return;
+        }
+      }
+      setStep(stepIndex + 1);
     } catch (e) {
       setErrors([e.message]);
     } finally {
@@ -371,15 +407,19 @@ export default function ImplementWizard({
 
   const specKey = JSON.stringify(spec);
   const ownErrorsKey = ownErrors.join('|');
+  const buildStep = BUILD_STEP_IDS.includes(stepId);
+  const planReady = steps.filter((s) => BUILD_STEP_IDS.includes(s.id)).every((s) => !stepErrors(s.id, spec, extras, mode).length);
   useEffect(() => {
-    if (stepId !== 'delivery') return undefined;
+    if (!buildStep) return undefined;
     let cancelled = false;
     setChecksBusy(true);
     const timer = setTimeout(async () => {
-      const planNow = !ownErrorsKey;
+      const planNow = !ownErrorsKey && planReady;
+      const mergeApp = spec.outputs.app ? spec.outputs.merge.app : '';
       const checks = new URLSearchParams({
         result_table: spec.config.result_table,
-        app_name: spec.outputs.app ? spec.outputs.app_name : '',
+        app_name: spec.outputs.app && !mergeApp ? spec.outputs.app_name : '',
+        merge_app: mergeApp,
         alert: spec.outputs.alert ? '1' : '0',
         genie: spec.outputs.genie_space ? '1' : '0',
         dashboard: spec.outputs.dashboard ? '1' : '0',
@@ -400,11 +440,57 @@ export default function ImplementWizard({
       setChecksBusy(false);
     }, 400);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [stepId, specKey, ownErrorsKey, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [buildStep, specKey, ownErrorsKey, planReady, q]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!buildStep || targets !== null) return undefined;
+    let cancelled = false;
+    apiFetch(`/api/inspire/implement/merge-targets?${q}`)
+      .then((data) => { if (!cancelled) setTargets(data.targets || {}); })
+      .catch((e) => {
+        if (cancelled) return;
+        setTargets({});
+        setTargetsError(e.message);
+      });
+    return () => { cancelled = true; };
+  }, [buildStep, targets, apiFetch, q]);
+
+  useEffect(() => {
+    if (!spec.outputs.app || look !== null || lookError) return undefined;
+    let cancelled = false;
+    apiFetch('/api/inspire/implement/app-look')
+      .then((data) => { if (!cancelled) setLook(data); })
+      .catch((e) => { if (!cancelled) setLookError(e.message); });
+    return () => { cancelled = true; };
+  }, [spec.outputs.app, look, lookError, apiFetch]);
+
+  const resultParts = resultTableParts(spec.config.result_table);
+  useEffect(() => {
+    if (stepId !== 'results' || catalogs !== null) return undefined;
+    let cancelled = false;
+    apiFetch(`/api/catalogs?warehouse_id=${encodeURIComponent(warehouseId || '')}`)
+      .then((data) => { if (!cancelled) setCatalogs((data.catalogs || []).map((c) => c.name).filter(Boolean)); })
+      .catch((e) => {
+        if (cancelled) return;
+        setCatalogs([]);
+        setCatalogsError(e.message);
+      });
+    return () => { cancelled = true; };
+  }, [stepId, catalogs, apiFetch, warehouseId]);
+
+  useEffect(() => {
+    const catalog = resultParts.catalog;
+    if (stepId !== 'results' || !catalog || schemas[catalog] || catalogsError) return undefined;
+    let cancelled = false;
+    apiFetch(`/api/catalogs/${encodeURIComponent(catalog)}/schemas?warehouse_id=${encodeURIComponent(warehouseId || '')}`)
+      .then((data) => { if (!cancelled) setSchemas((prev) => ({ ...prev, [catalog]: { names: (data.schemas || []).map((s) => s.name).filter(Boolean) } })); })
+      .catch((e) => { if (!cancelled) setSchemas((prev) => ({ ...prev, [catalog]: { names: [], error: e.message } })); });
+    return () => { cancelled = true; };
+  }, [stepId, resultParts.catalog, schemas, catalogsError, apiFetch, warehouseId]);
 
   const submit = async () => {
     setErrors([]);
-    if (blockedBy('delivery')) return;
+    if (blockedBy(stepId)) return;
     setBusy(true);
     try {
       const data = await apiPostJson('/api/inspire/implement/submit', {
@@ -491,7 +577,7 @@ export default function ImplementWizard({
 
   if (loading) {
     return (
-      <Overlay title={title} uc={uc} steps={steps} step={step} onClose={onClose}>
+      <Overlay title={title} uc={uc} steps={steps} step={stepIndex} onClose={onClose}>
         <div className="flex items-center gap-2 p-8 text-sm text-text-secondary">
           <Loader2 size={16} className="animate-spin" /> Loading the use case…
         </div>
@@ -505,12 +591,22 @@ export default function ImplementWizard({
   const generalChecks = checkEntries.filter(([k]) => !TILE_CHECK_KEYS.includes(k));
   const freshness = freshnessOf(spec.schedule);
   const appTaken = spec.outputs.app && preflight?.checks?.app_name?.ok === false;
+  const deliveryChecks = buildStep && stepId !== 'delivery'
+    ? checkEntries.filter(([, v]) => !v.ok).map(([k, v]) => `${PREFLIGHT_LABELS[k] || k.replace(/_/g, ' ')}: ${v.detail} (fix it on Delivery)`)
+    : [];
+  const earlierGaps = buildStep && lastStep
+    ? steps.filter((s) => BUILD_STEP_IDS.includes(s.id) && s.id !== stepId)
+      .flatMap((s) => stepErrors(s.id, spec, extras, mode).map((e) => `${e} (fix it on ${s.label})`))
+    : [];
   const footerErrors = [...new Set([
     ...(attempted[stepId] ? ownErrors : []),
     ...errors,
-    ...(stepId === 'delivery' ? [planError, preflightError] : []),
+    ...(buildStep ? [lastStep ? planError : '', preflightError, ...deliveryChecks, ...earlierGaps] : []),
   ].filter(Boolean))];
   const implementBlocked = busy || checksBusy || (!ownErrors.length && (!preflight || !preflight.ok || !plan || Boolean(planError)));
+  const mergeFresh = defaultSpecFromUseCase(ucRow).outputs.app_name;
+  const appTarget = mergeTargetOf(targets, 'app', spec.outputs.app ? spec.outputs.merge.app : '');
+  const palette = (look?.palette_colors || []).find((p) => p.id === spec.outputs.app_look.palette) || null;
 
   const pickTable = (original, value) => {
     if (value === REMOVE) {
@@ -526,17 +622,11 @@ export default function ImplementWizard({
     setChanging((prev) => ({ ...prev, [original]: false }));
   };
 
-  const toggleOutput = (id, checked) => {
-    const next = { ...spec.outputs, [id]: checked };
-    if (id === 'alert' && checked && !(next.alert_recipients || []).length) next.alert_recipients = defaultAlertRecipients(spec);
-    const removed = { ...spec.removed_outputs };
-    if (!checked && context?.assets?.[id]) delete removed[id];
-    setSpec((prev) => ({ ...prev, outputs: next, removed_outputs: removed }));
-  };
+  const toggleOutput = (id, checked) => setSpec((prev) => withOutput(prev, id, checked, context?.assets));
 
   return (
-    <Overlay title={title} uc={uc} steps={steps} step={step} onClose={onClose}>
-      <div ref={bodyRef} className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
+    <Overlay title={title} uc={uc} steps={steps} step={stepIndex} onClose={onClose}>
+      <div ref={bodyRef} data-wizard-body="" className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
         {stepId === 'choose' && (
           <>
             <section className="bg-bg border border-border rounded-lg p-4 space-y-3" aria-label="Executive summary">
@@ -763,19 +853,6 @@ export default function ImplementWizard({
                   />
                 ))}
               </div>
-              <Field label="Output table">
-                <input className={inputCls} value={spec.config.result_table} onChange={(e) => { patch('config.result_table', e.target.value); setOutputCheck(null); }} />
-                {outputCheck ? (
-                  <div className="text-[11px] space-y-0.5">
-                    <p className={outputCheck.write?.ok ? 'text-success-fg' : 'text-error-fg'}>{outputCheck.write?.detail}</p>
-                    {outputCheck.write?.ok && <p className={outputCheck.safety?.ok ? 'text-success-fg' : 'text-error-fg'}>{outputCheck.safety?.detail}</p>}
-                    {outputCheck.write?.ok && outputCheck.safety?.ok && <p className="text-text-tertiary">Sharing: {outputCheck.grant?.detail}</p>}
-                    {outputCheck.identity && <p className="text-text-tertiary">Checked live as {outputCheck.identity}.</p>}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-text-tertiary">Next checks live that you can create or write this table. Inspire writes only here.</p>
-                )}
-              </Field>
               <p className="text-[11px] text-text-tertiary">
                 {discoveryType === 'Deep' ? 'Deep discovery: Next counts the rows to work with.' : 'metadata only, readiness checked at preview run'}
               </p>
@@ -827,6 +904,19 @@ export default function ImplementWizard({
           </>
         )}
 
+        {stepId === 'results' && (
+          <ResultTableStep
+            parts={resultParts}
+            table={spec.config.result_table}
+            defaultTable={defaultSpecFromUseCase(ucRow, { inspireDatabase }).config.result_table}
+            catalogs={catalogs}
+            catalogsError={catalogsError}
+            schemas={schemas[resultParts.catalog]}
+            outputCheck={outputCheck}
+            onChange={(parts) => { setSpec((prev) => withResultTable(prev, parts)); setOutputCheck(null); }}
+          />
+        )}
+
         {stepId === 'delivery' && (
           <>
             {readinessText(readiness, readiness?.scope) && (
@@ -848,20 +938,36 @@ export default function ImplementWizard({
                     || (item.id === 'alert' && !features.alerts);
                   const tileChecks = (TILE_CHECKS[item.id] || []).map((k) => [k, preflight?.checks?.[k]])
                     .filter(([k, v]) => v && !v.ok && on && !(k === 'app_name' && appTaken));
+                  const locked = item.id === 'genie_space' && spec.outputs.app;
+                  const mergeable = on && MERGE_OUTPUTS.includes(item.id) && !context?.assets?.[item.id];
                   return (
-                    <div key={item.id} className={`border rounded-lg p-3 space-y-2 ${on ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
-                      <label className="flex items-start gap-3 cursor-pointer">
-                        <input type="checkbox" className="mt-0.5" checked={on} disabled={unavailable && !on} onChange={(e) => toggleOutput(item.id, e.target.checked)} />
+                    <div key={item.id} data-output={item.id} className={`border rounded-lg p-3 space-y-2 ${on ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
+                      <label className={`flex items-start gap-3 ${locked ? '' : 'cursor-pointer'}`}>
+                        <input type="checkbox" className="mt-0.5" checked={on} disabled={(unavailable && !on) || locked} onChange={(e) => toggleOutput(item.id, e.target.checked)} />
                         <span className="flex-1">
-                          <span className="flex items-center gap-2 text-sm font-semibold text-text-primary"><Icon size={14} /> {item.label}</span>
+                          <span className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+                            <Icon size={14} /> {item.label}
+                            {locked && <Lock size={12} className="text-text-tertiary" aria-hidden="true" />}
+                          </span>
                           <span className={`block text-[11px] mt-1 ${unavailable ? 'text-error-fg' : 'text-text-secondary'}`}>
-                            {!unavailable && item.blurb}
+                            {!unavailable && (locked ? GENIE_FOR_APP_NOTE : item.blurb)}
                             {unavailable && noAppAccess && `Inspire cannot create this App: ${outputCheck.app.detail}.${on ? ' Turn it off, or fix the access and check again.' : ''}`}
                             {unavailable && !noAppAccess && (on ? 'You cannot create this in this workspace any more. Turn it off, or ask a workspace admin.' : 'You cannot create this in this workspace.')}
                           </span>
                         </span>
                       </label>
-                      {on && item.id === 'app' && (
+                      {mergeable && (
+                        <MergeChoice
+                          name={item.id}
+                          label={item.label}
+                          chosen={spec.outputs.merge[item.id]}
+                          targets={targets}
+                          targetsError={targetsError}
+                          access={spec.outputs.app_access}
+                          onPick={(target) => { setSpec((prev) => withMergeTarget(prev, item.id, target, mergeFresh)); }}
+                        />
+                      )}
+                      {on && item.id === 'app' && !spec.outputs.merge.app && (
                         <div className="pl-7 space-y-1">
                           <Field label="App name">
                             <input className={inputCls} value={spec.outputs.app_name} onChange={(e) => patch('outputs.app_name', e.target.value.toLowerCase())} />
@@ -892,7 +998,7 @@ export default function ImplementWizard({
                       {tileChecks.map(([k, v]) => <div key={k} className="pl-7"><CheckLine check={v} label={PREFLIGHT_LABELS[k] || k} /></div>)}
                       {!on && context?.assets?.[item.id] && (
                         <div className="pl-7 space-y-1 text-[11px]">
-                          <p className="text-text-secondary">This use case already has a {item.label.toLowerCase()}. What should happen to it?</p>
+                          <p className="text-text-secondary">This use case already has {ASSET_NOUNS[item.id]}. What should happen to it?</p>
                           <div className="flex gap-3">
                             <label><input type="radio" checked={spec.removed_outputs[item.id] === 'delete'} onChange={() => patch('removed_outputs', { ...spec.removed_outputs, [item.id]: 'delete' })} /> Delete it</label>
                             <label><input type="radio" checked={spec.removed_outputs[item.id] === 'keep'} onChange={() => patch('removed_outputs', { ...spec.removed_outputs, [item.id]: 'keep' })} /> Keep it unmanaged</label>
@@ -960,8 +1066,8 @@ export default function ImplementWizard({
               )}
               {spec.outputs.genie_space && (
                 <div className="space-y-2">
-                  <h4 className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Genie space</h4>
-                  <input className={inputCls} placeholder="Space name" value={spec.outputs.genie_space_name} onChange={(e) => patch('outputs.genie_space_name', e.target.value)} />
+                  <h4 className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Genie Agent</h4>
+                  <input className={inputCls} placeholder="Agent name" value={spec.outputs.genie_space_name} onChange={(e) => patch('outputs.genie_space_name', e.target.value)} />
                   <textarea className={inputCls} rows={4} placeholder="Up to 5 questions, one per line" value={(spec.outputs.genie_questions || []).join('\n')} onChange={(e) => patch('outputs.genie_questions', e.target.value.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 5))} />
                 </div>
               )}
@@ -1105,6 +1211,26 @@ export default function ImplementWizard({
             </Advanced>
           </>
         )}
+
+        {stepId === 'app_access' && (
+          <AppAccessStep
+            spec={spec}
+            target={appTarget}
+            onAccess={(access) => setSpec((prev) => withAppAccess(prev, access))}
+            onOption={(key, value) => setSpec((prev) => withAppOption(prev, key, value))}
+          />
+        )}
+
+        {stepId === 'app_look' && (
+          <AppLookStep
+            spec={spec}
+            look={look}
+            lookError={lookError}
+            palette={palette}
+            target={appTarget}
+            onLook={(key, value) => setSpec((prev) => withAppLook(prev, key, value))}
+          />
+        )}
       </div>
 
       <footer className="border-t border-border px-6 py-3 space-y-2">
@@ -1116,13 +1242,13 @@ export default function ImplementWizard({
         <div className="flex items-center justify-between gap-3">
           <button
             type="button"
-            className={`inline-flex items-center gap-1 text-xs text-text-secondary ${step === 0 ? 'invisible' : ''}`}
-            disabled={step === 0 || busy}
-            onClick={() => { setErrors([]); setStep(step - 1); }}
+            className={`inline-flex items-center gap-1 text-xs text-text-secondary ${stepIndex === 0 ? 'invisible' : ''}`}
+            disabled={stepIndex === 0 || busy}
+            onClick={() => { setErrors([]); setStep(stepIndex - 1); }}
           >
             <ChevronLeft size={14} /> Back
           </button>
-          {['choose', 'data'].includes(stepId) ? (
+          {stepId !== 'notebook' && !lastStep ? (
             <button
               type="button"
               disabled={Boolean(checking)}
@@ -1155,6 +1281,404 @@ export default function ImplementWizard({
         </div>
       </footer>
     </Overlay>
+  );
+}
+
+const LEGEND = 'text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary';
+const ACCESS_SHORT = { user: 'each person signs in', sp: 'its own service principal' };
+
+function SegmentButton({ on, disabled = false, onClick, children }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      disabled={disabled}
+      onClick={onClick}
+      className={`px-3 py-1 text-[11px] font-medium border-r border-border last:border-r-0 disabled:cursor-not-allowed ${on ? 'bg-db-red-solid text-white' : 'bg-surface text-text-secondary hover:text-text-primary'}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function MergeChoice({ name, label, chosen, targets, targetsError, access, onPick }) {
+  const list = (targets && targets[name]) || [];
+  const target = mergeTargetOf(targets, name, chosen);
+  const blockOf = (t) => (name === 'app' ? appMergeBlock({ outputs: { app_access: access } }, t) : '');
+  const open = list.find((t) => !blockOf(t)) || null;
+  const block = target ? blockOf(target) : '';
+  const optionText = (t) => [t.name, `holds ${mergeTargetText(t)}`, name === 'app' ? ACCESS_SHORT[t.access] : '', blockOf(t) ? 'per-user use cases cannot join' : '']
+    .filter(Boolean).join(' · ');
+  return (
+    <div className="pl-7 space-y-1.5" data-merge={name}>
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label={`Where Genie builds the ${label}`} className="inline-flex rounded-md border border-border overflow-hidden">
+          <SegmentButton on={!chosen} onClick={() => onPick(null)}>Create new</SegmentButton>
+          <SegmentButton on={Boolean(chosen)} disabled={!chosen && !open} onClick={() => { if (!chosen) onPick(open); }}>Add to an existing one</SegmentButton>
+        </div>
+        {!chosen && targets === null && <span className="text-[11px] text-text-tertiary"><Loader2 size={11} className="inline animate-spin" /> Finding the ones Inspire built</span>}
+        {!chosen && targets !== null && !targetsError && !list.length && <span className="text-[11px] text-text-tertiary">Inspire has built none yet</span>}
+        {!chosen && targets !== null && !targetsError && list.length > 0 && !open && <span className="text-[11px] text-text-tertiary">none can take a per-user use case</span>}
+      </div>
+      {targetsError && <p className="text-[11px] text-text-tertiary">Inspire could not list the {label}s it built ({targetsError}), so Genie creates a new one.</p>}
+      {chosen && (
+        <>
+          <select aria-label={`${label} to add this use case to`} className={inputCls} value={chosen} onChange={(e) => onPick(mergeTargetOf(targets, name, e.target.value))}>
+            {!target && <option value={chosen}>{chosen}</option>}
+            {list.map((t) => <option key={t.id} value={t.id} disabled={Boolean(blockOf(t)) && t.id !== chosen}>{optionText(t)}</option>)}
+          </select>
+          {target && !block && (
+            <p className="text-[11px] text-text-secondary">
+              Adds this use case to {target.name}, which holds {mergeTargetText(target)}{name === 'app' ? `; ${target.access === 'user' ? 'each person signs in as themselves' : 'it signs in with its own service principal'}` : ''}.
+            </p>
+          )}
+          {!target && targets !== null && <p className="text-[11px] text-error-fg">{chosen} is not one Inspire built that you can open: pick another, or choose Create new.</p>}
+          {block && <p className="text-[11px] text-error-fg">{block}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ResultTableStep({ parts, table, defaultTable, catalogs, catalogsError, schemas, outputCheck, onChange }) {
+  const set = (key, value) => onChange({ ...parts, [key]: value, ...(key === 'catalog' && value !== parts.catalog ? { schema: '' } : {}) });
+  const catalogOptions = [...new Set([parts.catalog, ...(catalogs || [])].filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const schemaOptions = [...new Set([parts.schema, ...((schemas && schemas.names) || [])].filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const typeCatalog = Boolean(catalogsError);
+  const typeSchema = typeCatalog || Boolean(schemas && schemas.error);
+  return (
+    <section className="space-y-4" aria-label="Where the result table lives">
+      <div>
+        <h3 className="text-sm font-semibold text-text-primary">Where should the result table live?</h3>
+        <p className="text-[11px] text-text-tertiary">Genie writes this PoC/MVP&apos;s results to this table, and Inspire writes nowhere else. Next checks live that you can create or write it.</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Field label="Catalog">
+          {typeCatalog ? (
+            <input className={inputCls} value={parts.catalog} onChange={(e) => set('catalog', e.target.value.trim())} />
+          ) : (
+            <select className={inputCls} value={parts.catalog} onChange={(e) => set('catalog', e.target.value)}>
+              {!parts.catalog && <option value="">Pick a catalog</option>}
+              {catalogOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+              {catalogs === null && <option disabled value="__loading__">Loading catalogs…</option>}
+            </select>
+          )}
+        </Field>
+        <Field label="Schema">
+          {typeSchema ? (
+            <input className={inputCls} value={parts.schema} onChange={(e) => set('schema', e.target.value.trim())} />
+          ) : (
+            <select className={inputCls} value={parts.schema} disabled={!parts.catalog} onChange={(e) => set('schema', e.target.value)}>
+              {!parts.schema && <option value="">{parts.catalog ? 'Pick a schema' : 'Pick a catalog first'}</option>}
+              {schemaOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+              {parts.catalog && !schemas && <option disabled value="__loading__">Loading schemas…</option>}
+            </select>
+          )}
+        </Field>
+        <Field label="Table name">
+          <input className={inputCls} value={parts.table} onChange={(e) => set('table', e.target.value.trim())} />
+        </Field>
+      </div>
+      {(catalogsError || (schemas && schemas.error)) && (
+        <p className="text-[11px] text-text-secondary">
+          Inspire could not list the {catalogsError ? 'catalogs' : 'schemas'} ({catalogsError || schemas.error}), so type the name instead.
+        </p>
+      )}
+      <div className="rounded-lg border border-border bg-bg px-3 py-2.5 space-y-1" role="group" aria-label="Result table">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <span className="font-mono text-[12px] text-text-primary break-all">{table || 'catalog.schema.table'}</span>
+          {defaultTable && table === defaultTable && <span className={LEGEND}>Inspire&apos;s default</span>}
+          {defaultTable && table !== defaultTable && (
+            <button type="button" className="text-[11px] text-db-red-fg shrink-0" onClick={() => onChange(resultTableParts(defaultTable))}>
+              Use the default, {defaultTable}
+            </button>
+          )}
+        </div>
+        <p className="text-[11px] text-text-tertiary">The default sits in the Inspire Database and is named after the use case.</p>
+      </div>
+      {outputCheck && (
+        <div className="text-[11px] space-y-0.5" aria-label="Result table check">
+          <p className={outputCheck.write?.ok ? 'text-success-fg' : 'text-error-fg'}>{outputCheck.write?.detail}</p>
+          {outputCheck.write?.ok && <p className={outputCheck.safety?.ok ? 'text-success-fg' : 'text-error-fg'}>{outputCheck.safety?.detail}</p>}
+          {outputCheck.write?.ok && outputCheck.safety?.ok && <p className="text-text-tertiary">Sharing: {outputCheck.grant?.detail}</p>}
+          {outputCheck.identity && <p className="text-text-tertiary">Checked live as {outputCheck.identity}.</p>}
+        </div>
+      )}
+      <p role="note" aria-label="Moving the result table" className="text-[11px] text-text-secondary">{RESULT_TABLE_MOVE_NOTE}</p>
+    </section>
+  );
+}
+
+function AppAccessStep({ spec, target, onAccess, onOption }) {
+  const access = spec.outputs.app_access;
+  const options = spec.outputs.app_options;
+  const block = appMergeBlock({ outputs: { app_access: 'user' } }, target);
+  return (
+    <section className="space-y-5" aria-label="App access">
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-semibold text-text-primary">Who does the App sign people in as?</legend>
+        <p className="text-[11px] text-text-tertiary">
+          Required, with no default: it decides whose access every page, chart and Genie answer reads with.{target ? ` This use case joins ${target.name}.` : ''}
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          {APP_ACCESS_CHOICES.map((choice) => {
+            const Icon = ACCESS_ICONS[choice.id];
+            const blocked = choice.id === 'user' && Boolean(block);
+            const checked = access === choice.id;
+            return (
+              <label
+                key={choice.id}
+                aria-disabled={blocked ? 'true' : undefined}
+                className={`flex items-start gap-2.5 border rounded-lg p-3 glow-focus ${blocked ? 'cursor-not-allowed border-dashed border-border bg-bg-subtle' : `cursor-pointer ${checked ? 'border-db-red bg-db-red-50' : 'border-border hover:border-border-strong'}`}`}
+              >
+                <input type="radio" name="app-access" value={choice.id} checked={checked} disabled={blocked} onChange={() => onAccess(choice.id)} className="mt-0.5" />
+                <span className="space-y-1">
+                  <span className="flex items-start gap-1.5 text-sm font-semibold text-text-primary"><Icon size={14} className="mt-0.5 shrink-0" aria-hidden="true" />{choice.label}</span>
+                  <span className="block text-[12px] text-text-secondary">{choice.blurb}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        {block && <p className="text-[11px] text-error-fg" role="note" aria-label="Why per-user sign-in is off">{block}</p>}
+        {target && target.access === 'user' && access === 'sp' && (
+          <p className="text-[11px] text-text-secondary">{target.name} signs each person in as themselves, so this use case&apos;s page does too.</p>
+        )}
+      </fieldset>
+      <fieldset className="space-y-2">
+        <legend className={LEGEND}>What people can do in the App</legend>
+        <p className="text-[11px] text-text-tertiary">Each one stays off unless you turn it on.</p>
+        <div className="space-y-2.5 pt-1">
+          {APP_OPTIONS.filter((o) => appOptionShown(spec, o.id)).map((o) => (
+            <div key={o.id}>
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input type="checkbox" className="mt-0.5" checked={Boolean(options[o.id])} onChange={(e) => onOption(o.id, e.target.checked)} />
+                <span>
+                  <span className="block text-[12px] font-medium text-text-primary">{o.label}</span>
+                  <span className="block text-[11px] text-text-secondary">{o.blurb}</span>
+                </span>
+              </label>
+              {o.id === 'modify' && appOptionShown(spec, 'replace_edits') && (
+                <div role="radiogroup" aria-label={REPLACE_EDITS_QUESTION} className="ml-6 mt-2 border-l-2 border-border pl-3 space-y-1">
+                  <p className="text-[12px] font-medium text-text-primary">{REPLACE_EDITS_QUESTION}</p>
+                  {REPLACE_EDITS_CHOICES.map((c) => (
+                    <label key={String(c.id)} className="flex items-start gap-2 text-[11px] cursor-pointer">
+                      <input type="radio" name="replace-edits" className="mt-0.5" checked={Boolean(options.replace_edits) === c.id} onChange={() => onOption('replace_edits', c.id)} />
+                      <span>
+                        <span className="font-medium text-text-primary">{c.label}{c.id ? '' : ' (default)'}</span>
+                        <span className="text-text-secondary">: {c.blurb}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        {access === 'user' && <p className="text-[11px] text-text-secondary" role="note" aria-label="Why some options are hidden">{PER_USER_REASON}</p>}
+      </fieldset>
+    </section>
+  );
+}
+
+function paletteVars(palette, theme) {
+  const p = palette ? palette[theme === 'dark' ? 'dark' : 'light'] : null;
+  if (!p || !p.base || !p.hues) return null;
+  const vars = {};
+  for (const [key, value] of Object.entries(p.base)) vars[`--pv-${key}`] = value;
+  Object.values(p.hues).forEach((hue, i) => {
+    for (const [key, value] of Object.entries(hue)) vars[`--pv-h${i}-${key}`] = value;
+  });
+  return vars;
+}
+
+const pv = (name) => `var(--pv-${name})`;
+const BARS = [45, 70, 55, 90, 65, 80];
+
+function PreviewBars({ hue = 0 }) {
+  return BARS.map((h, i) => <span key={i} className="block flex-1 rounded-t-[1px]" style={{ height: `${h}%`, background: pv(`h${(hue + i) % 3}-line`) }} />);
+}
+
+function StylePreview({ style, palette, theme }) {
+  const vars = paletteVars(palette, theme);
+  if (!vars) return <span aria-hidden="true" className="block h-[68px] rounded-md bg-bg-subtle animate-pulse" />;
+  const card = { background: pv('card'), border: `1px solid ${pv('line')}` };
+  if (style === 'b') {
+    return (
+      <span aria-hidden="true" data-preview="style-b" className="flex h-[68px] flex-col gap-1 overflow-hidden rounded-md p-1.5" style={{ ...vars, background: pv('bg') }}>
+        <span className="flex items-center justify-between rounded-[6px] px-1.5 py-[3px]" style={{ background: pv('h0-bg'), border: `1px solid ${pv('line')}` }}>
+          <span className="text-[9px] font-semibold leading-none" style={{ color: pv('h0-ink') }}>Aa</span>
+          <span className="block h-[6px] w-5 rounded-full" style={{ border: `1px solid ${pv('line-strong')}`, background: pv('card') }} />
+        </span>
+        <span className="grid grid-cols-3 gap-1">
+          {[0, 1, 2].map((i) => <span key={i} className="block h-[12px] rounded-[4px]" style={{ background: pv(`h${i}-bg`), border: `1px solid ${pv('line')}`, borderLeft: `3px solid ${pv(`h${i}-line`)}` }} />)}
+        </span>
+        <span className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[6px]" style={card}>
+          <span className="block h-[5px] shrink-0" style={{ background: pv('h0-bg'), borderBottom: `1px solid ${pv('line')}` }} />
+          <span className="flex flex-1 items-end gap-[3px] px-1.5 pb-1"><PreviewBars /></span>
+        </span>
+      </span>
+    );
+  }
+  if (style === 'c') {
+    return (
+      <span aria-hidden="true" data-preview="style-c" className="flex h-[68px] flex-col gap-1 overflow-hidden rounded-md p-1.5" style={{ ...vars, background: pv('card'), border: `1px solid ${pv('line')}` }}>
+        <span className="text-[13px] font-semibold leading-none" style={{ color: pv('ink'), fontFamily: 'Georgia, "Times New Roman", serif' }}>Aa</span>
+        <span className="grid grid-cols-3" style={{ borderTop: `1px solid ${pv('line')}`, borderBottom: `1px solid ${pv('line')}` }}>
+          {[0, 1, 2].map((i) => (
+            <span key={i} className="flex h-[12px] items-center px-1" style={i ? { borderLeft: `1px solid ${pv('line')}` } : undefined}>
+              <span className="block h-[5px] w-3/5 rounded-sm" style={{ background: pv(`h${i}-ink`) }} />
+            </span>
+          ))}
+        </span>
+        <span className="flex min-h-0 flex-1 items-end gap-[3px] rounded-[6px] px-1.5 pb-1 pt-1" style={{ background: pv('well') }}><PreviewBars /></span>
+      </span>
+    );
+  }
+  return (
+    <span aria-hidden="true" data-preview="style-a" className="flex h-[68px] flex-col gap-1 overflow-hidden rounded-md p-1.5" style={{ ...vars, background: pv('bg') }}>
+      <span className="text-[9px] font-semibold leading-none" style={{ color: pv('ink') }}>Aa</span>
+      <span className="grid grid-cols-3 gap-1">
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="relative block h-[12px] overflow-hidden rounded-[3px]" style={{ ...card, boxShadow: '0 1px 2px rgba(0,0,0,.04)' }}>
+            <span className="absolute left-1 top-[3px] block h-[3px] w-1/2 rounded-sm" style={{ background: pv('muted') }} />
+            <span className="absolute bottom-0 left-1 right-1 block h-[2px] rounded-t-sm" style={{ background: pv(`h${i}-line`) }} />
+          </span>
+        ))}
+      </span>
+      <span className="flex min-h-0 flex-1 items-end gap-[3px] rounded-[3px] px-1.5 pb-1 pt-1" style={card}><PreviewBars /></span>
+    </span>
+  );
+}
+
+function LayoutPreview({ layout, palette, theme }) {
+  const vars = paletteVars(palette, theme);
+  if (!vars) return <span aria-hidden="true" className="block h-[52px] rounded-md bg-bg-subtle animate-pulse" />;
+  const card = (i) => <span key={i} className="block min-h-0 flex-1 rounded-[3px]" style={{ background: pv('card'), border: `1px solid ${pv('line')}` }} />;
+  const frame = { ...vars, background: pv('bg'), border: `1px solid ${pv('line')}` };
+  if (layout === 'tabs') {
+    return (
+      <span aria-hidden="true" data-preview="layout-tabs" className="flex h-[52px] flex-col overflow-hidden rounded-md" style={frame}>
+        <span className="flex items-end gap-1.5 px-1.5 pt-1.5" style={{ background: pv('card'), borderBottom: `1px solid ${pv('line')}` }}>
+          {[0, 1, 2].map((i) => <span key={i} className="block h-[7px] w-5" style={{ borderBottom: `2px solid ${i ? 'transparent' : pv('brand')}` }}><span className="block h-[3px] w-full rounded-sm" style={{ background: i ? pv('faint') : pv('ink') }} /></span>)}
+        </span>
+        <span className="flex flex-1 gap-1 p-1.5">{[0, 1].map(card)}</span>
+      </span>
+    );
+  }
+  if (layout === 'home') {
+    return (
+      <span aria-hidden="true" data-preview="layout-home" className="flex h-[52px] flex-col gap-1 overflow-hidden rounded-md p-1.5" style={frame}>
+        <span className="block h-[4px] w-1/3 rounded-sm" style={{ background: pv('ink') }} />
+        <span className="grid flex-1 grid-cols-3 gap-1">
+          {[0, 1, 2].map((i) => <span key={i} className="block rounded-[3px]" style={{ background: pv('card'), border: `1px solid ${pv('line')}`, borderTop: `2px solid ${pv(`h${i}-line`)}` }} />)}
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span aria-hidden="true" data-preview="layout-sidebar" className="flex h-[52px] overflow-hidden rounded-md" style={frame}>
+      <span className="flex w-[30%] flex-col gap-1 p-1.5" style={{ background: pv('panel'), borderRight: `1px solid ${pv('line')}` }}>
+        {[0, 1, 2].map((i) => <span key={i} className="block h-[5px] rounded-sm" style={i ? { background: pv('line-strong') } : { background: pv('brand-wash'), borderLeft: `2px solid ${pv('brand')}` }} />)}
+      </span>
+      <span className="flex flex-1 flex-col gap-1 p-1.5">
+        <span className="block h-[4px] w-1/2 rounded-sm" style={{ background: pv('ink') }} />
+        <span className="flex flex-1 gap-1">{[0, 1].map(card)}</span>
+      </span>
+    </span>
+  );
+}
+
+function LookCard({ name, value, checked, onChange, label, badge = '', blurb = '', children }) {
+  return (
+    <label className={`block border rounded-lg p-2 space-y-1.5 cursor-pointer glow-focus ${checked ? 'border-db-red bg-db-red-50' : 'border-border hover:border-border-strong'}`}>
+      {children}
+      <span className="flex items-center gap-2">
+        <input type="radio" name={name} value={value} checked={checked} onChange={onChange} />
+        <span className="text-[12px] font-semibold text-text-primary">{label}</span>
+        {badge && <span className="ml-auto rounded-full border border-border bg-surface px-1.5 py-px text-[10px] text-text-secondary">{badge}</span>}
+      </span>
+      {blurb && <span className="block text-[11px] leading-snug text-text-secondary">{blurb}</span>}
+    </label>
+  );
+}
+
+const paletteLabel = (id) => id.charAt(0).toUpperCase() + id.slice(1);
+
+function AppLookStep({ spec, look, lookError, palette, target, onLook }) {
+  const chosen = spec.outputs.app_look;
+  const palettes = look?.palette_colors || [];
+  return (
+    <section className="space-y-4" aria-label="App look">
+      <div>
+        <h3 className="text-sm font-semibold text-text-primary">How should the App look?</h3>
+        <p className="text-[11px] text-text-tertiary">
+          Each preview draws with the palette and the mode you pick.{target ? ` The look applies to every use case in ${target.name}.` : ''}
+        </p>
+        {lookError && <p className="text-[11px] text-error-fg">Inspire could not read the App looks from its agent notebook: {lookError}</p>}
+      </div>
+      <fieldset className="space-y-2">
+        <legend className={LEGEND}>Style</legend>
+        <div className="grid grid-cols-3 gap-3 pt-1">
+          {APP_STYLES.map((s) => (
+            <LookCard key={s.id} name="app-style" value={s.id} checked={chosen.style === s.id} onChange={() => onLook('style', s.id)}
+              label={s.label} badge={s.id === 'a' ? 'Lakeview look' : ''} blurb={s.blurb}>
+              <StylePreview style={s.id} palette={palette} theme={chosen.theme} />
+            </LookCard>
+          ))}
+        </div>
+        <p className="text-[11px] text-text-secondary">{LAKEVIEW_STYLE_NOTE}</p>
+      </fieldset>
+      <fieldset className="space-y-2">
+        <legend className={LEGEND}>Layout</legend>
+        <div className="grid grid-cols-3 gap-3 pt-1">
+          {APP_LAYOUTS.map((l) => (
+            <LookCard key={l.id} name="app-layout" value={l.id} checked={chosen.layout === l.id} onChange={() => onLook('layout', l.id)} label={l.label} blurb={l.blurb}>
+              <LayoutPreview layout={l.id} palette={palette} theme={chosen.theme} />
+            </LookCard>
+          ))}
+        </div>
+      </fieldset>
+      <div className="grid grid-cols-[1fr_auto] items-start gap-5">
+        <fieldset className="space-y-2">
+          <legend className={LEGEND}>Palette</legend>
+          <div className="grid grid-cols-7 gap-1.5 pt-1">
+            {(palettes.length ? palettes : (look?.palettes || [])).map((p) => {
+              const id = typeof p === 'string' ? p : p.id;
+              const colors = typeof p === 'string' ? null : p[chosen.theme === 'dark' ? 'dark' : 'light'];
+              const checked = chosen.palette === id;
+              return (
+                <label key={id} className={`block cursor-pointer rounded-md p-1 glow-focus ${checked ? 'bg-db-red-50 ring-2 ring-db-red' : 'hover:bg-bg-subtle'}`}>
+                  <input type="radio" name="app-palette" value={id} className="sr-only" checked={checked} onChange={() => onLook('palette', id)} />
+                  <span aria-hidden="true" data-swatch={id} className="flex h-6 gap-px overflow-hidden rounded p-[3px]"
+                    style={colors ? { background: colors.base.bg, border: `1px solid ${colors.base['line-strong'] || colors.base.line}` } : undefined}>
+                    {colors && Object.values(colors.hues).map((hue, i) => <span key={i} className="block flex-1 rounded-[1px]" style={{ background: hue.line }} />)}
+                  </span>
+                  <span className="mt-1 block text-center text-[10px] text-text-secondary">{paletteLabel(id)}</span>
+                </label>
+              );
+            })}
+            {!look && !lookError && Array.from({ length: 13 }, (_, i) => <span key={i} aria-hidden="true" className="block h-[46px] rounded-md bg-bg-subtle animate-pulse" />)}
+          </div>
+        </fieldset>
+        <fieldset className="space-y-2">
+          <legend className={LEGEND}>Mode</legend>
+          <div role="group" aria-label="Light or dark" className="inline-flex rounded-lg border border-border overflow-hidden mt-1">
+            {APP_THEMES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                aria-pressed={chosen.theme === t.id}
+                onClick={() => onLook('theme', t.id)}
+                className={`px-4 py-1.5 text-xs font-medium border-r border-border last:border-r-0 ${chosen.theme === t.id ? 'bg-db-red-solid text-white' : 'bg-surface text-text-secondary hover:text-text-primary'}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+    </section>
   );
 }
 

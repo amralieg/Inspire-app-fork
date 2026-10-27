@@ -1,10 +1,12 @@
+const { appShellCatalog } = require('./appShell');
+
 const IMPLEMENT_OPERATION = 'Implement Use Cases';
 const IMPLEMENT_TABLE = '__inspire_implement';
 const IMPLEMENT_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs', 'ready', 'ready_with_warnings', 'failed'];
 const IMPLEMENT_ACTIVE_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs'];
 const IMPLEMENT_DONE_STATUSES = ['ready', 'ready_with_warnings'];
 const IMPLEMENT_OUTPUTS = ['dashboard', 'genie_space', 'app', 'alert'];
-const IMPLEMENT_OUTPUT_LABELS = { dashboard: 'Dashboard', genie_space: 'Genie space', app: 'App', alert: 'Alert' };
+const IMPLEMENT_OUTPUT_LABELS = { dashboard: 'Dashboard', genie_space: 'Genie Agent', app: 'App', alert: 'Alert' };
 const IMPLEMENT_OUTPUT_ID_COLUMNS = { dashboard: 'dashboard_id', genie_space: 'genie_space_id', app: 'app_name', alert: 'alert_id' };
 const IMPLEMENT_STOPPED_STATES = ['deleted', 'released'];
 const IMPLEMENT_RUN_ENDED_STATES = ['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR'];
@@ -16,10 +18,18 @@ const IMPLEMENT_COLUMN_ROLES = ['entity_id', 'event_date', 'measure', 'label', '
 const IMPLEMENT_OUTPUT_OPTIONS = {
   dashboard: ['dashboard_name', 'dashboard_filters'],
   genie_space: ['genie_space_name', 'genie_questions'],
-  app: ['app_purpose'],
+  app: ['app_purpose', 'app_access', 'app_look', 'app_options'],
   alert: ['alert_name', 'alert_tiers', 'alert_operator', 'alert_threshold', 'alert_condition_text', 'alert_recipients',
     'alert_destinations'],
 };
+const IMPLEMENT_APP_LOOK_DEFAULT = { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' };
+const IMPLEMENT_APP_LOOK_LISTS = { style: 'styles', layout: 'layouts', palette: 'palettes', theme: 'themes' };
+const IMPLEMENT_APP_OPTION_KEYS = ['download', 'modify', 'replace_edits', 'decisions'];
+const IMPLEMENT_PER_USER_OFF = ['download', 'decisions'];
+const IMPLEMENT_MERGE_OUTPUTS = ['app', 'dashboard', 'genie_space'];
+const IMPLEMENT_MERGE_NOUNS = { app: 'an App', dashboard: 'a dashboard', genie_space: 'a Genie Agent' };
+const IMPLEMENT_MERGE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const IMPLEMENT_MERGE_TARGET_CAP = 40;
 const IMPLEMENT_ALERT_TIER_SETS = { act_now: ['Act now'], act_now_review: ['Act now', 'Review'] };
 const IMPLEMENT_ALERT_OPERATORS = ['>=', '>', '=', '!=', '<', '<='];
 const IMPLEMENT_ALERT_MAX_SUBSCRIBERS = 100;
@@ -146,7 +156,14 @@ function objectField(value, field, errors) {
   return {};
 }
 
-function validateImplementSpec(input) {
+function legacyAppAccess(history) {
+  const built = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0))
+    .find((row) => IMPLEMENT_DONE_STATUSES.includes(row.status));
+  const outputs = built && isPlainObject(built.spec_json) && isPlainObject(built.spec_json.outputs) ? built.spec_json.outputs : null;
+  return outputs && outputs.app && !Object.prototype.hasOwnProperty.call(outputs, 'app_access') ? 'sp' : '';
+}
+
+function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) {
   const errors = [];
   let spec = input;
   if (typeof spec === 'string') {
@@ -320,12 +337,15 @@ function validateImplementSpec(input) {
   const chosen = {};
   for (const name of IMPLEMENT_OUTPUTS) chosen[name] = Boolean(outputs[name]);
   if (!Object.prototype.hasOwnProperty.call(spec, 'outputs')) chosen.dashboard = true;
-  const appName = str(outputs.app_name).trim().toLowerCase();
+  if (chosen.app) chosen.genie_space = true;
+  const app = appSettings(outputs, chosen.app, shell, errors, legacyAccess);
+  const merge = mergeChoices(outputs, chosen, errors);
+  const appName = (merge.app || str(outputs.app_name)).trim().toLowerCase();
   if (chosen.app && !IMPLEMENT_APP_NAME_RE.test(appName)) {
     errors.push(`app_name '${str(outputs.app_name)}' must be 3-30 characters: lowercase letters, digits and dashes, starting with a letter`);
   }
   if (Object.values(chosen).some(Boolean) && !out.config.warehouse_id) {
-    errors.push('a SQL warehouse is required to build a dashboard, a Genie space, an App or an alert');
+    errors.push('a SQL warehouse is required to build a dashboard, a Genie Agent, an App or an alert');
   }
   const alert = chosen.alert ? alertOptions(outputs) : { options: alertOptions({}).options, errors: [] };
   errors.push(...alert.errors);
@@ -336,7 +356,7 @@ function validateImplementSpec(input) {
   }
   const questions = listField(outputs.genie_questions, 'outputs.genie_questions', errors)
     .map((q) => str(q).trim().slice(0, 300)).filter(Boolean);
-  if (questions.length > 5) errors.push('at most 5 Genie space sample questions are allowed');
+  if (questions.length > 5) errors.push('at most 5 Genie Agent sample questions are allowed');
   const dashFilters = listField(outputs.dashboard_filters, 'outputs.dashboard_filters', errors)
     .map((w) => str(w).trim()).filter(Boolean);
   const badFilters = dashFilters.filter((w) => !IMPLEMENT_WIDGET_NAME_RE.test(w));
@@ -349,6 +369,10 @@ function validateImplementSpec(input) {
     genie_space_name: chosen.genie_space ? str(outputs.genie_space_name).trim().slice(0, 200) : '',
     genie_questions: chosen.genie_space ? questions.slice(0, 5) : [],
     app_purpose: chosen.app ? str(outputs.app_purpose).trim().slice(0, 1500) : '',
+    app_access: app.access,
+    app_look: app.look,
+    app_options: app.options,
+    merge,
     ...alert.options,
   };
   out.removed_outputs = removed;
@@ -434,6 +458,67 @@ function alertOptions(outputs) {
   };
 }
 
+function appSettings(outputs, on, shell, errors, legacyAccess = '') {
+  const look = { ...IMPLEMENT_APP_LOOK_DEFAULT };
+  const options = Object.fromEntries(IMPLEMENT_APP_OPTION_KEYS.map((key) => [key, false]));
+  if (!on) return { access: '', look, options };
+  const catalog = shell || appShellCatalog();
+  if (!catalog.ok) {
+    errors.push(`the App cannot be built: ${catalog.error}`);
+    return { access: '', look, options };
+  }
+  const rawAccess = outputs.app_access;
+  const access = str(rawAccess).trim().toLowerCase() || (rawAccess == null ? str(legacyAccess) : '');
+  if (!access) {
+    errors.push('app_access is required when the App is ticked: user (each person signs in as themselves) or sp (the App\'s own service principal)');
+  } else if (!catalog.auths.includes(access)) {
+    errors.push(`app_access ${JSON.stringify(rawAccess)} must be one of ${catalog.auths.join(', ')}`);
+  }
+  for (const [key, value] of Object.entries(objectField(outputs.app_look, 'outputs.app_look', errors))) {
+    const list = IMPLEMENT_APP_LOOK_LISTS[key];
+    if (!list) {
+      errors.push(`app_look.${key} is not an App look setting; the settings are ${Object.keys(IMPLEMENT_APP_LOOK_LISTS).join(', ')}`);
+      continue;
+    }
+    const chosen = str(value).trim().toLowerCase();
+    if (!chosen) continue;
+    if (catalog[list].includes(chosen)) look[key] = chosen;
+    else errors.push(`app_look.${key} ${JSON.stringify(value)} must be one of ${catalog[list].join(', ')}`);
+  }
+  for (const [key, value] of Object.entries(objectField(outputs.app_options, 'outputs.app_options', errors))) {
+    if (!IMPLEMENT_APP_OPTION_KEYS.includes(key)) {
+      errors.push(`app_options.${key} is not an App option; the options are ${IMPLEMENT_APP_OPTION_KEYS.join(', ')}`);
+    } else if (value != null && typeof value !== 'boolean') {
+      errors.push(`app_options.${key} must be true or false, not ${JSON.stringify(value)}`);
+    } else {
+      options[key] = value === true;
+    }
+  }
+  if (access === 'user') for (const key of IMPLEMENT_PER_USER_OFF) options[key] = false;
+  if (!options.modify) options.replace_edits = false;
+  return { access: catalog.auths.includes(access) ? access : '', look, options };
+}
+
+function mergeChoices(outputs, chosen, errors) {
+  const out = Object.fromEntries(IMPLEMENT_MERGE_OUTPUTS.map((name) => [name, '']));
+  for (const [name, value] of Object.entries(objectField(outputs.merge, 'outputs.merge', errors))) {
+    if (!IMPLEMENT_MERGE_OUTPUTS.includes(name)) {
+      errors.push(`merge.${name} is not an output Inspire adds to; it adds to an existing ${IMPLEMENT_MERGE_OUTPUTS.join(', ')}`);
+      continue;
+    }
+    if (value != null && typeof value !== 'string') {
+      errors.push(`merge.${name} must name the ${IMPLEMENT_OUTPUT_LABELS[name]} to add to, or be "" to create a new one`);
+      continue;
+    }
+    const id = str(value).trim();
+    if (!id || !chosen[name]) continue;
+    const target = name === 'app' ? id.toLowerCase() : id;
+    if ((name === 'app' ? IMPLEMENT_APP_NAME_RE : IMPLEMENT_MERGE_ID_RE).test(target)) out[name] = target;
+    else errors.push(`merge.${name} '${id}' is not ${IMPLEMENT_MERGE_NOUNS[name]} ${name === 'app' ? 'name' : 'id'}`);
+  }
+  return out;
+}
+
 function sortedJson(value) {
   if (Array.isArray(value)) return `[${value.map(sortedJson).join(',')}]`;
   if (isPlainObject(value)) {
@@ -452,6 +537,10 @@ function optionChanges(before, after) {
     && IMPLEMENT_OUTPUT_OPTIONS[name].some((o) => sortedJson(before[o]) !== sortedJson(after[o])));
 }
 
+function mergeMoved(before, after, name) {
+  return IMPLEMENT_MERGE_OUTPUTS.includes(name) && str((before.merge || {})[name]) !== str((after.merge || {})[name]);
+}
+
 function classifyImplementChange(previous, current) {
   if (!previous) return ['initial'];
   const classes = new Set();
@@ -464,6 +553,7 @@ function classifyImplementChange(previous, current) {
   const after = current.outputs || {};
   if (IMPLEMENT_OUTPUTS.some((n) => after[n] && !before[n])
     || (after.app && before.app && after.app_name !== before.app_name)
+    || IMPLEMENT_OUTPUTS.some((n) => after[n] && before[n] && mergeMoved(before, after, n))
     || optionChanges(before, after).length) {
     classes.add('outputs');
   }
@@ -484,7 +574,7 @@ function implementChangeSummary(previous, current, assets = {}) {
   const refresh = [];
   for (const name of IMPLEMENT_OUTPUTS) {
     if (!after[name]) continue;
-    const renamed = name === 'app' && before.app && before.app_name !== after.app_name;
+    const renamed = (name === 'app' && before.app && before.app_name !== after.app_name) || (before[name] && mergeMoved(before, after, name));
     if (!assets[name] || !before[name] || renamed) build.push(name);
     else if (refill || changedOptions.includes(name) || retry.includes(name)) refresh.push(name);
   }
@@ -515,11 +605,113 @@ function implementTableCreateSql(table) {
     + "that builds it; the Inspire agent writes every other column.'";
 }
 
-function implementSelectColumns(existing = null) {
-  return IMPLEMENT_COLUMNS.map(([name, kind]) => {
+function implementSelectColumns(existing = null, names = null) {
+  return IMPLEMENT_COLUMNS.filter(([name]) => !names || names.includes(name)).map(([name, kind]) => {
     if (existing && !existing.has(name.toLowerCase())) return `NULL AS \`${name}\``;
     return kind === 'VARIANT' ? `to_json(\`${name}\`) AS \`${name}\`` : `\`${name}\``;
   }).join(', ');
+}
+
+const IMPLEMENT_REGISTRY_COLUMNS = ['session_id', 'use_case_id', 'spec_version', 'spec_json', 'status', 'dashboard_id', 'genie_space_id',
+  'app_name', 'asset_status', 'updated_at'];
+
+function implementRegistryStatement(table, existing = null) {
+  const held = ['app_name', 'dashboard_id', 'genie_space_id', 'asset_status'].filter((name) => !existing || existing.has(name));
+  return {
+    sql: `SELECT ${implementSelectColumns(existing, IMPLEMENT_REGISTRY_COLUMNS)} FROM ${table} `
+      + `WHERE ${held.length ? held.map((name) => `\`${name}\` IS NOT NULL`).join(' OR ') : 'FALSE'} `
+      + 'ORDER BY session_id, use_case_id, spec_version DESC LIMIT 5000',
+    parameters: null,
+  };
+}
+
+function mergeRegistry(rows, { sessionId, useCaseId, only = null } = {}) {
+  const groups = new Map();
+  for (const row of rows || []) {
+    const key = `${str(row.session_id)}|${str(row.use_case_id)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  const found = Object.fromEntries(IMPLEMENT_MERGE_OUTPUTS.map((name) => [name, new Map()]));
+  for (const list of groups.values()) {
+    const sorted = [...list].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
+    const first = sorted[0];
+    const own = str(first.session_id) === str(sessionId) && str(first.use_case_id) === str(useCaseId);
+    const built = sorted.find((r) => IMPLEMENT_DONE_STATUSES.includes(r.status)) || first;
+    const outputs = (isPlainObject(built.spec_json) && isPlainObject(built.spec_json.outputs)) ? built.spec_json.outputs : {};
+    const holder = {
+      session_id: str(first.session_id),
+      use_case_id: str(first.use_case_id),
+      use_case_name: str(isPlainObject(built.spec_json) ? built.spec_json.use_case_name : '').trim() || str(first.use_case_id),
+      app_access: outputs.app_access === 'user' ? 'user' : 'sp',
+      app_look: isPlainObject(outputs.app_look) ? outputs.app_look : null,
+      updated_at: str(first.updated_at),
+    };
+    const assets = carriedAssets(sorted);
+    for (const name of IMPLEMENT_MERGE_OUTPUTS) {
+      const id = str(assets[name]);
+      if (!id) continue;
+      if (!found[name].has(id)) found[name].set(id, { id, holders: [], own: false });
+      const entry = found[name].get(id);
+      if (own) entry.own = true;
+      else entry.holders.push(holder);
+    }
+  }
+  const recent = (entry) => entry.holders.reduce((at, h) => (h.updated_at > at ? h.updated_at : at), '');
+  return Object.fromEntries(IMPLEMENT_MERGE_OUTPUTS.map((name) => [name, [...found[name].values()]
+    .filter((entry) => !entry.own && entry.holders.length && (!only || str(only[name]) === entry.id))
+    .sort((a, b) => (recent(b) > recent(a) ? 1 : recent(b) < recent(a) ? -1 : 0))
+    .slice(0, IMPLEMENT_MERGE_TARGET_CAP)]));
+}
+
+function mergeTargetPath(name, id) {
+  const enc = encodeURIComponent(id);
+  return { app: `/api/2.0/apps/${enc}`, dashboard: `/api/2.0/lakeview/dashboards/${enc}`, genie_space: `/api/2.0/genie/spaces/${enc}` }[name];
+}
+
+function appMergeBlock(target, access) {
+  return access === 'user' && target && target.access === 'sp'
+    ? `${target.name} signs everyone in with its own service principal, so a per-user (sensitive) use case cannot join it: `
+      + 'create a new App, or choose Internal data'
+    : '';
+}
+
+function mergeTarget(name, entry, got, host = '') {
+  if (!got || !got.ok) return null;
+  const d = isPlainObject(got.data) ? got.data : {};
+  const useCases = entry.holders.map((h) => ({ session_id: h.session_id, use_case_id: h.use_case_id, name: h.use_case_name }));
+  if (name === 'app') {
+    if (!entry.holders.some((h) => str(d.description).startsWith(appOwnerTag(h.use_case_id, h.session_id)))) return null;
+    const target = {
+      id: entry.id, name: str(d.name) || entry.id, url: str(d.url), use_cases: useCases,
+      access: entry.holders.some((h) => h.app_access === 'user') ? 'user' : 'sp',
+      look: (entry.holders.find((h) => h.app_look) || {}).app_look || null,
+    };
+    return { ...target, per_user_block: appMergeBlock(target, 'user') };
+  }
+  if (name === 'dashboard') {
+    if (str(d.lifecycle_state) === 'TRASHED') return null;
+    return { id: entry.id, name: str(d.display_name) || entry.id, url: host ? `${str(host).replace(/\/+$/, '')}/dashboardsv3/${entry.id}/published` : '',
+      use_cases: useCases };
+  }
+  return { id: entry.id, name: str(d.title) || entry.id, url: host ? `${str(host).replace(/\/+$/, '')}/genie/rooms/${entry.id}` : '', use_cases: useCases };
+}
+
+function mergeProblems(spec, targets, held = {}) {
+  const outputs = (spec && spec.outputs) || {};
+  const merge = outputs.merge || {};
+  const problems = [];
+  for (const name of IMPLEMENT_MERGE_OUTPUTS) {
+    const id = str(merge[name]);
+    if (!id || !outputs[name] || str(held[name]) === id) continue;
+    const target = ((targets && targets[name]) || []).find((t) => t.id === id);
+    if (!target) {
+      problems.push(`${id} is not ${IMPLEMENT_MERGE_NOUNS[name]} Inspire built that you can open: pick one Inspire lists, or create a new one`);
+    } else if (name === 'app' && appMergeBlock(target, outputs.app_access)) {
+      problems.push(appMergeBlock(target, outputs.app_access));
+    }
+  }
+  return problems;
 }
 
 function implementHistoryStatement(table, sessionId, useCaseId, existing = null) {
@@ -676,7 +868,7 @@ function planSubmission(history, spec, stalled = null) {
     throw badRequest(`v${built.spec_version} was built after the version you edited (v${spec.based_on_version}); `
       + 'reopen Edit to see it and submit again', 409);
   }
-  const previous = built ? validateImplementSpec(built.spec_json).spec : null;
+  const previous = built ? validateImplementSpec(built.spec_json, { legacyAccess: legacyAppAccess(rows) }).spec : null;
   const summary = implementChangeSummary(previous, spec, carriedAssets(rows));
   if (summary.undecided.length) {
     throw badRequest(`choose whether to delete or keep ${summary.undecided.map((n) => IMPLEMENT_OUTPUT_LABELS[n]).join(' and ')}, `
@@ -1545,7 +1737,20 @@ module.exports = {
   IMPLEMENT_USE_CASE_PARAM,
   IMPLEMENT_SPEC_VERSION_PARAM,
   IMPLEMENT_APP_NAME_RE,
+  IMPLEMENT_USE_CASE_ID_RE,
   IMPLEMENT_NOT_AVAILABLE,
+  IMPLEMENT_APP_LOOK_DEFAULT,
+  IMPLEMENT_APP_OPTION_KEYS,
+  IMPLEMENT_PER_USER_OFF,
+  IMPLEMENT_MERGE_OUTPUTS,
+  IMPLEMENT_MERGE_TARGET_CAP,
+  legacyAppAccess,
+  implementRegistryStatement,
+  mergeRegistry,
+  mergeTargetPath,
+  mergeTarget,
+  mergeProblems,
+  appMergeBlock,
   validateImplementSpec,
   classifyImplementChange,
   implementChangeSummary,

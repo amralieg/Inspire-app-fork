@@ -669,7 +669,7 @@ paths:
         Submits a notebook run that performs AI-driven data strategy analysis on your
         Databricks lakehouse. The notebook scans your Unity Catalog tables, discovers
         business use cases, scores them by value and feasibility, and optionally generates
-        Genie spaces and PDF reports.
+        Genie Agents and PDF reports.
 
         **What happens:**
         1. The bundled Inspire AI notebook is auto-published to the workspace (if not already present)
