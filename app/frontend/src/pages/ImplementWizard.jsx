@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check, Lock, UserRound, KeyRound, MessageSquareText } from 'lucide-react';
+import { Loader2, NotebookPen, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check, Lock, UserRound, KeyRound, MessageSquareText } from 'lucide-react';
 import BodyPortal from '../components/BodyPortal';
 import VibesEditor from '../components/VibesEditor';
 import { generationFolder, sharedFolderWarning } from '../lib/workspaceLinks';
@@ -82,7 +82,7 @@ import {
   VIBES_MAX,
 } from '../lib/implementWizard';
 
-const ICONS = { dashboard: LayoutDashboard, genie_space: Sparkles, app: AppWindow, alert: Bell };
+const ICONS = { notebook: NotebookPen, dashboard: LayoutDashboard, genie_space: Sparkles, app: AppWindow, alert: Bell };
 const ASSET_NOUNS = { dashboard: 'a dashboard', genie_space: 'a Genie Agent', app: 'an App', alert: 'an alert' };
 const ACCESS_ICONS = { user: UserRound, sp: KeyRound };
 const NO_WIDGET_GROUPS = { business: [], model: [], ai: [], extras: [], extras_kept_default: [] };
@@ -367,7 +367,8 @@ export default function ImplementWizard({
     setAttempted((prev) => ({ ...prev, [id]: true }));
     if (!stepErrors(id, spec, extras, mode).length) return false;
     if (advancedErrors(id, spec, extras, mode).length) setAdvanced((prev) => ({ ...prev, [id]: true }));
-    const overLimit = id === 'delivery' && IMPLEMENT_OUTPUTS.find((o) => spec.outputs[o.id] && vibesProblem(o.id, spec.outputs[vibesKey(o.id)]));
+    const overLimit = id === 'delivery' && (vibesProblem('notebook', spec.data.notes) ? { id: 'notebook' }
+      : IMPLEMENT_OUTPUTS.find((o) => spec.outputs[o.id] && vibesProblem(o.id, spec.outputs[vibesKey(o.id)])));
     if (overLimit) setVibesFor(overLimit.id);
     return true;
   };
@@ -936,10 +937,11 @@ export default function ImplementWizard({
               <p className="text-[11px] text-text-secondary">{readinessText(readiness, readiness.scope)}</p>
             )}
             {vibesFor ? (
-              <VibesPanel spec={spec} focus={vibesFor} onChange={(id, value) => patch(`outputs.${vibesKey(id)}`, value)} onDone={() => setVibesFor('')} />
+              <VibesPanel spec={spec} focus={vibesFor} onChange={(id, value) => patch(id === 'notebook' ? 'data.notes' : `outputs.${vibesKey(id)}`, value)} onDone={() => setVibesFor('')} />
             ) : (
               <section className="space-y-2">
-                <div>
+                <div className="relative pr-28">
+                  <VibesTrigger label="notebook" value={spec.data.notes} onOpen={() => setVibesFor('notebook')} />
                   <h3 className="text-sm font-semibold text-text-primary">How do you want to use it?</h3>
                   <p className="text-[11px] text-text-tertiary">Pick one or more. Genie builds each one for you.</p>
                 </div>
@@ -1355,7 +1357,7 @@ function VibesPanel({ spec, focus, onChange, onDone }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-text-primary">What should Genie build into each one?</h3>
-          <p className="text-[11px] text-text-secondary">{VIBES_HELP} Each box is optional, and you can vibe each output again once it is built.</p>
+          <p className="text-[11px] text-text-secondary">{VIBES_HELP} Each box is optional, and you can vibe the notebook and each output again once they are built.</p>
         </div>
         <button
           type="button"
@@ -1365,13 +1367,14 @@ function VibesPanel({ spec, focus, onChange, onDone }) {
           <Check size={12} aria-hidden="true" /> Done
         </button>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {IMPLEMENT_OUTPUTS.filter((o) => spec.outputs[o.id]).map((o) => {
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+        {[{ id: 'notebook' }, ...IMPLEMENT_OUTPUTS.filter((o) => spec.outputs[o.id])].map((o) => {
           const Icon = ICONS[o.id];
+          const value = o.id === 'notebook' ? spec.data.notes : spec.outputs[vibesKey(o.id)];
           return (
             <div key={o.id} data-vibes={o.id} className={`border rounded-lg p-3 space-y-1.5 ${o.id === focus ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
               <p className="flex items-center gap-2 text-sm font-semibold text-text-primary"><Icon size={14} aria-hidden="true" /> {vibesLabel(o.id)}</p>
-              <VibesEditor id={o.id} value={spec.outputs[vibesKey(o.id)] || ''} onChange={(value) => onChange(o.id, value)} autoFocus={o.id === focus} />
+              <VibesEditor id={o.id} value={value || ''} onChange={(next) => onChange(o.id, next)} autoFocus={o.id === focus} />
             </div>
           );
         })}

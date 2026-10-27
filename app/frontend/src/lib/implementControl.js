@@ -179,14 +179,25 @@ export function vibeWarnings(row, id) {
   return [...new Set(listed.filter((w) => w.includes(lead)).map((w) => w.slice(w.indexOf(lead)).trim()))];
 }
 
-export function vibeCards(history, latest, stalled = null) {
+export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
   const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
   const base = versionActive(latest, stalled) ? rows.find((r) => DONE.includes(r.status)) : latest;
   if (!base || !DONE.includes(String(base.status))) return [];
   const chosen = latest.spec_json?.outputs || {};
   const built = rebuildableOutputs(base).map((o) => o.id);
   const at = (row) => String(row?.updated_at || row?.created_at || '');
-  return IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id]).map((o) => {
+  const notebookVersion = base.asset_status?.notebook?.spec_version ?? null;
+  const notebook = notebookVersion == null ? [] : [{
+    id: 'notebook',
+    label: 'notebook',
+    vibes: String(latest.spec_json?.data?.notes ?? '').trim(),
+    rebuild: true,
+    live: { version: notebookVersion, at: at(rows.find((r) => r.spec_version === notebookVersion)) },
+    url: String(notebookUrl || ''),
+    versions: [],
+    warnings: [],
+  }];
+  return [...notebook, ...IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id]).map((o) => {
     const entry = base.asset_status?.[o.id];
     const liveVersion = entry?.state === 'ready' ? (entry.spec_version ?? base.spec_version ?? null) : null;
     const versions = rows.filter((r) => {
@@ -202,12 +213,16 @@ export function vibeCards(history, latest, stalled = null) {
       versions,
       warnings: vibeWarnings(base, o.id),
     };
-  }).filter((card) => card.rebuild || card.versions.length);
+  }).filter((card) => card.rebuild || card.versions.length)];
 }
 
 export function vibeChanges(latest, id, text) {
   const outputs = latest?.spec_json?.outputs || {};
   const next = String(text ?? '').trim();
+  if (id === 'notebook') {
+    const data = latest?.spec_json?.data || {};
+    return next === String(data.notes ?? '').trim() ? { retry_outputs: ['notebook'] } : { data: { ...data, notes: next } };
+  }
   return next === String(outputs[vibesKey(id)] ?? '').trim() ? { retry_outputs: [id] } : { outputs: { ...outputs, [vibesKey(id)]: next } };
 }
 

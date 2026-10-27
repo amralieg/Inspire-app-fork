@@ -32,7 +32,7 @@ import GenieFeed from '../components/GenieFeed';
 
 const TABS = [['Progress', Activity], ['Dashboard', LayoutDashboard], ['Genie', GenieLogo], ['App', AppWindow], ['Alert', BellRing], ['History', History], ['Edit', Pencil]];
 const TAB_OUTPUT = { Dashboard: 'dashboard', Genie: 'genie_space', App: 'app', Alert: 'alert' };
-const OUTPUT_ICONS = { dashboard: LayoutDashboard, genie_space: GenieLogo, app: AppWindow, alert: BellRing };
+const OUTPUT_ICONS = { notebook: NotebookPen, dashboard: LayoutDashboard, genie_space: GenieLogo, app: AppWindow, alert: BellRing };
 const OUTPUT_NAMES = { dashboard: 'Dashboard', genie_space: 'Genie Agent', app: 'App', alert: 'Alert' };
 const NO_RAIL = { latest: [], notebook_run: null, notebook_run_error: '' };
 const READY_STATUSES = ['ready', 'ready_with_warnings'];
@@ -464,7 +464,10 @@ function VibeCard({ card, draft, locked, onDraft, onRebuild, onRollback }) {
               </button>
             )}
             <span className="text-[11px] text-text-secondary">
-              {changed ? `Genie rebuilds only the ${card.label} with your asks and replaces the live one.` : `Genie writes the ${card.label} again from this version.`}
+              {card.id === 'notebook'
+                ? (changed ? 'Genie rewrites the notebook with your asks, runs it, and refreshes every output from the new result.'
+                  : 'Genie checks every cell against the current rules, runs the notebook, and refreshes every output from the new result.')
+                : (changed ? `Genie rebuilds only the ${card.label} with your asks and replaces the live one.` : `Genie writes the ${card.label} again from this version.`)}
             </span>
           </div>
         </>
@@ -503,7 +506,7 @@ function VibePanel({ cards, drafts, locked, active, onDraft, onRebuild, onRollba
     <section aria-label="Vibe the outputs" className="min-w-0">
       <TabCard icon={Wand2} title="Vibe the outputs" hint="Change any output in your own words, even after it is live">
         <p className="text-text-secondary">
-          Your asks win over Inspire&apos;s defaults. Genie rebuilds only the output you vibe and replaces the live one, and every earlier version it saved can come back.
+          Your asks win over Inspire&apos;s defaults. Genie rebuilds only the output you vibe and replaces the live one, and every earlier version it saved can come back. Vibing the notebook reruns it and refreshes every output.
         </p>
         {active && <p className="font-medium text-text-primary">A version is building now; vibes and roll backs apply after it finishes.</p>}
         {cards.map((card) => (
@@ -650,7 +653,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     }
   };
   const failedOutputs = retryableOutputs(latest);
-  const vibeTargets = vibeCards(status?.history, latest, stalled);
+  const vibeTargets = vibeCards(status?.history, latest, stalled, workspaceNotebookUrl(databricksHost, item.uc?.notebook_path || ''));
   const alertAsset = latest?.asset_status?.alert || {};
 
   const retryBanner = (name) => {

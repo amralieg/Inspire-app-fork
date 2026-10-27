@@ -93,7 +93,9 @@ export function vibesKey(id) {
 }
 
 export function vibesLabel(id) {
-  return id === 'app' ? 'App vibes' : `Vibes for the ${IMPLEMENT_OUTPUTS.find((o) => o.id === id)?.label || id}`;
+  if (id === 'app') return 'App vibes';
+  if (id === 'notebook') return 'Notebook vibes';
+  return `Vibes for the ${IMPLEMENT_OUTPUTS.find((o) => o.id === id)?.label || id}`;
 }
 
 export function vibesLength(text) {
@@ -112,7 +114,8 @@ export function vibesPreview(text, max = 80) {
 }
 
 export function vibesProblems(spec) {
-  return IMPLEMENT_OUTPUTS.filter((o) => spec?.outputs?.[o.id]).map((o) => vibesProblem(o.id, spec.outputs[vibesKey(o.id)])).filter(Boolean);
+  return [vibesProblem('notebook', spec?.data?.notes),
+    ...IMPLEMENT_OUTPUTS.filter((o) => spec?.outputs?.[o.id]).map((o) => vibesProblem(o.id, spec.outputs[vibesKey(o.id)]))].filter(Boolean);
 }
 
 export const ALERT_TIER_OPTIONS = [

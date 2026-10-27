@@ -2,6 +2,7 @@ import { useId } from 'react';
 import { VIBES_MAX, vibesLabel, vibesLength, vibesProblem } from '../lib/implementWizard';
 
 const PLACEHOLDERS = {
+  notebook: 'For example: score the baseline and every model on the same held-out rows, and print each one\'s hit rate',
   dashboard: 'For example: put the weekly trend first and show the 20 rows to act on today',
   genie_space: 'For example: answer in plain words and always say which rows you counted',
   app: 'For example: one page, with the decision list on the left and the row detail on the right',

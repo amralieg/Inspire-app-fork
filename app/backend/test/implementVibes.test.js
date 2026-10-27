@@ -311,3 +311,54 @@ test('the Build page offers a vibe panel per built output and the earlier versio
   const linked = c.vibeCards([withUrl, ...rows.slice(1)], withUrl);
   assert.equal(linked[0].url, 'https://workspace.example.com/dashboardsv3/d1/published', 'the card links the live asset');
 });
+
+test('the notebook vibes hold 2000 characters, and longer or non-text ones are errors, never cut', () => {
+  const noted = (notes) => I.validateImplementSpec({ ...JSON.parse(JSON.stringify(BASE)), data: { notes } });
+  const ok = noted(`  ${'n'.repeat(2000)}\n`);
+  assert.deepEqual(ok.errors, []);
+  assert.equal(ok.spec.data.notes, 'n'.repeat(2000));
+  const long = noted('n'.repeat(2001));
+  assert.deepEqual(long.errors, ['the notebook vibes are 2001 characters; at most 2000 are allowed']);
+  assert.equal(long.spec.data.notes.length, 2001);
+  for (const bad of [5, ['a'], { a: 1 }, true]) assert.deepEqual(noted(bad).errors, ['data.notes must be text'], JSON.stringify(bad));
+  assert.equal(noted(null).spec.data.notes, '');
+});
+
+test('rebuilding the notebook refills it and refreshes every built output; retrying one output never touches the notebook', () => {
+  const assets = { dashboard: 'd1', genie_space: 'g1', app: 'churn-desk', alert: 'a1' };
+  const before = spec().spec;
+  const rebuilt = spec({}, { retry_outputs: ['notebook', ' notebook '] });
+  assert.deepEqual(rebuilt.errors, []);
+  assert.deepEqual(rebuilt.spec.retry_outputs, ['notebook']);
+  const summary = I.implementChangeSummary(before, rebuilt.spec, assets);
+  assert.deepEqual([summary.classes, summary.refill, summary.schedule, summary.build], [['retry'], true, true, []]);
+  assert.deepEqual([...summary.refresh].sort(), Object.keys(assets).sort());
+  assert.equal(I.implementChangeSummary(before, spec({}, { retry_outputs: ['dashboard'] }).spec, assets).refill, false);
+  assert.deepEqual(spec({}, { retry_outputs: ['pdf'] }).errors, ["retry output 'pdf' is not one of notebook, genie_space, dashboard, app, alert"]);
+  assert.deepEqual(spec({ dashboard: false }, { retry_outputs: ['dashboard'] }).errors, ['the Dashboard cannot be retried: it is not selected']);
+});
+
+test('the Build page offers the notebook first once it is built, and its vibes or a plain rebuild go to the notebook', async () => {
+  const c = await lib('implementControl.js');
+  const w = await lib('implementWizard.js');
+  const rows = [2, 1].map((v) => I.parseImplementRow(versionRow(v)));
+  rows[0] = { ...rows[0], asset_status: { ...rows[0].asset_status, notebook: { spec_version: 1, modified_at: 1 } },
+    spec_json: { ...rows[0].spec_json, data: { tables: {}, notes: '  hold out the last month  ' } } };
+  const cards = c.vibeCards(rows, rows[0], null, 'https://host/#workspace/Users/me/nb');
+  assert.equal(cards[0].id, 'notebook');
+  assert.deepEqual([cards[0].vibes, cards[0].rebuild, cards[0].url, cards[0].live.version, cards[0].versions],
+    ['hold out the last month', true, 'https://host/#workspace/Users/me/nb', 1, []]);
+  assert.deepEqual(c.vibeCards([rows[1]], rows[1]).map((x) => x.id).includes('notebook'), false, 'no notebook card before the notebook is built');
+
+  const latest = { spec_json: { data: { tables: { 'a.b.c': 'a.b.d' }, notes: 'hold out the last month' }, outputs: { app: true } } };
+  assert.deepEqual(c.vibeChanges(latest, 'notebook', ' hold out the last month '), { retry_outputs: ['notebook'] });
+  assert.deepEqual(c.vibeChanges(latest, 'notebook', 'score every model on the same rows'),
+    { data: { tables: { 'a.b.c': 'a.b.d' }, notes: 'score every model on the same rows' } }, 'only the notes change; the data choices stay');
+  const vibed = I.validateImplementSpec({ ...JSON.parse(JSON.stringify(BASE)), data: c.vibeChanges(latest, 'notebook', 'x').data });
+  assert.deepEqual([vibed.errors, vibed.spec.data.notes], [[], 'x']);
+
+  assert.equal(w.vibesLabel('notebook'), 'Notebook vibes');
+  assert.equal(w.vibesProblem('notebook', 'n'.repeat(2001)), 'the notebook vibes are 2001 characters; at most 2000 are allowed');
+  assert.deepEqual(w.vibesProblems({ data: { notes: 'n'.repeat(2001) }, outputs: {} }),
+    ['the notebook vibes are 2001 characters; at most 2000 are allowed'], 'the notebook vibes are checked even with no output ticked');
+});

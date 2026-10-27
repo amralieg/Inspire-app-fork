@@ -73,7 +73,7 @@ test('each ticked output gets its own vibes with a live counter, over 2000 chara
     const panel = page.getByRole('region', { name: 'Vibes' });
     await panel.getByText("Tell Genie what you want in your own words. Your asks win over Inspire's defaults.", { exact: false }).waitFor();
     assert.deepEqual(await panel.getByRole('textbox').evaluateAll((boxes) => boxes.map((b) => b.getAttribute('aria-label'))),
-      ['Vibes for the Dashboard', 'Vibes for the Genie Agent', 'App vibes'], 'one box per ticked output, and the App has App vibes');
+      ['Notebook vibes', 'Vibes for the Dashboard', 'Vibes for the Genie Agent', 'App vibes'], 'the notebook, then one box per ticked output, and the App has App vibes');
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Vibes for the Dashboard', 'the box asked for has the focus');
     assert.equal(await page.getByRole('checkbox', { name: /^Dashboard/ }).count(), 0, 'the vibes take the place of the tiles');
 
@@ -364,6 +364,53 @@ test('the Build page vibe panels and versions fit a 1440x900 screen and read at 
     await readable(page, ['[aria-label="Vibe the outputs"]'], 'vibes-build');
     await card(page, 'app').scrollIntoViewIfNeeded();
     await shot(page, 'vibes-build-versions-light');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('the notebook has its own vibes in the wizard and a card on the Build page that rewrites it or rebuilds it', async () => {
+  const wizard = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
+  try {
+    const { page } = wizard;
+    await toDelivery(page);
+    await page.getByRole('checkbox', { name: /^App / }).check();
+    await page.getByRole('button', { name: 'Add vibes for the notebook' }).click();
+    const panel = page.getByRole('region', { name: 'Vibes' });
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Notebook vibes');
+    await vibesBox(page, 'Notebook vibes').fill('n'.repeat(2001));
+    await panel.locator('[data-vibes="notebook"]').getByText('the notebook vibes are 2001 characters; at most 2000 are allowed').waitFor();
+    await panel.getByRole('button', { name: 'Done' }).click();
+    await next(page);
+    await page.locator('[role="alert"]').waitFor();
+    assert.deepEqual(await footerErrors(page), ['the notebook vibes are 2001 characters; at most 2000 are allowed']);
+    await panel.waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Notebook vibes', 'the over-limit box reopens with the focus');
+    assert.deepEqual(wizard.pageErrors, []);
+  } finally {
+    await wizard.close();
+  }
+
+  const history = HISTORY.map((row, i) => (i ? row : { ...row, asset_status: JSON.stringify({ ...JSON.parse(row.asset_status), notebook: { spec_version: 2, modified_at: 1 } }) }));
+  const ui = await openVibes({ ...STATE, history });
+  const { page, made } = ui;
+  try {
+    assert.deepEqual(await page.locator('[data-vibe-card]').evaluateAll((cards) => cards.map((c) => c.dataset.vibeCard)), ['notebook', 'dashboard', 'genie_space', 'app', 'alert']);
+    const nb = card(page, 'notebook');
+    assert.equal((await nb.getByRole('heading').textContent()).trim(), 'Vibe the notebook');
+    assert.match(await nb.locator('[data-live]').textContent(), /^Live: built from v2/);
+    await nb.getByText('Genie checks every cell against the current rules, runs the notebook, and refreshes every output from the new result.').waitFor();
+    await nb.getByRole('button', { name: 'Rebuild the notebook' }).click();
+    await until(() => made.jobs.length === 1, 'the notebook rebuild');
+    const rebuilt = insertsOf(made)[0];
+    assert.deepEqual([rebuilt.classes, rebuilt.spec.retry_outputs], ['retry', ['notebook']]);
+    await nb.getByRole('textbox', { name: 'Notebook vibes' }).fill('  Score every model on the same held-out baskets  ');
+    await nb.getByText('Genie rewrites the notebook with your asks, runs it, and refreshes every output from the new result.').waitFor();
+    await nb.getByRole('button', { name: 'Rebuild with these vibes' }).click();
+    await until(() => made.jobs.length === 2, 'the notebook vibe');
+    const vibed = insertsOf(made)[1];
+    assert.deepEqual([vibed.classes, vibed.spec.data.notes, vibed.spec.retry_outputs], ['data', 'Score every model on the same held-out baskets', []]);
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();

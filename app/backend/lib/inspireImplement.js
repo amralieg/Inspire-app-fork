@@ -7,6 +7,9 @@ const IMPLEMENT_ACTIVE_STATUSES = ['queued', 'filling', 'previewing', 'building_
 const IMPLEMENT_DONE_STATUSES = ['ready', 'ready_with_warnings'];
 const IMPLEMENT_OUTPUTS = ['dashboard', 'genie_space', 'app', 'alert'];
 const IMPLEMENT_OUTPUT_LABELS = { dashboard: 'Dashboard', genie_space: 'Genie Agent', app: 'App', alert: 'Alert' };
+const IMPLEMENT_NOTEBOOK = 'notebook';
+const IMPLEMENT_CONTRACT_OUTPUTS = ['genie_space', 'dashboard', 'app', 'alert'];
+const IMPLEMENT_RETRY_TARGETS = [IMPLEMENT_NOTEBOOK, ...IMPLEMENT_CONTRACT_OUTPUTS];
 const IMPLEMENT_OUTPUT_ID_COLUMNS = { dashboard: 'dashboard_id', genie_space: 'genie_space_id', app: 'app_name', alert: 'alert_id' };
 const IMPLEMENT_STOPPED_STATES = ['deleted', 'released'];
 const IMPLEMENT_RUN_ENDED_STATES = ['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR'];
@@ -286,7 +289,7 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
   }
   out.data = {
     tables, removed_tables: removedTables, filters, run_profile: profile, column_roles: roles, window: { start, end },
-    notes: str(data.notes).trim().slice(0, 2000),
+    notes: vibesText(data.notes, 'data.notes', 'notebook', errors),
   };
 
   const config = objectField(spec.config, 'config', errors);
@@ -389,8 +392,8 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
   const retry = [];
   for (const raw of listField(spec.retry_outputs, 'retry_outputs', errors)) {
     const name = str(raw).trim();
-    if (!IMPLEMENT_OUTPUTS.includes(name)) errors.push(`retry output '${name}' is not one of ${IMPLEMENT_OUTPUTS.join(', ')}`);
-    else if (!chosen[name]) errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} cannot be retried: it is not selected`);
+    if (!IMPLEMENT_RETRY_TARGETS.includes(name)) errors.push(`retry output '${name}' is not one of ${IMPLEMENT_RETRY_TARGETS.join(', ')}`);
+    else if (name !== IMPLEMENT_NOTEBOOK && !chosen[name]) errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} cannot be retried: it is not selected`);
     else if (!retry.includes(name)) retry.push(name);
   }
   out.retry_outputs = retry;
@@ -398,7 +401,7 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
   for (const [name, value] of Object.entries(objectField(spec.rollback_outputs, 'rollback_outputs', errors))) {
     const label = IMPLEMENT_OUTPUT_LABELS[name];
     const version = wholeNumber(value);
-    if (!IMPLEMENT_OUTPUTS.includes(name)) errors.push(`rollback output '${name}' is not one of genie_space, dashboard, app, alert`);
+    if (!IMPLEMENT_OUTPUTS.includes(name)) errors.push(`rollback output '${name}' is not one of ${IMPLEMENT_CONTRACT_OUTPUTS.join(', ')}`);
     else if (!chosen[name]) errors.push(`the ${label} cannot be rolled back: it is not selected`);
     else if (version == null || version < 1) {
       errors.push(`rollback_outputs.${name} ${typeof value === 'string' ? value : JSON.stringify(value)} must be a version number, 1 or more`);
@@ -428,22 +431,22 @@ function vibesLength(text) {
   return [...str(text)].length;
 }
 
+function vibesText(raw, field, label, errors) {
+  if (raw != null && typeof raw !== 'string') {
+    errors.push(`${field} must be text`);
+    return '';
+  }
+  const text = str(raw).trim();
+  const length = vibesLength(text);
+  if (length > IMPLEMENT_VIBES_MAX) errors.push(`the ${label} vibes are ${length} characters; at most ${IMPLEMENT_VIBES_MAX} are allowed`);
+  return text;
+}
+
 function outputVibes(outputs, chosen, errors) {
   const vibes = {};
   for (const name of IMPLEMENT_OUTPUTS) {
     const key = `${name}_vibes`;
-    const raw = outputs[key];
-    vibes[key] = '';
-    if (!chosen[name]) continue;
-    if (raw != null && typeof raw !== 'string') {
-      errors.push(`outputs.${key} must be text`);
-      continue;
-    }
-    vibes[key] = str(raw).trim();
-    const length = vibesLength(vibes[key]);
-    if (length > IMPLEMENT_VIBES_MAX) {
-      errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} vibes are ${length} characters; at most ${IMPLEMENT_VIBES_MAX} are allowed`);
-    }
+    vibes[key] = chosen[name] ? vibesText(outputs[key], `outputs.${key}`, IMPLEMENT_OUTPUT_LABELS[name], errors) : '';
   }
   return vibes;
 }
@@ -612,7 +615,7 @@ function classifyImplementChange(previous, current) {
 
 function implementChangeSummary(previous, current, assets = {}) {
   const classes = classifyImplementChange(previous, current);
-  const refill = classes.some((c) => ['initial', 'data', 'config'].includes(c));
+  const refill = classes.some((c) => ['initial', 'data', 'config'].includes(c)) || (current.retry_outputs || []).includes(IMPLEMENT_NOTEBOOK);
   const before = (previous && previous.outputs) || {};
   const after = current.outputs || {};
   const changedOptions = previous ? optionChanges(before, after) : [];
@@ -1810,6 +1813,8 @@ module.exports = {
   IMPLEMENT_COLUMNS,
   IMPLEMENT_UNREAD_COLUMNS,
   IMPLEMENT_VIBES_MAX,
+  IMPLEMENT_NOTEBOOK,
+  IMPLEMENT_RETRY_TARGETS,
   vibesLength,
   IMPLEMENT_ALERT_TIER_SETS,
   IMPLEMENT_ALERT_OPERATORS,
