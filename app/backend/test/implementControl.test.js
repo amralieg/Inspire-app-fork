@@ -323,6 +323,66 @@ test('the control tower lists the build, the job and each output Inspire built, 
     { id: 'build', label: 'Build', name: 'spec v2', removable: false, state: { label: 'Building', tone: 'busy' }, detail: 'previewing', actions: [{ asset: 'build', action: 'cancel', label: 'Stop the build', danger: true }] });
 });
 
+test('the Build summary counts each use case once, by the same state the rail groups it in, and what its PoC/MVP delivered', async () => {
+  const v = await view();
+  const w = await import(wizardUrl);
+  const useCases = [
+    { No: 'N01', Name: 'Ready one' }, { No: 'N02', Name: 'Building one' }, { No: 'N03', Name: 'Failed one' }, { No: 'N04', Name: 'Stopped one' },
+    { No: 'N05', Name: 'Notebook one', has_genie_code: 'Y' }, { No: 'N06', Name: 'Requested one', generate_genie_code_instruction: 'Y' },
+    { No: 'N07', Name: 'Untouched one' }, { No: 'N08', Name: 'PoC with a notebook', has_genie_code: 'Y' },
+  ];
+  const latest = [
+    { use_case_id: 'N01', status: 'ready', dashboard_url: 'https://w/d1', genie_space_url: 'https://w/g1' },
+    { use_case_id: 'N02', status: 'previewing', dashboard_url: 'https://w/d2', status_message: 'Preview run' },
+    { use_case_id: 'N03', status: 'failed', app_url: '' },
+    { use_case_id: 'N04', status: 'previewing', stalled: { reason: 'the run ended' } },
+    { use_case_id: 'N08', status: 'ready_with_warnings', alert_url: 'https://w/a8' },
+  ];
+  const items = w.implementGroups(useCases, latest, null).flatMap((g) => g.items);
+  const got = v.buildSummary(items);
+  assert.deepEqual({ ...got, building: got.building.map((i) => i.id) },
+    { pocs: 5, building: ['N02'], ready: 2, failed: 2, notebooks: 1, notStarted: 2,
+      delivered: [{ id: 'dashboard', count: 2, text: '2 dashboards' }, { id: 'genie_space', count: 1, text: '1 Genie Agent' },
+        { id: 'alert', count: 1, text: '1 alert' }] });
+  assert.equal(got.pocs + got.notebooks + got.notStarted, items.length, 'every use case lands in exactly one count');
+  assert.deepEqual(latest.map((row) => v.deliveredOutputs(row)), [['dashboard', 'genie_space'], ['dashboard'], [], [], ['alert']],
+    'an output counts as delivered only when its link is recorded');
+  assert.deepEqual(v.deliveredOutputs(null), []);
+  assert.deepEqual(v.buildSummary(null), { pocs: 0, building: [], ready: 0, failed: 0, notebooks: 0, notStarted: 0, delivered: [] });
+});
+
+test('the control tower shows a tile for every output: live when built, building while Genie works, failed, missing or not chosen', async () => {
+  const v = await view();
+  const kinds = (tower) => tower.tiles.map((t) => `${t.output.id}:${t.kind}`);
+  const live = { targets: { job: '77', dashboard: 'd1' }, assets: { dashboard: { ok: true, published: true }, job: { ok: true, schedule: null, active_runs: [] } } };
+  const chosen = { ...LATEST, spec_json: { outputs: { dashboard: true, genie_space: true, alert: true } } };
+  const building = v.controlTiles(live, { ...chosen, status: 'building_outputs' }, { active: true, buildingNow: 'Genie Agent' });
+  assert.deepEqual(kinds(building), ['dashboard:live', 'genie_space:building', 'app:off', 'alert:building']);
+  assert.deepEqual(building.tiles.filter((t) => t.kind === 'building').map((t) => t.now), [true, false], 'only the output Genie is on now says so');
+  assert.deepEqual(building.strips.map((r) => r.id), ['job']);
+  assert.deepEqual(building.tiles[0].row, v.controlRows(live, chosen).find((r) => r.id === 'dashboard'), 'a live tile carries the same row as the tower list');
+  const failed = { ...chosen, status: 'ready_with_warnings', asset_status: { genie_space: { state: 'failed', error: 'the space has no tables' } } };
+  const settled = v.controlTiles(live, failed);
+  assert.deepEqual(kinds(settled), ['dashboard:live', 'genie_space:failed', 'app:off', 'alert:missing']);
+  assert.equal(settled.tiles[1].error, 'the space has no tables');
+  assert.deepEqual(kinds(v.controlTiles(null, failed)), ['dashboard:checking', 'genie_space:failed', 'app:off', 'alert:checking'],
+    'before the live status loads, a chosen output is checked, not reported missing');
+  assert.deepEqual(kinds(v.controlTiles(live, null)), ['dashboard:live', 'genie_space:off', 'app:off', 'alert:off']);
+});
+
+test('a built output that ended with warnings lists them on its tile, and a clean or malformed one lists none', async () => {
+  const v = await view();
+  const live = { targets: { app: 'churn-desk', genie_space: 'g1' }, assets: { app: app('ACTIVE'), genie_space: { ok: true, title: 'Churn' } } };
+  const note = "Ask Genie is off because this use case's Genie Agent is not ready: the space has no tables";
+  const warned = (assets) => ({ ...LATEST, status: 'ready_with_warnings', asset_status: assets });
+  const rows = v.controlRows(live, warned({ app: { state: 'ready', warnings: [note, '  '] }, genie_space: { state: 'ready' } }));
+  assert.deepEqual([row(rows, 'app').warnings, row(rows, 'genie_space').warnings], [[note], []]);
+  assert.deepEqual(row(v.controlRows(live, LATEST), 'app').warnings, [], 'no asset status, no warnings');
+  assert.deepEqual(row(v.controlRows(live, warned({ app: { state: 'ready', warnings: note } })), 'app').warnings, [], 'warnings that are not a list are ignored');
+  const tile = v.controlTiles(live, warned({ app: { state: 'ready', warnings: [note] } })).tiles.find((t) => t.output.id === 'app');
+  assert.deepEqual([tile.kind, tile.row.warnings], ['live', [note]]);
+});
+
 test('each App state offers only the action that makes sense, and a crashed App on running compute reads as an error', async () => {
   const v = await view();
   const appRow = (entry) => row(v.controlRows({ targets: { app: 'churn-desk' }, assets: { app: entry } }, LATEST), 'app');

@@ -83,6 +83,11 @@ function jobRow(entry, spec) {
   };
 }
 
+function builtWarnings(latest, id) {
+  const warnings = latest?.asset_status?.[id]?.warnings;
+  return Array.isArray(warnings) ? warnings.map((w) => String(w ?? '').trim()).filter(Boolean) : [];
+}
+
 export function controlRows(live, latest) {
   const assets = live?.assets || {};
   const targets = live?.targets || {};
@@ -102,10 +107,57 @@ export function controlRows(live, latest) {
       name: OUTPUT_NAMES[output.id](entry) || String(targets[output.id]),
       url: latest?.[OUTPUT_URLS[output.id]] || entry?.url || '',
       removable: true,
+      warnings: builtWarnings(latest, output.id),
       ...OUTPUT_ROWS[output.id](entry),
     });
   }
   return rows;
+}
+
+const DELIVERED_WORDS = { dashboard: ['dashboard', 'dashboards'], genie_space: ['Genie Agent', 'Genie Agents'], app: ['App', 'Apps'], alert: ['alert', 'alerts'] };
+
+export function deliveredOutputs(latest) {
+  return IMPLEMENT_OUTPUTS.filter((output) => latest?.[OUTPUT_URLS[output.id]]).map((output) => output.id);
+}
+
+export function buildSummary(items) {
+  const list = Array.isArray(items) ? items : [];
+  const pocs = list.filter((item) => item.state?.kind === 'poc');
+  const inGroup = (group) => pocs.filter((item) => item.state.group === group);
+  const delivered = IMPLEMENT_OUTPUTS
+    .map((output) => {
+      const count = pocs.filter((item) => deliveredOutputs(item.latest).includes(output.id)).length;
+      return { id: output.id, count, text: `${count} ${DELIVERED_WORDS[output.id][count === 1 ? 0 : 1]}` };
+    })
+    .filter((entry) => entry.count > 0);
+  return {
+    pocs: pocs.length,
+    building: inGroup('in_progress'),
+    ready: inGroup('ready').length,
+    failed: inGroup('failed').length,
+    notebooks: list.filter((item) => item.state?.kind === 'notebook' && item.notebook?.state === 'ready').length,
+    notStarted: list.filter((item) => item.state?.group === 'not_started').length,
+    delivered,
+  };
+}
+
+export function controlTiles(live, latest, { active = false, buildingNow = '' } = {}) {
+  const rows = controlRows(live, latest);
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const chosen = latest?.spec_json?.outputs || {};
+  const assets = latest?.asset_status || {};
+  return {
+    strips: rows.filter((row) => row.id === 'build' || row.id === 'job'),
+    tiles: IMPLEMENT_OUTPUTS.map((output) => {
+      const row = byId.get(output.id);
+      if (row) return { output, kind: 'live', row };
+      if (!chosen[output.id]) return { output, kind: 'off' };
+      if (active) return { output, kind: 'building', now: buildingNow === output.label };
+      if (assets[output.id]?.state === 'failed') return { output, kind: 'failed', error: String(assets[output.id].error || '') };
+      if (!live) return { output, kind: 'checking' };
+      return { output, kind: 'missing' };
+    }),
+  };
 }
 
 export function removeChanges(latest, output) {
@@ -123,9 +175,8 @@ const savedVibes = (row, id) => String(row?.spec_json?.outputs?.[vibesKey(id)] ?
 export function vibeWarnings(row, id) {
   const label = IMPLEMENT_OUTPUTS.find((o) => o.id === id)?.label || id;
   const lead = `${label} vibe not done: `;
-  const own = row?.asset_status?.[id]?.warnings;
-  const listed = [...String(row?.status_message || '').split(WARNING_START), ...(Array.isArray(own) ? own.map(String) : [])];
-  return [...new Set(listed.map((w) => w.trim()).filter((w) => w.startsWith(lead)))];
+  const listed = [...String(row?.status_message || '').split(WARNING_START), ...builtWarnings(row, id)];
+  return [...new Set(listed.filter((w) => w.includes(lead)).map((w) => w.slice(w.indexOf(lead)).trim()))];
 }
 
 export function vibeCards(history, latest, stalled = null) {
@@ -147,6 +198,7 @@ export function vibeCards(history, latest, stalled = null) {
       vibes: String(chosen[vibesKey(o.id)] ?? '').trim(),
       rebuild: built.includes(o.id),
       live: liveVersion == null ? null : { version: liveVersion, at: at(rows.find((r) => r.spec_version === liveVersion)) },
+      url: String(base[OUTPUT_URLS[o.id]] || latest[OUTPUT_URLS[o.id]] || ''),
       versions,
       warnings: vibeWarnings(base, o.id),
     };

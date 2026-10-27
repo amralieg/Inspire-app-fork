@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, X, ChevronLeft, ChevronRight, ChevronDown, Check, Lock, UserRound, KeyRound, MessageSquareText } from 'lucide-react';
+import { Loader2, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check, Lock, UserRound, KeyRound, MessageSquareText } from 'lucide-react';
 import BodyPortal from '../components/BodyPortal';
-import { OutputIcon, VibesEditor } from '../components/OutputVibes';
+import VibesEditor from '../components/VibesEditor';
 import { generationFolder, sharedFolderWarning } from '../lib/workspaceLinks';
 import { catalogRow } from '../lib/useCaseFacets';
 import {
@@ -82,6 +82,7 @@ import {
   VIBES_MAX,
 } from '../lib/implementWizard';
 
+const ICONS = { dashboard: LayoutDashboard, genie_space: Sparkles, app: AppWindow, alert: Bell };
 const ASSET_NOUNS = { dashboard: 'a dashboard', genie_space: 'a Genie Agent', app: 'an App', alert: 'an alert' };
 const ACCESS_ICONS = { user: UserRound, sp: KeyRound };
 const NO_WIDGET_GROUPS = { business: [], model: [], ai: [], extras: [], extras_kept_default: [] };
@@ -941,7 +942,8 @@ export default function ImplementWizard({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {IMPLEMENT_OUTPUTS.map((item) => {
-                      const on = spec.outputs[item.id];
+                    const Icon = ICONS[item.id];
+                    const on = spec.outputs[item.id];
                     const noAppAccess = item.id === 'app' && !context?.assets?.app && outputCheck?.app?.ok === false;
                     const unavailable = (item.id === 'app' && !features.apps)
                       || noAppAccess
@@ -958,7 +960,7 @@ export default function ImplementWizard({
                             <input type="checkbox" className="mt-0.5" checked={on} disabled={(unavailable && !on) || locked} onChange={(e) => toggleOutput(item.id, e.target.checked)} />
                             <span className="flex-1">
                               <span className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-                                <OutputIcon id={item.id} size={14} /> {item.label}
+                                <Icon size={14} /> {item.label}
                                 {locked && <Lock size={12} className="text-text-tertiary" aria-hidden="true" />}
                               </span>
                               <span className={`block text-[11px] mt-1 ${unavailable ? 'text-error-fg' : 'text-text-secondary'}`}>
@@ -1348,12 +1350,15 @@ function VibesPanel({ spec, focus, onChange, onDone }) {
         </button>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {IMPLEMENT_OUTPUTS.filter((o) => spec.outputs[o.id]).map((o) => (
-          <div key={o.id} data-vibes={o.id} className={`border rounded-lg p-3 space-y-1.5 ${o.id === focus ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
-            <p className="flex items-center gap-2 text-sm font-semibold text-text-primary"><OutputIcon id={o.id} size={14} aria-hidden="true" /> {vibesLabel(o.id)}</p>
-            <VibesEditor id={o.id} value={spec.outputs[vibesKey(o.id)] || ''} onChange={(value) => onChange(o.id, value)} autoFocus={o.id === focus} />
-          </div>
-        ))}
+        {IMPLEMENT_OUTPUTS.filter((o) => spec.outputs[o.id]).map((o) => {
+          const Icon = ICONS[o.id];
+          return (
+            <div key={o.id} data-vibes={o.id} className={`border rounded-lg p-3 space-y-1.5 ${o.id === focus ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
+              <p className="flex items-center gap-2 text-sm font-semibold text-text-primary"><Icon size={14} aria-hidden="true" /> {vibesLabel(o.id)}</p>
+              <VibesEditor id={o.id} value={spec.outputs[vibesKey(o.id)] || ''} onChange={(value) => onChange(o.id, value)} autoFocus={o.id === focus} />
+            </div>
+          );
+        })}
       </div>
     </section>
   );

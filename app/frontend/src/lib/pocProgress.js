@@ -16,7 +16,7 @@ const FINISH_STAGE = { id: 'Done', label: 'Done', working: 'Inspire is schedulin
 const STEP_STATES = { started: 'running', ended_success: 'done', ended_warning: 'warning', ended_error: 'error' };
 const RUN_STARTING_STATES = ['PENDING', 'QUEUED', 'BLOCKED'];
 
-function stepPhase(row) {
+function stepPayload(row) {
   let payload = row?.result_json;
   if (typeof payload === 'string' && payload) {
     try {
@@ -25,7 +25,11 @@ function stepPhase(row) {
       payload = {};
     }
   }
-  const phase = payload && typeof payload === 'object' ? String(payload.phase || '') : '';
+  return payload && typeof payload === 'object' ? payload : {};
+}
+
+function stepPhase(row, payload) {
+  const phase = String(payload.phase || '');
   if (phase) return phase;
   const named = /^Inspire is working on (.+)$/i.exec(String(row?.step_name || ''));
   return named ? named[1] : '';
@@ -36,6 +40,21 @@ function timeOf(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function stepEvents(steps) {
+  return (steps || [])
+    .map((row, order) => {
+      const payload = stepPayload(row);
+      return { row, payload, order, at: timeOf(payload.event_at) ?? timeOf(row?.last_updated) };
+    })
+    .sort((a, b) => ((a.at ?? Infinity) - (b.at ?? Infinity)) || a.order - b.order);
+}
+
+function roundOf(payload) {
+  const round = Number(payload.round);
+  if (!Number.isInteger(round) || round < 1) return null;
+  return payload.failure ? round + 1 : round;
+}
+
 export function pocStages(steps, latest, { now = Date.now(), stalled = null } = {}) {
   const outputs = latest?.spec_json?.outputs || {};
   const plan = [
@@ -43,18 +62,17 @@ export function pocStages(steps, latest, { now = Date.now(), stalled = null } = 
     ...IMPLEMENT_OUTPUTS.filter((o) => outputs[o.id]).map((o) => ({ id: o.label, label: o.label, phases: EARLIER_PHASES[o.id] || [], working: `Genie is building the ${o.label.toLowerCase()}` })),
     FINISH_STAGE,
   ];
-  const stages = plan.map((stage) => ({ ...stage, state: 'waiting', started: null, ended: null }));
+  const stages = plan.map((stage) => ({ ...stage, state: 'waiting', started: null, ended: null, round: null, rounds: null }));
   const indexOf = (phase) => stages.findIndex((s) => s.id.toLowerCase() === phase.toLowerCase()
     || (s.phases || []).some((p) => p.toLowerCase() === phase.toLowerCase()));
   const rank = { running: 0, done: 1, warning: 2, error: 3 };
   const seenAt = new Map();
-  for (const row of steps || []) {
-    const index = indexOf(stepPhase(row));
+  for (const { row, payload, at } of stepEvents(steps)) {
+    const index = indexOf(stepPhase(row, payload));
     if (index < 0) continue;
     const stage = stages[index];
     const state = STEP_STATES[String(row.status || '')];
     if (!state) continue;
-    const at = timeOf(row.last_updated);
     if (stage.started === null || (at !== null && at < stage.started)) stage.started = at;
     if (state !== 'running' && (stage.ended === null || (at !== null && at >= stage.ended))) stage.ended = at;
     const before = seenAt.has(index) ? seenAt.get(index) : undefined;
@@ -62,6 +80,8 @@ export function pocStages(steps, latest, { now = Date.now(), stalled = null } = 
     const tie = at !== null && at === before && rank[state] >= rank[stage.state];
     if (newer || tie) {
       stage.state = state;
+      stage.round = roundOf(payload);
+      stage.rounds = Number.isInteger(Number(payload.rounds)) && Number(payload.rounds) > 0 ? Number(payload.rounds) : null;
       seenAt.set(index, at);
     }
   }
@@ -69,6 +89,18 @@ export function pocStages(steps, latest, { now = Date.now(), stalled = null } = 
   const finished = ['ready', 'ready_with_warnings'].includes(status);
   const failed = status === 'failed';
   const active = IMPLEMENT_ACTIVE_STATUSES.includes(status);
+  if (active) {
+    stages.forEach((s, i) => {
+      const restartedAt = seenAt.get(i);
+      if (s.state !== 'running' || restartedAt === undefined || restartedAt === null) return;
+      stages.slice(i + 1).forEach((later, offset) => {
+        const laterAt = seenAt.get(i + 1 + offset);
+        if (laterAt === undefined || laterAt === null || laterAt >= restartedAt) return;
+        Object.assign(later, { state: 'waiting', started: null, ended: null, round: null, rounds: null });
+        seenAt.delete(i + 1 + offset);
+      });
+    });
+  }
   const last = stages.reduce((found, s, i) => (s.state !== 'waiting' ? i : found), -1);
   stages.forEach((s, i) => { if (s.state === 'waiting' && i < last) s.state = 'skipped'; });
   const finish = stages[stages.length - 1];
@@ -112,13 +144,19 @@ export function pocProgressSummary(stages, latest, { now = Date.now(), stalled =
   if (active && status === 'queued' && !current?.started) headline = 'Waiting for the build job to start';
   else if (active && current) headline = `${current.working}…`;
   else if (active) headline = 'Inspire is working…';
+  const round = active && current?.state === 'running' && current.round > 1 ? current.round : null;
   return {
     active,
     current,
     percent: counted.length ? Math.round((settled / counted.length) * 100) : 0,
     headline,
+    detail: round ? `Round ${round}${current.rounds ? ` of ${current.rounds}` : ''}: Genie is fixing what failed in round ${round - 1}` : '',
     span: span ? `${active ? 'Running for' : 'Took'} ${span}` : '',
   };
+}
+
+export function stagesRecorded(stages) {
+  return (stages || []).some((s) => s.id !== FINISH_STAGE.id && s.state !== 'skipped');
 }
 
 function plural(count, word) {

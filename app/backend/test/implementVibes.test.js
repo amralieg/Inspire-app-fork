@@ -301,5 +301,13 @@ test('the Build page offers a vibe panel per built output and the earlier versio
   assert.deepEqual(c.vibeWarnings({ status_message: 'Genie Agent vibe not done: add a question; about EMEA: the space has 5; it is full' }, 'genie_space'),
     ['Genie Agent vibe not done: add a question; about EMEA: the space has 5; it is full'], 'a semicolon inside an ask stays in the warning');
   assert.deepEqual(c.vibeWarnings({ asset_status: { alert: { warnings: ['Alert vibe not done: weekly: alerts run per job run', 'Alert: other'] } } }, 'alert'),
-    ['Alert vibe not done: weekly: alerts run per job run']);
+    ['Alert vibe not done: weekly: alerts run per job run'], 'the control tower\'s own warnings list is read the same way');
+  assert.deepEqual(c.vibeWarnings({ status_message: 'App: App vibe not done: a logo: no logo file was given; Schedule: no cron',
+    asset_status: { app: { warnings: ['App vibe not done: a logo: no logo file was given'] } } }, 'app'),
+    ['App vibe not done: a logo: no logo file was given'], 'a warning under its output\'s label shows once, from the vibe on');
+  assert.deepEqual(c.vibeWarnings({ status_message: 'Dashboard vibe not done: big: no room' }, 'app'), [], 'another output\'s warning never shows');
+  assert.equal(cards[0].url, '', 'no URL on the version, no link');
+  const withUrl = { ...rows[0], dashboard_url: 'https://workspace.example.com/dashboardsv3/d1/published' };
+  const linked = c.vibeCards([withUrl, ...rows.slice(1)], withUrl);
+  assert.equal(linked[0].url, 'https://workspace.example.com/dashboardsv3/d1/published', 'the card links the live asset');
 });
