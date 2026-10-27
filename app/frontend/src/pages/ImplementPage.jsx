@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlertTriangle, AppWindow, BellRing, CheckCircle2, CircleDashed, ExternalLink, FileText, Hammer, History, LayoutDashboard, Loader2,
-  NotebookPen, Pencil, RefreshCw, Rocket, RotateCcw, Search, Sparkles, XCircle,
+  NotebookPen, Pencil, RefreshCw, Rocket, RotateCcw, Search, Sparkles, Wand2, XCircle,
 } from 'lucide-react';
 import {
-  statusChip, statusReason, nextSpecFrom, retryableOutputs, rebuildableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
+  statusChip, statusReason, nextSpecFrom, retryableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
   runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded, START_POC_LABEL, IMPLEMENT_ACTIVE_STATUSES,
+  vibesPreview, vibesProblem,
 } from '../lib/implementWizard';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
 import { buildUseCaseList } from '../lib/useCaseList';
 import { workspaceNotebookUrl } from '../lib/workspaceLinks';
 import { subtitleOfUseCase } from '../lib/useCaseFields';
 import { reducedMotion } from '../lib/motion';
+import { formatWhen } from '../lib/formatWhen';
 import ImplementStatusBadge from '../components/ImplementStatusBadge';
 import ImplementWizard from './ImplementWizard';
 import ImplementControlTower from '../components/ImplementControlTower';
@@ -20,9 +22,10 @@ import UseCaseDetailBody from '../components/UseCaseDetailBody';
 import InspireScoreBadge from '../components/InspireScoreBadge';
 import Celebration from '../components/Celebration';
 import GenieLogo from '../components/GenieLogo';
+import VibesEditor from '../components/VibesEditor';
 import { Counter, CounterDivider, IconChip, PANEL_CLASS, SectionTitle } from '../components/BuildUi';
 import { catalogRow } from '../lib/useCaseFacets';
-import { CONTROL_REFRESH_MS, buildSummary, deliveredOutputs, removeChanges } from '../lib/implementControl';
+import { CONTROL_REFRESH_MS, buildSummary, deliveredOutputs, removeChanges, vibeCards, vibeChanges, rollbackChanges } from '../lib/implementControl';
 import { pocStages, pocProgressSummary, feedArrivals } from '../lib/pocProgress';
 import PocProgress from '../components/PocProgress';
 import GenieFeed from '../components/GenieFeed';
@@ -379,6 +382,138 @@ function TabCard({ icon, title, hint, children }) {
   );
 }
 
+function VersionRow({ card, version, locked, pending, confirming, onAsk, onCancel, onConfirm }) {
+  const confirmRef = useRef(null);
+  useEffect(() => {
+    if (confirming) confirmRef.current?.scrollIntoView?.({ block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' });
+  }, [confirming]);
+  return (
+    <li data-version={version.version} className="px-3 py-2 space-y-1.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="font-semibold text-text-primary">v{version.version}</span>
+        {version.at && <span className="text-text-secondary">{formatWhen(version.at, version.at)}</span>}
+        <span className="rounded-full border border-border px-1.5 py-px text-[10px] text-text-secondary">{statusChip(version.status).label}</span>
+        <button type="button" disabled={locked || confirming} onClick={onAsk} className={`ml-auto ${OUTLINE_BUTTON}`}>
+          <History size={12} /> Roll back to v{version.version}
+        </button>
+      </div>
+      <p className="truncate text-text-secondary" title={version.vibes || undefined}>
+        {version.vibes ? `“${vibesPreview(version.vibes)}”` : 'no vibes'}
+      </p>
+      {confirming && (
+        <div ref={confirmRef} role="group" aria-label={`Confirm the roll back to v${version.version}`}
+          className="rounded-lg border border-border-strong bg-bg-subtle px-3 py-2 space-y-2 motion-safe:animate-terminal-line">
+          <p className="text-text-primary">Roll back the {card.label} to v{version.version}? This replaces the live {card.label}; Genie is not called.</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={locked} onClick={onConfirm} className={PRIMARY_BUTTON}>
+              {pending ? <Loader2 size={12} className="animate-spin" /> : <History size={12} />} Roll back
+            </button>
+            <button type="button" onClick={onCancel} className={OUTLINE_BUTTON}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function VibeCard({ card, draft, locked, onDraft, onRebuild, onRollback }) {
+  const [pending, setPending] = useState('');
+  const [confirming, setConfirming] = useState(null);
+  const text = draft ?? card.vibes;
+  const changed = text.trim() !== card.vibes;
+  const problem = vibesProblem(card.id, text);
+  const title = card.rebuild ? `Vibe the ${card.label}` : `The ${card.label}`;
+  const rebuild = async () => {
+    setPending('rebuild');
+    const ok = await onRebuild(card.id, text);
+    setPending('');
+    if (ok) onDraft(card.id, null);
+  };
+  const rollback = async (version) => {
+    setPending(`v${version.version}`);
+    const ok = await onRollback(card.id, version);
+    setPending('');
+    if (ok) setConfirming(null);
+  };
+  return (
+    <article data-vibe-card={card.id} aria-label={title} className="rounded-lg border border-border bg-surface p-3 space-y-2.5">
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+          <IconChip icon={OUTPUT_ICONS[card.id]} size="sm" /> {title}
+        </h4>
+        <div className="flex flex-wrap items-center gap-3">
+          <p data-live="" className="text-[11px] text-text-secondary">
+            {card.live
+              ? <>Live: built from <span className="font-semibold text-text-primary">v{card.live.version}</span>{card.live.at ? `, ${formatWhen(card.live.at, card.live.at)}` : ''}</>
+              : 'Not live on the latest version'}
+          </p>
+          {card.url && <a className={LINK} href={card.url} target="_blank" rel="noreferrer">Open the {card.label} <ExternalLink size={12} /></a>}
+        </div>
+      </header>
+      {card.rebuild && (
+        <>
+          <VibesEditor id={card.id} value={text} onChange={(value) => onDraft(card.id, value)} />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <button type="button" disabled={locked || Boolean(problem) || Boolean(pending)} onClick={rebuild} className={changed ? PRIMARY_BUTTON : OUTLINE_BUTTON}>
+              {pending === 'rebuild' ? <Loader2 size={12} className="animate-spin" /> : changed ? <Wand2 size={12} /> : <RotateCcw size={12} />}
+              {changed ? 'Rebuild with these vibes' : `Rebuild the ${card.label}`}
+            </button>
+            {changed && (
+              <button type="button" disabled={Boolean(pending)} onClick={() => onDraft(card.id, null)} className="text-[11px] font-semibold text-text-secondary underline hover:text-text-primary">
+                Discard my edits
+              </button>
+            )}
+            <span className="text-[11px] text-text-secondary">
+              {changed ? `Genie rebuilds only the ${card.label} with your asks and replaces the live one.` : `Genie writes the ${card.label} again from this version.`}
+            </span>
+          </div>
+        </>
+      )}
+      {card.warnings.length > 0 && (
+        <ul aria-label={`Vibes Genie could not do on the ${card.label}`} className="space-y-0.5">
+          {card.warnings.map((w) => <li key={w} className="flex items-start gap-1.5 text-[11px] text-warning-fg"><AlertTriangle size={12} className="mt-px shrink-0" aria-hidden />{w}</li>)}
+        </ul>
+      )}
+      {card.versions.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Versions</p>
+          <ul aria-label={`Earlier versions of the ${card.label}`} className="divide-y divide-border border border-border rounded-lg">
+            {card.versions.map((version) => (
+              <VersionRow
+                key={version.version}
+                card={card}
+                version={version}
+                locked={locked || Boolean(pending)}
+                pending={pending === `v${version.version}`}
+                confirming={confirming === version.version}
+                onAsk={() => setConfirming(version.version)}
+                onCancel={() => setConfirming(null)}
+                onConfirm={() => rollback(version)}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function VibePanel({ cards, drafts, locked, active, onDraft, onRebuild, onRollback }) {
+  return (
+    <section aria-label="Vibe the outputs" className="min-w-0">
+      <TabCard icon={Wand2} title="Vibe the outputs" hint="Change any output in your own words, even after it is live">
+        <p className="text-text-secondary">
+          Your asks win over Inspire&apos;s defaults. Genie rebuilds only the output you vibe and replaces the live one, and every earlier version it saved can come back.
+        </p>
+        {active && <p className="font-medium text-text-primary">A version is building now; vibes and roll backs apply after it finishes.</p>}
+        {cards.map((card) => (
+          <VibeCard key={card.id} card={card} draft={drafts[card.id] ?? null} locked={locked} onDraft={onDraft} onRebuild={onRebuild} onRollback={onRollback} />
+        ))}
+      </TabCard>
+    </section>
+  );
+}
+
 function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson, databricksHost, notebookRunError, refreshKey, onEdit }) {
   const useCaseId = item.id;
   const hasPoc = Boolean(item.latest);
@@ -394,6 +529,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const [liveError, setLiveError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
   const [celebrations, setCelebrations] = useState(0);
+  const [vibeDrafts, setVibeDrafts] = useState({});
   const lastStatus = useRef(null);
 
   const [arrivals, setArrivals] = useState(null);
@@ -472,7 +608,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   };
 
   const submitNext = async (changes) => {
-    if (!latest || active || submitBusy) return;
+    if (!latest || active || submitBusy) return false;
     setSubmitBusy(true);
     setError('');
     try {
@@ -484,8 +620,10 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
         spec: nextSpecFrom(latest, changes),
       });
       await loadStatus();
+      return true;
     } catch (e) {
       setError(e.message);
+      return false;
     } finally {
       setSubmitBusy(false);
     }
@@ -494,6 +632,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const toggleSchedule = () => submitNext({ schedule: { ...(spec.schedule || {}), enabled: !spec.schedule?.enabled } });
   const retryOutput = (name) => submitNext({ retry_outputs: [name] });
   const removeOutput = (name) => submitNext(removeChanges(latest, name));
+  const vibeOutput = (name, text) => submitNext(vibeChanges(latest, name, text));
+  const rollbackOutput = (name, version) => submitNext(rollbackChanges(latest, name, version.version, version.vibes));
 
   const runControl = async (a) => {
     setActionBusy(`${a.asset}:${a.action}`);
@@ -510,7 +650,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     }
   };
   const failedOutputs = retryableOutputs(latest);
-  const builtOutputs = rebuildableOutputs(latest);
+  const vibeTargets = vibeCards(status?.history, latest, stalled);
   const alertAsset = latest?.asset_status?.alert || {};
 
   const retryBanner = (name) => {
@@ -746,92 +886,88 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
             </TabCard>
           )}
           {tab === 'Edit' && (
-            <section aria-label="Edit the PoC/MVP" className={`${PANEL_CLASS} max-w-md`}>
-              <SectionTitle icon={Pencil} title="Change this PoC/MVP" hint="Each change builds a new version" />
-              <div className="p-4 space-y-4">
-                <button
-                  type="button"
-                  disabled={active}
-                  onClick={() => onEdit(null)}
-                  className={`w-full justify-center ${OUTLINE_BUTTON}`}
-                >
-                  <Pencil size={12} /> {active ? 'Edit applies after this run' : 'Edit the PoC/MVP'}
-                </button>
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary mb-1">Quick re-run</div>
-                  {widgets.map((w) => (
-                    <label key={w.name} className="block text-[11px] mb-1">
-                      {w.label || w.name}
-                      {Array.isArray(w.choices) && w.choices.length > 0 ? (
-                        <select
-                          className="mt-0.5 w-full px-2 py-1 border border-border rounded-lg bg-surface"
-                          value={overrides[w.name] ?? ''}
-                          onChange={(e) => setOverrides((prev) => ({ ...prev, [w.name]: e.target.value }))}
-                        >
-                          <option value="">{w.default ? `Keep ${w.default}` : 'Keep the job value'}</option>
-                          {w.choices.map((choice) => <option key={String(choice)} value={String(choice)}>{String(choice)}</option>)}
-                        </select>
-                      ) : (
-                        <input
-                          className="mt-0.5 w-full px-2 py-1 border border-border rounded-lg bg-surface"
-                          value={overrides[w.name] ?? ''}
-                          placeholder={w.default == null ? '' : String(w.default)}
-                          onChange={(e) => setOverrides((prev) => ({ ...prev, [w.name]: e.target.value }))}
-                        />
-                      )}
-                      {w.allowed && <span className="block text-[10px] text-text-secondary">{w.allowed}</span>}
-                    </label>
-                  ))}
-                  {widgets.length === 0 && <p className="text-[11px] text-text-secondary">No widgets to change; the re-run uses the job&apos;s values.</p>}
-                  <p className="text-[10px] text-text-secondary">A preview of the notebook only. Blank fields keep the job&apos;s values, and the alert never fires on a preview.</p>
+            <section aria-label="Edit the PoC/MVP" className={vibeTargets.length ? 'grid gap-4 items-start lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]' : 'max-w-md'}>
+              <div className={PANEL_CLASS}>
+                <SectionTitle icon={Pencil} title="Change this PoC/MVP" hint="Each change builds a new version" />
+                <div className="p-4 space-y-4">
                   <button
                     type="button"
-                    disabled={rerunBusy || !latest?.job_id}
-                    onClick={rerun}
-                    className={`mt-2 w-full justify-center ${PRIMARY_BUTTON}`}
+                    disabled={active}
+                    onClick={() => onEdit(null)}
+                    className={`w-full justify-center ${OUTLINE_BUTTON}`}
                   >
-                    {rerunBusy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Preview re-run
+                    <Pencil size={12} /> {active ? 'Edit applies after this run' : 'Edit the PoC/MVP'}
                   </button>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary mb-1">Quick re-run</div>
+                    {widgets.map((w) => (
+                      <label key={w.name} className="block text-[11px] mb-1">
+                        {w.label || w.name}
+                        {Array.isArray(w.choices) && w.choices.length > 0 ? (
+                          <select
+                            className="mt-0.5 w-full px-2 py-1 border border-border rounded-lg bg-surface"
+                            value={overrides[w.name] ?? ''}
+                            onChange={(e) => setOverrides((prev) => ({ ...prev, [w.name]: e.target.value }))}
+                          >
+                            <option value="">{w.default ? `Keep ${w.default}` : 'Keep the job value'}</option>
+                            {w.choices.map((choice) => <option key={String(choice)} value={String(choice)}>{String(choice)}</option>)}
+                          </select>
+                        ) : (
+                          <input
+                            className="mt-0.5 w-full px-2 py-1 border border-border rounded-lg bg-surface"
+                            value={overrides[w.name] ?? ''}
+                            placeholder={w.default == null ? '' : String(w.default)}
+                            onChange={(e) => setOverrides((prev) => ({ ...prev, [w.name]: e.target.value }))}
+                          />
+                        )}
+                        {w.allowed && <span className="block text-[10px] text-text-secondary">{w.allowed}</span>}
+                      </label>
+                    ))}
+                    {widgets.length === 0 && <p className="text-[11px] text-text-secondary">No widgets to change; the re-run uses the job&apos;s values.</p>}
+                    <p className="text-[10px] text-text-secondary">A preview of the notebook only. Blank fields keep the job&apos;s values, and the alert never fires on a preview.</p>
+                    <button
+                      type="button"
+                      disabled={rerunBusy || !latest?.job_id}
+                      onClick={rerun}
+                      className={`mt-2 w-full justify-center ${PRIMARY_BUTTON}`}
+                    >
+                      {rerunBusy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Preview re-run
+                    </button>
+                  </div>
+                  <label className="flex items-center gap-2 text-[12px]">
+                    <input type="checkbox" checked={!!spec.schedule?.enabled} disabled={active || !latest || submitBusy} onChange={toggleSchedule} />
+                    Schedule on
+                  </label>
+                  {failedOutputs.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Failed outputs</div>
+                      {failedOutputs.map((o) => (
+                        <button
+                          key={o.id}
+                          type="button"
+                          disabled={active || submitBusy}
+                          onClick={() => retryOutput(o.id)}
+                          title={o.error}
+                          className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-error/40 bg-surface text-error-fg disabled:opacity-50"
+                        >
+                          <RotateCcw size={12} /> Retry the {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <label className="flex items-center gap-2 text-[12px]">
-                  <input type="checkbox" checked={!!spec.schedule?.enabled} disabled={active || !latest || submitBusy} onChange={toggleSchedule} />
-                  Schedule on
-                </label>
-                {failedOutputs.length > 0 && (
-                  <div className="space-y-1">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Failed outputs</div>
-                    {failedOutputs.map((o) => (
-                      <button
-                        key={o.id}
-                        type="button"
-                        disabled={active || submitBusy}
-                        onClick={() => retryOutput(o.id)}
-                        title={o.error}
-                        className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-error/40 bg-surface text-error-fg disabled:opacity-50"
-                      >
-                        <RotateCcw size={12} /> Retry the {o.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {builtOutputs.length > 0 && (
-                  <div className="space-y-1">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Rebuild an output</div>
-                    <p className="text-[10px] text-text-secondary">Genie writes it again from this version, for an output that was built but does not work.</p>
-                    {builtOutputs.map((o) => (
-                      <button
-                        key={o.id}
-                        type="button"
-                        disabled={active || submitBusy}
-                        onClick={() => retryOutput(o.id)}
-                        className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-border bg-surface text-text-secondary disabled:opacity-50"
-                      >
-                        <RotateCcw size={12} /> Rebuild the {o.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
+              {vibeTargets.length > 0 && (
+                <VibePanel
+                  cards={vibeTargets}
+                  drafts={vibeDrafts}
+                  locked={active || submitBusy}
+                  active={active}
+                  onDraft={(name, text) => setVibeDrafts((prev) => ({ ...prev, [name]: text }))}
+                  onRebuild={vibeOutput}
+                  onRollback={rollbackOutput}
+                />
+              )}
             </section>
           )}
         </>

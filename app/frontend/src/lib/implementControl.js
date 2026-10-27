@@ -1,4 +1,4 @@
-import { IMPLEMENT_OUTPUTS } from './implementWizard.js';
+import { IMPLEMENT_OUTPUTS, rebuildableOutputs, versionActive, vibesKey } from './implementWizard.js';
 import { formatWhen } from './formatWhen.js';
 
 export const CONTROL_REFRESH_MS = 15000;
@@ -166,6 +166,53 @@ export function removeChanges(latest, output) {
     outputs: { ...(spec.outputs || {}), [output]: false },
     removed_outputs: { ...(spec.removed_outputs || {}), [output]: 'delete' },
   };
+}
+
+const DONE = ['ready', 'ready_with_warnings'];
+const WARNING_START = /; (?=[A-Z][A-Za-z ]{0,40}: )/;
+const savedVibes = (row, id) => String(row?.spec_json?.outputs?.[vibesKey(id)] ?? '').trim();
+
+export function vibeWarnings(row, id) {
+  const label = IMPLEMENT_OUTPUTS.find((o) => o.id === id)?.label || id;
+  const lead = `${label} vibe not done: `;
+  const listed = [...String(row?.status_message || '').split(WARNING_START), ...builtWarnings(row, id)];
+  return [...new Set(listed.filter((w) => w.includes(lead)).map((w) => w.slice(w.indexOf(lead)).trim()))];
+}
+
+export function vibeCards(history, latest, stalled = null) {
+  const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
+  const base = versionActive(latest, stalled) ? rows.find((r) => DONE.includes(r.status)) : latest;
+  if (!base || !DONE.includes(String(base.status))) return [];
+  const chosen = latest.spec_json?.outputs || {};
+  const built = rebuildableOutputs(base).map((o) => o.id);
+  const at = (row) => String(row?.updated_at || row?.created_at || '');
+  return IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id]).map((o) => {
+    const entry = base.asset_status?.[o.id];
+    const liveVersion = entry?.state === 'ready' ? (entry.spec_version ?? base.spec_version ?? null) : null;
+    const versions = rows.filter((r) => {
+      const saved = r.asset_status?.[o.id];
+      return saved?.snapshot === true && r.spec_version !== liveVersion && (saved.spec_version ?? r.spec_version) === r.spec_version;
+    }).map((r) => ({ version: r.spec_version, at: at(r), status: String(r.status || ''), vibes: savedVibes(r, o.id) }));
+    return {
+      ...o,
+      vibes: String(chosen[vibesKey(o.id)] ?? '').trim(),
+      rebuild: built.includes(o.id),
+      live: liveVersion == null ? null : { version: liveVersion, at: at(rows.find((r) => r.spec_version === liveVersion)) },
+      url: String(base[OUTPUT_URLS[o.id]] || latest[OUTPUT_URLS[o.id]] || ''),
+      versions,
+      warnings: vibeWarnings(base, o.id),
+    };
+  }).filter((card) => card.rebuild || card.versions.length);
+}
+
+export function vibeChanges(latest, id, text) {
+  const outputs = latest?.spec_json?.outputs || {};
+  const next = String(text ?? '').trim();
+  return next === String(outputs[vibesKey(id)] ?? '').trim() ? { retry_outputs: [id] } : { outputs: { ...outputs, [vibesKey(id)]: next } };
+}
+
+export function rollbackChanges(latest, id, version, vibes) {
+  return { rollback_outputs: { [id]: version }, outputs: { ...(latest?.spec_json?.outputs || {}), [vibesKey(id)]: String(vibes ?? '').trim() } };
 }
 
 export function removeConfirmed(typed, useCaseId) {

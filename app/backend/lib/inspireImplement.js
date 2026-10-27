@@ -11,16 +11,17 @@ const IMPLEMENT_OUTPUT_ID_COLUMNS = { dashboard: 'dashboard_id', genie_space: 'g
 const IMPLEMENT_STOPPED_STATES = ['deleted', 'released'];
 const IMPLEMENT_RUN_ENDED_STATES = ['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR'];
 const IMPLEMENT_STALE_AFTER_MS = 4 * 3600 * 1000;
-const IMPLEMENT_CHANGE_CLASSES = ['initial', 'data', 'config', 'schedule', 'outputs', 'deselect', 'sharing', 'retry'];
+const IMPLEMENT_CHANGE_CLASSES = ['initial', 'data', 'config', 'schedule', 'outputs', 'deselect', 'sharing', 'retry', 'rollback'];
 const IMPLEMENT_RUN_PROFILES = ['preview', 'full'];
 const IMPLEMENT_FILTER_OPS = ['=', '!=', '>', '>=', '<', '<=', 'in', 'not in', 'between'];
 const IMPLEMENT_COLUMN_ROLES = ['entity_id', 'event_date', 'measure', 'label', 'segment'];
+const IMPLEMENT_VIBES_MAX = 2000;
 const IMPLEMENT_OUTPUT_OPTIONS = {
-  dashboard: ['dashboard_name', 'dashboard_filters'],
-  genie_space: ['genie_space_name', 'genie_questions'],
-  app: ['app_purpose', 'app_access', 'app_look', 'app_options'],
+  dashboard: ['dashboard_name', 'dashboard_filters', 'dashboard_vibes'],
+  genie_space: ['genie_space_name', 'genie_questions', 'genie_space_vibes'],
+  app: ['app_purpose', 'app_access', 'app_look', 'app_options', 'app_vibes'],
   alert: ['alert_name', 'alert_tiers', 'alert_operator', 'alert_threshold', 'alert_condition_text', 'alert_recipients',
-    'alert_destinations'],
+    'alert_destinations', 'alert_vibes'],
 };
 const IMPLEMENT_APP_LOOK_DEFAULT = { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' };
 const IMPLEMENT_APP_LOOK_LISTS = { style: 'styles', layout: 'layouts', palette: 'palettes', theme: 'themes' };
@@ -28,6 +29,8 @@ const IMPLEMENT_APP_OPTION_KEYS = ['download', 'modify', 'replace_edits', 'decis
 const IMPLEMENT_PER_USER_OFF = ['download', 'decisions'];
 const IMPLEMENT_MERGE_OUTPUTS = ['app', 'dashboard', 'genie_space'];
 const IMPLEMENT_MERGE_NOUNS = { app: 'an App', dashboard: 'a dashboard', genie_space: 'a Genie Agent' };
+const IMPLEMENT_MERGE_LABELS = { app: 'App', dashboard: 'dashboard', genie_space: 'Genie Agent' };
+const IMPLEMENT_APP_ACCESS_CHOICE = "choose who the App reads its data as: 'user' (each person sees only the rows and columns their Unity Catalog grants allow) or 'sp' (everyone sees the same data through the App's service principal)";
 const IMPLEMENT_MERGE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const IMPLEMENT_MERGE_TARGET_CAP = 40;
 const IMPLEMENT_ALERT_TIER_SETS = { act_now: ['Act now'], act_now_review: ['Act now', 'Review'] };
@@ -52,7 +55,9 @@ const IMPLEMENT_COLUMNS = [
   ['app_name', 'STRING'], ['app_url', 'STRING'], ['genie_widgets', 'VARIANT'], ['data_profiles', 'VARIANT'],
   ['suggested_schedule', 'VARIANT'], ['asset_status', 'VARIANT'], ['created_by', 'STRING'], ['created_at', 'TIMESTAMP'],
   ['updated_at', 'TIMESTAMP'], ['alert_id', 'STRING'], ['alert_url', 'STRING'], ['implement_run_id', 'BIGINT'],
+  ['asset_snapshots', 'STRING'],
 ];
+const IMPLEMENT_UNREAD_COLUMNS = ['asset_snapshots'];
 const IMPLEMENT_VARIANT_COLUMNS = IMPLEMENT_COLUMNS.filter(([, t]) => t === 'VARIANT').map(([n]) => n);
 const IMPLEMENT_NOT_AVAILABLE =
   'Start Use Case PoC/MVP with Genie needs the Inspire Database: set it in Settings, then try again.';
@@ -65,6 +70,10 @@ function badRequest(message, statusCode = 400) {
 
 function str(value) {
   return value == null ? '' : String(value);
+}
+
+function shownValue(value) {
+  return typeof value === 'string' ? `'${value}'` : JSON.stringify(value === undefined ? null : value);
 }
 
 function isPlainObject(value) {
@@ -374,6 +383,7 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
     app_options: app.options,
     merge,
     ...alert.options,
+    ...outputVibes(outputs, chosen, errors),
   };
   out.removed_outputs = removed;
   const retry = [];
@@ -384,6 +394,18 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
     else if (!retry.includes(name)) retry.push(name);
   }
   out.retry_outputs = retry;
+  const rollback = {};
+  for (const [name, value] of Object.entries(objectField(spec.rollback_outputs, 'rollback_outputs', errors))) {
+    const label = IMPLEMENT_OUTPUT_LABELS[name];
+    const version = wholeNumber(value);
+    if (!IMPLEMENT_OUTPUTS.includes(name)) errors.push(`rollback output '${name}' is not one of genie_space, dashboard, app, alert`);
+    else if (!chosen[name]) errors.push(`the ${label} cannot be rolled back: it is not selected`);
+    else if (version == null || version < 1) {
+      errors.push(`rollback_outputs.${name} ${typeof value === 'string' ? value : JSON.stringify(value)} must be a version number, 1 or more`);
+    } else if (retry.includes(name)) errors.push(`the ${label} cannot be retried and rolled back in the same version`);
+    else rollback[name] = version;
+  }
+  out.rollback_outputs = rollback;
 
   const sharing = objectField(spec.sharing, 'sharing', errors);
   const principals = [];
@@ -400,6 +422,30 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
   }
   out.sharing = { principals };
   return { spec: out, errors };
+}
+
+function vibesLength(text) {
+  return [...str(text)].length;
+}
+
+function outputVibes(outputs, chosen, errors) {
+  const vibes = {};
+  for (const name of IMPLEMENT_OUTPUTS) {
+    const key = `${name}_vibes`;
+    const raw = outputs[key];
+    vibes[key] = '';
+    if (!chosen[name]) continue;
+    if (raw != null && typeof raw !== 'string') {
+      errors.push(`outputs.${key} must be text`);
+      continue;
+    }
+    vibes[key] = str(raw).trim();
+    const length = vibesLength(vibes[key]);
+    if (length > IMPLEMENT_VIBES_MAX) {
+      errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} vibes are ${length} characters; at most ${IMPLEMENT_VIBES_MAX} are allowed`);
+    }
+  }
+  return vibes;
 }
 
 function alertOptions(outputs) {
@@ -470,26 +516,26 @@ function appSettings(outputs, on, shell, errors, legacyAccess = '') {
   const rawAccess = outputs.app_access;
   const access = str(rawAccess).trim().toLowerCase() || (rawAccess == null ? str(legacyAccess) : '');
   if (!access) {
-    errors.push('app_access is required when the App is ticked: user (each person signs in as themselves) or sp (the App\'s own service principal)');
+    errors.push(IMPLEMENT_APP_ACCESS_CHOICE);
   } else if (!catalog.auths.includes(access)) {
-    errors.push(`app_access ${JSON.stringify(rawAccess)} must be one of ${catalog.auths.join(', ')}`);
+    errors.push(`${IMPLEMENT_APP_ACCESS_CHOICE}, not ${shownValue(rawAccess)}`);
   }
   for (const [key, value] of Object.entries(objectField(outputs.app_look, 'outputs.app_look', errors))) {
     const list = IMPLEMENT_APP_LOOK_LISTS[key];
     if (!list) {
-      errors.push(`app_look.${key} is not an App look setting; the settings are ${Object.keys(IMPLEMENT_APP_LOOK_LISTS).join(', ')}`);
+      errors.push(`the App look has no setting ${shownValue(key)}; it sets only ${Object.keys(IMPLEMENT_APP_LOOK_LISTS).join(', ')}`);
       continue;
     }
     const chosen = str(value).trim().toLowerCase();
     if (!chosen) continue;
     if (catalog[list].includes(chosen)) look[key] = chosen;
-    else errors.push(`app_look.${key} ${JSON.stringify(value)} must be one of ${catalog[list].join(', ')}`);
+    else errors.push(`the App ${key} ${shownValue(value)} is not one Inspire offers; pick one of ${catalog[list].join(', ')}`);
   }
   for (const [key, value] of Object.entries(objectField(outputs.app_options, 'outputs.app_options', errors))) {
     if (!IMPLEMENT_APP_OPTION_KEYS.includes(key)) {
-      errors.push(`app_options.${key} is not an App option; the options are ${IMPLEMENT_APP_OPTION_KEYS.join(', ')}`);
+      errors.push(`the App has no option ${shownValue(key)}; its options are ${IMPLEMENT_APP_OPTION_KEYS.join(', ')}`);
     } else if (value != null && typeof value !== 'boolean') {
-      errors.push(`app_options.${key} must be true or false, not ${JSON.stringify(value)}`);
+      errors.push(`the App option ${key} must be true or false, not ${shownValue(value)}`);
     } else {
       options[key] = value === true;
     }
@@ -503,18 +549,18 @@ function mergeChoices(outputs, chosen, errors) {
   const out = Object.fromEntries(IMPLEMENT_MERGE_OUTPUTS.map((name) => [name, '']));
   for (const [name, value] of Object.entries(objectField(outputs.merge, 'outputs.merge', errors))) {
     if (!IMPLEMENT_MERGE_OUTPUTS.includes(name)) {
-      errors.push(`merge.${name} is not an output Inspire adds to; it adds to an existing ${IMPLEMENT_MERGE_OUTPUTS.join(', ')}`);
+      errors.push(`outputs.merge.${name} is not one of ${IMPLEMENT_MERGE_OUTPUTS.join(', ')}`);
       continue;
     }
     if (value != null && typeof value !== 'string') {
-      errors.push(`merge.${name} must name the ${IMPLEMENT_OUTPUT_LABELS[name]} to add to, or be "" to create a new one`);
+      errors.push(`outputs.merge.${name} must be text: the ${IMPLEMENT_MERGE_LABELS[name]} to add to, or "" for a new one`);
       continue;
     }
     const id = str(value).trim();
     if (!id || !chosen[name]) continue;
     const target = name === 'app' ? id.toLowerCase() : id;
     if ((name === 'app' ? IMPLEMENT_APP_NAME_RE : IMPLEMENT_MERGE_ID_RE).test(target)) out[name] = target;
-    else errors.push(`merge.${name} '${id}' is not ${IMPLEMENT_MERGE_NOUNS[name]} ${name === 'app' ? 'name' : 'id'}`);
+    else errors.push(`outputs.merge.${name} ${shownValue(value)} must name an existing Inspire ${IMPLEMENT_MERGE_LABELS[name]}`);
   }
   return out;
 }
@@ -560,6 +606,7 @@ function classifyImplementChange(previous, current) {
   if (IMPLEMENT_OUTPUTS.some((n) => before[n] && !after[n])) classes.add('deselect');
   if (section(previous, 'sharing') !== section(current, 'sharing')) classes.add('sharing');
   if ((current.retry_outputs || []).length) classes.add('retry');
+  if (Object.keys(current.rollback_outputs || {}).length) classes.add('rollback');
   return IMPLEMENT_CHANGE_CLASSES.filter((c) => classes.has(c));
 }
 
@@ -570,12 +617,15 @@ function implementChangeSummary(previous, current, assets = {}) {
   const after = current.outputs || {};
   const changedOptions = previous ? optionChanges(before, after) : [];
   const retry = current.retry_outputs || [];
+  const rollingBack = Object.keys(current.rollback_outputs || {});
   const build = [];
   const refresh = [];
+  const rollback = [];
   for (const name of IMPLEMENT_OUTPUTS) {
     if (!after[name]) continue;
     const renamed = (name === 'app' && before.app && before.app_name !== after.app_name) || (before[name] && mergeMoved(before, after, name));
     if (!assets[name] || !before[name] || renamed) build.push(name);
+    else if (rollingBack.includes(name)) rollback.push(name);
     else if (refill || changedOptions.includes(name) || retry.includes(name)) refresh.push(name);
   }
   const deselected = IMPLEMENT_OUTPUTS.filter((n) => before[n] && !after[n]);
@@ -586,6 +636,7 @@ function implementChangeSummary(previous, current, assets = {}) {
     refill,
     build,
     refresh,
+    rollback,
     delete: deselected.filter((n) => removed[n] === 'delete' && assets[n]),
     keep_unmanaged: deselected.filter((n) => removed[n] !== 'delete' && assets[n]),
     undecided,
@@ -606,7 +657,7 @@ function implementTableCreateSql(table) {
 }
 
 function implementSelectColumns(existing = null, names = null) {
-  return IMPLEMENT_COLUMNS.filter(([name]) => !names || names.includes(name)).map(([name, kind]) => {
+  return IMPLEMENT_COLUMNS.filter(([name]) => (names ? names.includes(name) : !IMPLEMENT_UNREAD_COLUMNS.includes(name))).map(([name, kind]) => {
     if (existing && !existing.has(name.toLowerCase())) return `NULL AS \`${name}\``;
     return kind === 'VARIANT' ? `to_json(\`${name}\`) AS \`${name}\`` : `\`${name}\``;
   }).join(', ');
@@ -855,6 +906,27 @@ function carriedAssets(history) {
     }
   }
   return carried;
+}
+
+function rollbackSpec(history, spec) {
+  const asked = Object.entries((spec && spec.rollback_outputs) || {});
+  if (!asked.length) return spec;
+  const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
+  const next = rows.length ? (rows[0].spec_version || 0) + 1 : 1;
+  const outputs = { ...spec.outputs };
+  const problems = [];
+  for (const [name, version] of asked) {
+    const row = version < next ? rows.find((r) => r.spec_version === version) : null;
+    const entry = row && isPlainObject(row.asset_status) ? row.asset_status[name] : null;
+    if (!isPlainObject(entry) || entry.snapshot !== true) {
+      problems.push(`v${version} has no saved ${IMPLEMENT_OUTPUT_LABELS[name]} to roll back to`);
+      continue;
+    }
+    const saved = isPlainObject(row.spec_json) && isPlainObject(row.spec_json.outputs) ? row.spec_json.outputs[`${name}_vibes`] : '';
+    outputs[`${name}_vibes`] = typeof saved === 'string' ? saved.trim() : '';
+  }
+  if (problems.length) throw badRequest(problems.join('; '));
+  return { ...spec, outputs };
 }
 
 function planSubmission(history, spec, stalled = null) {
@@ -1736,6 +1808,9 @@ module.exports = {
   IMPLEMENT_COLUMN_ROLES,
   IMPLEMENT_FILTER_OPS,
   IMPLEMENT_COLUMNS,
+  IMPLEMENT_UNREAD_COLUMNS,
+  IMPLEMENT_VIBES_MAX,
+  vibesLength,
   IMPLEMENT_ALERT_TIER_SETS,
   IMPLEMENT_ALERT_OPERATORS,
   IMPLEMENT_NOTEBOOK_TASK_KEY,
@@ -1772,6 +1847,7 @@ module.exports = {
   implementStalled,
   parseImplementRow,
   carriedAssets,
+  rollbackSpec,
   planSubmission,
   refuseUnchanged,
   implementJobParams,

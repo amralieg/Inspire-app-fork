@@ -82,11 +82,13 @@ test('a notebook without the App shell, or with a broken one, is refused with th
 });
 
 test('an App needs its access chosen: a missing or unknown app_access is an error, and per-user turns download and decisions off', () => {
+  const choose = "choose who the App reads its data as: 'user' (each person sees only the rows and columns their Unity Catalog grants allow) or 'sp' (everyone sees the same data through the App's service principal)";
   const missing = check({ app_access: undefined });
-  assert.ok(missing.errors.some((e) => e.startsWith('app_access is required when the App is ticked')), JSON.stringify(missing.errors));
-  assert.ok(check({ app_access: '' }).errors.some((e) => e.startsWith('app_access is required')));
-  assert.ok(check({ app_access: 'everyone' }).errors.includes('app_access "everyone" must be one of user, sp'));
-  assert.ok(check({ app_access: 3 }).errors.includes('app_access 3 must be one of user, sp'));
+  assert.ok(missing.errors.includes(choose), JSON.stringify(missing.errors));
+  assert.ok(check({ app_access: '' }).errors.includes(choose));
+  assert.ok(check({ app_access: '  ' }).errors.includes(choose));
+  assert.ok(check({ app_access: 'everyone' }).errors.includes(`${choose}, not 'everyone'`));
+  assert.ok(check({ app_access: 3 }).errors.includes(`${choose}, not 3`));
   const all = { download: true, modify: true, replace_edits: true, decisions: true };
   const sp = check({ app_options: all });
   assert.deepEqual(sp.errors, []);
@@ -103,9 +105,9 @@ test('an App needs its access chosen: a missing or unknown app_access is an erro
 });
 
 test('App options are true or false only, and an unknown option is an error', () => {
-  assert.ok(check({ app_options: { download: 'yes' } }).errors.includes('app_options.download must be true or false, not "yes"'));
-  assert.ok(check({ app_options: { modify: 1 } }).errors.includes('app_options.modify must be true or false, not 1'));
-  assert.ok(check({ app_options: { export: true } }).errors.includes('app_options.export is not an App option; the options are download, modify, replace_edits, decisions'));
+  assert.ok(check({ app_options: { download: 'yes' } }).errors.includes("the App option download must be true or false, not 'yes'"));
+  assert.ok(check({ app_options: { modify: 1 } }).errors.includes('the App option modify must be true or false, not 1'));
+  assert.ok(check({ app_options: { export: true } }).errors.includes("the App has no option 'export'; its options are download, modify, replace_edits, decisions"));
   assert.ok(check({ app_options: ['download'] }).errors.includes('outputs.app_options must be an object'));
   assert.deepEqual(check({ app_options: { download: null } }).errors, []);
 });
@@ -117,12 +119,12 @@ test('the App look defaults to style A, sidebar, the default palette and light, 
   assert.deepEqual(picked.errors, []);
   assert.deepEqual(picked.spec.outputs.app_look, { style: 'c', layout: 'home', palette: 'nordic', theme: 'dark' });
   const unknownPalette = check({ app_look: { palette: 'rainbow' } });
-  assert.ok(unknownPalette.errors.includes(`app_look.palette "rainbow" must be one of ${SHELL.palettes.join(', ')}`), JSON.stringify(unknownPalette.errors));
+  assert.ok(unknownPalette.errors.includes(`the App palette 'rainbow' is not one Inspire offers; pick one of ${SHELL.palettes.join(', ')}`), JSON.stringify(unknownPalette.errors));
   assert.equal(unknownPalette.spec.outputs.app_look.palette, 'default');
-  assert.ok(check({ app_look: { style: 'd' } }).errors.includes('app_look.style "d" must be one of a, b, c'));
-  assert.ok(check({ app_look: { layout: 'grid' } }).errors.includes('app_look.layout "grid" must be one of sidebar, tabs, home'));
-  assert.ok(check({ app_look: { theme: 'sepia' } }).errors.includes('app_look.theme "sepia" must be one of light, dark'));
-  assert.ok(check({ app_look: { font: 'serif' } }).errors.includes('app_look.font is not an App look setting; the settings are style, layout, palette, theme'));
+  assert.ok(check({ app_look: { style: 'd' } }).errors.includes("the App style 'd' is not one Inspire offers; pick one of a, b, c"));
+  assert.ok(check({ app_look: { layout: 'grid' } }).errors.includes("the App layout 'grid' is not one Inspire offers; pick one of sidebar, tabs, home"));
+  assert.ok(check({ app_look: { theme: 'sepia' } }).errors.includes("the App theme 'sepia' is not one Inspire offers; pick one of light, dark"));
+  assert.ok(check({ app_look: { font: 'serif' } }).errors.includes("the App look has no setting 'font'; it sets only style, layout, palette, theme"));
   assert.ok(check({ app_look: 'dark' }).errors.includes('outputs.app_look must be an object'));
 });
 
@@ -141,11 +143,15 @@ test('a merge names an existing App, dashboard or Genie Agent, "" creates a new 
   assert.deepEqual(merged.errors, []);
   assert.deepEqual(merged.spec.outputs.merge, { app: 'churn-desk', dashboard: '01ef2a3b4c5d6e7f', genie_space: '01abc_def-9' });
   assert.equal(merged.spec.outputs.app_name, 'churn-desk', 'joining an App deploys to that App');
-  assert.ok(check({ merge: { app: 'Churn_Desk' } }).errors.includes("merge.app 'Churn_Desk' is not an App name"));
-  assert.ok(check({ merge: { dashboard: 'a b' } }).errors.includes("merge.dashboard 'a b' is not a dashboard id"));
-  assert.ok(check({ merge: { genie_space: 'x'.repeat(65) } }).errors.includes(`merge.genie_space '${'x'.repeat(65)}' is not a Genie Agent id`));
-  assert.ok(check({ merge: { alert: 'a1' } }).errors.includes('merge.alert is not an output Inspire adds to; it adds to an existing app, dashboard, genie_space'));
-  assert.ok(check({ merge: { app: 7 } }).errors.includes('merge.app must name the App to add to, or be "" to create a new one'));
+  assert.ok(check({ merge: { app: 'Churn_Desk' } }).errors.includes("outputs.merge.app 'Churn_Desk' must name an existing Inspire App"));
+  assert.ok(check({ merge: { dashboard: 'a b' } }).errors.includes("outputs.merge.dashboard 'a b' must name an existing Inspire dashboard"));
+  assert.ok(check({ merge: { genie_space: 'x'.repeat(65) } }).errors.includes(`outputs.merge.genie_space '${'x'.repeat(65)}' must name an existing Inspire Genie Agent`));
+  assert.ok(check({ merge: { alert: 'a1' } }).errors.includes('outputs.merge.alert is not one of app, dashboard, genie_space'));
+  for (const [name, label] of [['app', 'App'], ['dashboard', 'dashboard'], ['genie_space', 'Genie Agent']]) {
+    for (const value of [7, true, ['d1']]) {
+      assert.ok(check({ merge: { [name]: value } }).errors.includes(`outputs.merge.${name} must be text: the ${label} to add to, or "" for a new one`), `${name} ${JSON.stringify(value)}`);
+    }
+  }
   const unticked = I.validateImplementSpec({ ...BASE, outputs: { dashboard: false, alert: false, app: false, genie_space: true, merge: { dashboard: 'd1', app: 'churn-desk' } } });
   assert.deepEqual(unticked.spec.outputs.merge, { app: '', dashboard: '', genie_space: '' });
 });
@@ -170,12 +176,12 @@ test('a version built before the access choice keeps its service principal when 
   assert.equal(I.legacyAppAccess([{ ...legacy, spec_json: { ...BASE, outputs: { dashboard: true } } }]), '');
   assert.equal(I.legacyAppAccess([]), '');
   const resubmit = { ...BASE, outputs: { dashboard: false, app: true, app_name: 'churn-desk' } };
-  assert.ok(I.validateImplementSpec(resubmit).errors.some((e) => e.startsWith('app_access is required')), 'without the history the access stays required');
+  assert.ok(I.validateImplementSpec(resubmit).errors.some((e) => e.startsWith('choose who the App reads its data as')), 'without the history the access stays required');
   const kept = I.validateImplementSpec(resubmit, { legacyAccess: 'sp' });
   assert.deepEqual(kept.errors, []);
   assert.equal(kept.spec.outputs.app_access, 'sp');
   assert.ok(I.validateImplementSpec({ ...resubmit, outputs: { ...resubmit.outputs, app_access: '' } }, { legacyAccess: 'sp' }).errors
-    .some((e) => e.startsWith('app_access is required')), 'the wizard sends the key, so its empty choice is never filled in');
+    .some((e) => e.startsWith('choose who the App reads its data as')), 'the wizard sends the key, so its empty choice is never filled in');
 });
 
 test('an Edit that only states the service principal an older App already had is no change', () => {
@@ -325,7 +331,7 @@ test('a re-submission of an App built before the access choice keeps its service
       inspire_database: 'main.inspire', warehouse_id: 'wh1', session_id: '42', spec: withOutputs({ app_access: '' }),
     });
     assert.equal(refused.status, 400);
-    assert.match(refused.data.error, /app_access is required when the App is ticked/);
+    assert.match(refused.data.error, /choose who the App reads its data as: 'user'/);
     assert.equal(fresh.jobs.length, 0);
   } finally {
     await srv2.close();

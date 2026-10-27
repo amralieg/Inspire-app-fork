@@ -45,7 +45,7 @@ test('a new spec has no App access, the default look, every option off and no me
   assert.deepEqual(fresh.outputs.app_look, { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' });
   assert.deepEqual(fresh.outputs.app_options, { download: false, modify: false, replace_edits: false, decisions: false });
   assert.deepEqual(fresh.outputs.merge, { app: '', dashboard: '', genie_space: '' });
-  assert.ok(backend.validateImplementSpec(spec).errors.some((e) => e.startsWith('app_access is required')));
+  assert.ok(backend.validateImplementSpec(spec).errors.some((e) => e.startsWith('choose who the App reads its data as')));
   const chosen = w.withAppAccess(spec, 'sp');
   assert.deepEqual(backend.validateImplementSpec(chosen).errors, []);
   assert.deepEqual(backend.validateImplementSpec(chosen).spec.outputs.app_look, fresh.outputs.app_look);
@@ -158,7 +158,7 @@ test('every user-visible output label and preflight label says Genie Agent', asy
     path.resolve(__dirname, '..', '..', 'frontend', 'src', 'pages', 'ImplementPage.jsx'),
     path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib', 'implementControl.js'),
     path.resolve(__dirname, '..', 'lib', 'implementControl.js'),
-    ...['BuildUi.jsx', 'ImplementControlTower.jsx', 'PocProgress.jsx', 'GenieFeed.jsx', 'ImplementCardActions.jsx', 'ImplementStatusBadge.jsx']
+    ...['BuildUi.jsx', 'ImplementControlTower.jsx', 'PocProgress.jsx', 'GenieFeed.jsx', 'ImplementCardActions.jsx', 'ImplementStatusBadge.jsx', 'VibesEditor.jsx']
       .map((name) => path.resolve(__dirname, '..', '..', 'frontend', 'src', 'components', name)),
   ];
   for (const file of files) assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /Genie spaces?\b|Space name/, path.basename(file));
