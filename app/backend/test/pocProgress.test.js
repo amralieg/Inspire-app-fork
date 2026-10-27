@@ -34,7 +34,7 @@ test('a failed preview shows every finished stage, the failed one, and what it n
   assert.equal(stages[3].elapsed, '4m 55s');
   assert.equal(stages[1].elapsed, '2m 45s');
   const summary = pocProgressSummary(stages, latestOf('failed'), { now: at('10:30:00') });
-  assert.deepEqual({ ...summary, current: summary.current?.id }, { active: false, current: undefined, percent: 57, headline: '', span: 'Took 10m 0s' });
+  assert.deepEqual({ ...summary, current: summary.current?.id }, { active: false, current: undefined, percent: 57, headline: '', detail: '', span: 'Took 10m 0s' });
 });
 
 test('a running build names what Genie is doing, how long it has run, and moves on to the next stage between steps', async () => {
@@ -79,6 +79,59 @@ test('a second Genie round after a warning is running again, and a tie at the sa
   }
 });
 
+const evented = (phase, status, flushed, eventAt, payload = {}) => ({
+  ...row(phase, status, flushed),
+  result_json: JSON.stringify({ use_case_id: 'N01-U01', phase, event_at: `2026-01-02T${eventAt}+00:00`, ...payload }),
+});
+
+test('stages follow when each event happened, not when the writer flushed it', async () => {
+  const { pocStages } = await lib('pocProgress.js');
+  const batch = [
+    evented('Genie build', 'started', '10:09:01', '10:04:05.100000', { round: 1, rounds: 3 }),
+    evented('Genie build', 'started', '10:09:01', '10:09:00.700000', { round: 2, rounds: 3 }),
+    evented('Genie build', 'ended_success', '10:09:01', '10:09:00.200000', { round: 1 }),
+  ];
+  const stages = pocStages(batch, latestOf('filling'), { now: at('10:09:30') });
+  assert.equal(stages[3].state, 'running', 'round 2 started after round 1 ended, in the same flush');
+  assert.equal(stages[3].round, 2);
+  assert.equal(stages[3].elapsed, '5m 24s');
+});
+
+test('a stage Genie runs again resets the later stages until they run again', async () => {
+  const { pocStages, pocProgressSummary } = await lib('pocProgress.js');
+  const retried = [
+    ...BUILT,
+    row('Preview run', 'started', '10:09:10'),
+    row('Preview run', 'ended_error', '10:10:00'),
+    evented('Genie build', 'started', '10:10:05', '10:10:05', { round: 2, rounds: 3 }),
+  ];
+  const stages = pocStages(retried, latestOf('filling'), { now: at('10:12:05') });
+  assert.deepEqual(states(stages).slice(3), [['Genie build', 'running'], ['Preview run', 'waiting'], ['Dashboard', 'waiting'], ['Done', 'waiting']]);
+  assert.equal(stages[4].elapsed, '');
+  const summary = pocProgressSummary(stages, latestOf('filling'), { now: at('10:12:05') });
+  assert.equal(summary.headline, 'Genie is building the notebook…');
+  assert.equal(summary.detail, 'Round 2 of 3: Genie is fixing what failed in round 1');
+  assert.equal(summary.percent, 43);
+  const failed = pocStages(retried, latestOf('failed'));
+  assert.deepEqual(states(failed).slice(3, 5), [['Genie build', 'error'], ['Preview run', 'error']], 'a finished build keeps what happened');
+});
+
+test('a retried output round is still running, names the next round, and never hands over to Done', async () => {
+  const { pocStages, pocProgressSummary } = await lib('pocProgress.js');
+  const outputs = { dashboard: true, app: true };
+  const base = [...BUILT, row('Preview run', 'ended_success', '10:11:00'), row('Dashboard', 'ended_success', '10:15:00')];
+  const sentBack = [...base,
+    evented('App', 'started', '10:15:02', '10:15:01', { round: 1, rounds: 3 }),
+    evented('App', 'started', '10:20:02', '10:20:01', { round: 1, rounds: 3, failure: 'app.yaml: command not found' })];
+  const stages = pocStages(sentBack, latestOf('building_outputs', outputs), { now: at('10:20:30') });
+  assert.deepEqual(states(stages).slice(6), [['App', 'running'], ['Done', 'waiting']]);
+  const summary = pocProgressSummary(stages, latestOf('building_outputs', outputs), { now: at('10:20:30') });
+  assert.equal(summary.headline, 'Genie is building the app…');
+  assert.equal(summary.detail, 'Round 2 of 3: Genie is fixing what failed in round 1');
+  const firstRound = pocStages(sentBack.slice(0, -1), latestOf('building_outputs', outputs), { now: at('10:16:00') });
+  assert.equal(pocProgressSummary(firstRound, latestOf('building_outputs', outputs), { now: at('10:16:00') }).detail, '');
+});
+
 test('a finished build marks Done, skips what it did not touch, and a stopped run is not shown as still going', async () => {
   const { pocStages, pocProgressSummary } = await lib('pocProgress.js');
   const outputs = { dashboard: true, alert: true };
@@ -93,6 +146,21 @@ test('a finished build marks Done, skips what it did not touch, and a stopped ru
   const stopped = pocStages(BUILT.slice(0, 6), latestOf('filling'), { now: at('11:00:00'), stalled });
   assert.deepEqual(states(stopped).slice(3), [['Genie build', 'error'], ['Preview run', 'not_reached'], ['Dashboard', 'not_reached'], ['Done', 'not_reached']]);
   assert.equal(pocProgressSummary(stopped, latestOf('filling'), { stalled }).active, false);
+});
+
+test('the stepper shows only when some stage has a record: a finished version with no step rows has nothing to show', async () => {
+  const { pocStages, stagesRecorded } = await lib('pocProgress.js');
+  const outputs = { dashboard: true, alert: true };
+  const unrecorded = pocStages([], latestOf('ready', outputs));
+  assert.ok(unrecorded.slice(0, -1).every((s) => s.state === 'skipped'));
+  assert.equal(stagesRecorded(unrecorded), false);
+  assert.equal(stagesRecorded(pocStages([], latestOf('ready_with_warnings', outputs))), false);
+  assert.equal(stagesRecorded(pocStages([row('Alert', 'ended_success', '10:01:00')], latestOf('ready', outputs))), true);
+  assert.equal(stagesRecorded(pocStages([], latestOf('failed', outputs))), true);
+  assert.equal(stagesRecorded(pocStages([], latestOf('queued', outputs), { now: at('10:00:05') })), true);
+  assert.equal(stagesRecorded(pocStages(BUILT, latestOf('building_outputs', outputs), { now: at('10:10:00') })), true);
+  assert.equal(stagesRecorded([]), false);
+  assert.equal(stagesRecorded(null), false);
 });
 
 test('a step row without a phase falls back to its step name, and rows of other stages are ignored', async () => {
@@ -186,7 +254,8 @@ test('the Progress tab shows the stepper and Genie\'s scrolling messages, never 
   assert.match(page, /<PocProgress /);
   assert.match(page, /<GenieFeed /);
   const feed = src('components/GenieFeed.jsx');
-  assert.match(feed, /className="h-80 overflow-y-auto/);
+  assert.match(feed, /\$\{active \|\| entries\.length \? 'h-80' : 'max-h-80'\} overflow-y-auto/);
+  assert.match(src('components/PocProgress.jsx'), /\{stagesRecorded\(stages\) && \(/);
   assert.match(feed, /role="log"/);
   assert.match(feed, /<GenieLogo /);
   assert.doesNotMatch(feed, /scrollIntoView/);
