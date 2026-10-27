@@ -662,8 +662,9 @@ function registerImplementRoutes(app, deps) {
     const history = draftId && I.IMPLEMENT_USE_CASE_ID_RE.test(draftId)
       ? await loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, draftId) : [];
     const legacyAccess = I.legacyAppAccess(history);
-    const { spec, errors } = legacyAccess ? I.validateImplementSpec(raw, { legacyAccess }) : draft;
+    const { spec: asked, errors } = legacyAccess ? I.validateImplementSpec(raw, { legacyAccess }) : draft;
     if (errors.length) throw I.badRequest(errors.join('; '));
+    const spec = I.rollbackSpec(history, asked);
     const useCaseId = I.validateUseCaseId(spec.use_case_id);
     const [session, useCase] = await Promise.all([
       loadSession(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid),

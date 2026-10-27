@@ -85,6 +85,36 @@ export const IMPLEMENT_OUTPUTS = [
   { id: 'alert', label: 'Alert', blurb: 'Emails you when the latest run has rows to act on. Genie writes the check.' },
 ];
 
+export const VIBES_MAX = 2000;
+export const VIBES_HELP = "Tell Genie what you want in your own words. Your asks win over Inspire's defaults.";
+
+export function vibesKey(id) {
+  return `${id}_vibes`;
+}
+
+export function vibesLabel(id) {
+  return id === 'app' ? 'App vibes' : `Vibes for the ${IMPLEMENT_OUTPUTS.find((o) => o.id === id)?.label || id}`;
+}
+
+export function vibesLength(text) {
+  return [...String(text ?? '').trim()].length;
+}
+
+export function vibesProblem(id, text) {
+  const length = vibesLength(text);
+  const label = IMPLEMENT_OUTPUTS.find((o) => o.id === id)?.label || id;
+  return length > VIBES_MAX ? `the ${label} vibes are ${length} characters; at most ${VIBES_MAX} are allowed` : '';
+}
+
+export function vibesPreview(text, max = 80) {
+  const chars = [...String(text ?? '').trim()];
+  return chars.length > max ? `${chars.slice(0, max).join('').trimEnd()}…` : chars.join('');
+}
+
+export function vibesProblems(spec) {
+  return IMPLEMENT_OUTPUTS.filter((o) => spec?.outputs?.[o.id]).map((o) => vibesProblem(o.id, spec.outputs[vibesKey(o.id)])).filter(Boolean);
+}
+
 export const ALERT_TIER_OPTIONS = [
   { id: 'act_now', label: 'Act now' },
   { id: 'act_now_review', label: 'Act now or Review' },
@@ -268,6 +298,7 @@ export function planLines(summary) {
   lines.push(summary.refill ? 'Genie rewrites the notebook and Inspire re-runs the preview' : 'The built notebook is kept as it is');
   if (summary.build?.length) lines.push(`Builds: ${label(summary.build)}`);
   if (summary.refresh?.length) lines.push(`Refreshes: ${label(summary.refresh)}`);
+  if (summary.rollback?.length) lines.push(`Rolls back: ${label(summary.rollback)}`);
   if (summary.delete?.length) lines.push(`Deletes: ${label(summary.delete)}`);
   if (summary.keep_unmanaged?.length) lines.push(`Leaves in place, no longer managed: ${label(summary.keep_unmanaged)}`);
   if (summary.schedule) lines.push('Updates the job schedule');
@@ -334,13 +365,16 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
       app: false,
       dashboard_name: '',
       dashboard_filters: [],
+      dashboard_vibes: '',
       genie_space_name: '',
       genie_questions: [],
+      genie_space_vibes: '',
       app_name: appNameOf(uc?.short_name || useCaseName, id),
       app_purpose: '',
       app_access: '',
       app_look: { ...APP_LOOK_DEFAULT },
       app_options: Object.fromEntries(APP_OPTION_KEYS.map((key) => [key, false])),
+      app_vibes: '',
       merge: Object.fromEntries(MERGE_OUTPUTS.map((name) => [name, ''])),
       alert: false,
       alert_name: '',
@@ -350,13 +384,14 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
       alert_condition_text: '',
       alert_recipients: [],
       alert_destinations: [],
+      alert_vibes: '',
     },
     removed_outputs: {},
     sharing: { principals: ownerPrincipals(decisionOwner) },
   };
 }
 
-const ONE_VERSION_KEYS = ['retry_outputs', 'confirm_notebook_overwrite'];
+const ONE_VERSION_KEYS = ['retry_outputs', 'rollback_outputs', 'confirm_notebook_overwrite'];
 
 function withoutOneVersionKeys(spec) {
   return Object.fromEntries(Object.entries(spec || {}).filter(([key]) => !ONE_VERSION_KEYS.includes(key)));
@@ -900,6 +935,7 @@ export function sectionErrors(section, spec, extras = {}) {
       errors.push('app name must be 3-30 lowercase letters, digits and dashes');
     }
     if (spec.outputs.app && !spec.outputs.genie_space) errors.push(GENIE_FOR_APP_NOTE);
+    errors.push(...vibesProblems(spec));
     for (const name of MERGE_OUTPUTS) {
       const id = spec.outputs.merge?.[name];
       if (!spec.outputs[name] || !id || !extras.mergeTargets || extras.held?.[name] === id) continue;

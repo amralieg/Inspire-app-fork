@@ -1650,6 +1650,221 @@
       "classes": [
         "outputs"
       ]
+    },
+    {
+      "name": "dashboard vibed",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "dashboard_vibes": "Put the trend first and use weekly bars"
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "outputs"
+      ]
+    },
+    {
+      "name": "vibes for an unticked output",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "genie_space_vibes": "Answer in Arabic"
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": []
+    },
+    {
+      "name": "dashboard rolled back",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "dashboard_vibes": "weekly bars"
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "dashboard_vibes": "weekly bars"
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "rollback_outputs": {
+          "dashboard": 1
+        }
+      },
+      "classes": [
+        "rollback"
+      ]
     }
   ],
   "columns": [
@@ -1764,6 +1979,10 @@
     [
       "implement_run_id",
       "BIGINT"
+    ],
+    [
+      "asset_snapshots",
+      "STRING"
     ]
   ],
   "stale_after_seconds": 14400,
@@ -2199,6 +2418,72 @@
         }
       },
       "error": "merge.app 'Churn_Desk' is not an App name"
+    },
+    {
+      "name": "vibes over the limit",
+      "patch": {
+        "outputs": {
+          "dashboard_vibes": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "error": "the Dashboard vibes are 2001 characters; at most 2000 are allowed"
+    },
+    {
+      "name": "vibes as a number",
+      "patch": {
+        "outputs": {
+          "dashboard_vibes": 5
+        }
+      },
+      "error": "outputs.dashboard_vibes must be text"
+    },
+    {
+      "name": "rollback outputs as a list",
+      "patch": {
+        "rollback_outputs": [
+          "dashboard"
+        ]
+      },
+      "error": "rollback_outputs must be an object"
+    },
+    {
+      "name": "rollback of an unknown output",
+      "patch": {
+        "rollback_outputs": {
+          "pdf": 1
+        }
+      },
+      "error": "rollback output 'pdf' is not one of genie_space, dashboard, app, alert"
+    },
+    {
+      "name": "rollback of an unticked output",
+      "patch": {
+        "rollback_outputs": {
+          "alert": 1
+        }
+      },
+      "error": "the Alert cannot be rolled back: it is not selected"
+    },
+    {
+      "name": "rollback to version 0",
+      "patch": {
+        "rollback_outputs": {
+          "dashboard": 0
+        }
+      },
+      "error": "rollback_outputs.dashboard 0 must be a version number, 1 or more"
+    },
+    {
+      "name": "retry and rollback at once",
+      "patch": {
+        "retry_outputs": [
+          "dashboard"
+        ],
+        "rollback_outputs": {
+          "dashboard": 1
+        }
+      },
+      "error": "the Dashboard cannot be retried and rolled back in the same version"
     }
   ],
   "removal": [

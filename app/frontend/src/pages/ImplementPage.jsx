@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, ExternalLink, FileText, RefreshCw, Pencil, RotateCcw, Search, Sparkles } from 'lucide-react';
 import {
-  statusChip, statusReason, nextSpecFrom, retryableOutputs, rebuildableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
+  statusChip, statusReason, nextSpecFrom, retryableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
   runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded, START_POC_LABEL,
 } from '../lib/implementWizard';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
@@ -13,10 +13,11 @@ import ImplementControlTower from '../components/ImplementControlTower';
 import UseCaseDrawer from '../components/UseCaseDrawer';
 import UseCaseDetailBody from '../components/UseCaseDetailBody';
 import { catalogRow } from '../lib/useCaseFacets';
-import { CONTROL_REFRESH_MS, removeChanges } from '../lib/implementControl';
+import { CONTROL_REFRESH_MS, removeChanges, vibeCards, vibeChanges, rollbackChanges } from '../lib/implementControl';
 import { pocStages, pocProgressSummary, feedArrivals } from '../lib/pocProgress';
 import PocProgress from '../components/PocProgress';
 import GenieFeed from '../components/GenieFeed';
+import OutputVibes from '../components/OutputVibes';
 
 const TABS = ['Progress', 'Dashboard', 'Genie', 'App', 'Alert', 'History', 'Edit'];
 const TAB_OUTPUT = { Dashboard: 'dashboard', Genie: 'genie_space', App: 'app', Alert: 'alert' };
@@ -234,6 +235,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const [live, setLive] = useState(null);
   const [liveError, setLiveError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
+  const [vibeDrafts, setVibeDrafts] = useState({});
 
   const [arrivals, setArrivals] = useState(null);
 
@@ -302,7 +304,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   };
 
   const submitNext = async (changes) => {
-    if (!latest || active || submitBusy) return;
+    if (!latest || active || submitBusy) return false;
     setSubmitBusy(true);
     setError('');
     try {
@@ -314,8 +316,10 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
         spec: nextSpecFrom(latest, changes),
       });
       await loadStatus();
+      return true;
     } catch (e) {
       setError(e.message);
+      return false;
     } finally {
       setSubmitBusy(false);
     }
@@ -324,6 +328,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const toggleSchedule = () => submitNext({ schedule: { ...(spec.schedule || {}), enabled: !spec.schedule?.enabled } });
   const retryOutput = (name) => submitNext({ retry_outputs: [name] });
   const removeOutput = (name) => submitNext(removeChanges(latest, name));
+  const vibeOutput = (name, text) => submitNext(vibeChanges(latest, name, text));
+  const rollbackOutput = (name, version) => submitNext(rollbackChanges(latest, name, version.version, version.vibes));
 
   const runControl = async (a) => {
     setActionBusy(`${a.asset}:${a.action}`);
@@ -340,7 +346,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     }
   };
   const failedOutputs = retryableOutputs(latest);
-  const builtOutputs = rebuildableOutputs(latest);
+  const vibeTargets = vibeCards(status?.history, latest, stalled);
   const alertAsset = latest?.asset_status?.alert || {};
 
   const retryBanner = (name) => {
@@ -563,88 +569,84 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
               </div>
             )}
             {tab === 'Edit' && (
-              <section aria-label="Edit the PoC/MVP" className="max-w-sm space-y-3">
-                <button
-                  type="button"
-                  disabled={active}
-                  onClick={() => onEdit(null)}
-                  className="w-full inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold border border-border disabled:opacity-50"
-                >
-                  <Pencil size={12} /> {active ? 'Edit applies after this run' : 'Edit the PoC/MVP'}
-                </button>
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary mb-1">Quick re-run</div>
-                  {widgets.map((w) => (
-                    <label key={w.name} className="block text-[11px] mb-1">
-                      {w.label || w.name}
-                      {Array.isArray(w.choices) && w.choices.length > 0 ? (
-                        <select
-                          className="mt-0.5 w-full px-2 py-1 border border-border rounded bg-surface"
-                          value={overrides[w.name] ?? ''}
-                          onChange={(e) => setOverrides((prev) => ({ ...prev, [w.name]: e.target.value }))}
-                        >
-                          <option value="">{w.default ? `Keep ${w.default}` : 'Keep the job value'}</option>
-                          {w.choices.map((choice) => <option key={String(choice)} value={String(choice)}>{String(choice)}</option>)}
-                        </select>
-                      ) : (
-                        <input
-                          className="mt-0.5 w-full px-2 py-1 border border-border rounded bg-surface"
-                          value={overrides[w.name] ?? ''}
-                          placeholder={w.default == null ? '' : String(w.default)}
-                          onChange={(e) => setOverrides((prev) => ({ ...prev, [w.name]: e.target.value }))}
-                        />
-                      )}
-                      {w.allowed && <span className="block text-[10px] text-text-tertiary">{w.allowed}</span>}
-                    </label>
-                  ))}
-                  {widgets.length === 0 && <p className="text-[11px] text-text-tertiary">No widgets to change; the re-run uses the job's values.</p>}
-                  <p className="text-[10px] text-text-tertiary">A preview of the notebook only. Blank fields keep the job's values, and the alert never fires on a preview.</p>
+              <section aria-label="Edit the PoC/MVP" className="flex flex-wrap items-start gap-6">
+                <div className="w-full max-w-sm space-y-3">
                   <button
                     type="button"
-                    disabled={rerunBusy || !latest?.job_id}
-                    onClick={rerun}
-                    className="mt-2 w-full inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
+                    disabled={active}
+                    onClick={() => onEdit(null)}
+                    className="w-full inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold border border-border disabled:opacity-50"
                   >
-                    {rerunBusy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Preview re-run
+                    <Pencil size={12} /> {active ? 'Edit applies after this run' : 'Edit the PoC/MVP'}
                   </button>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary mb-1">Quick re-run</div>
+                    {widgets.map((w) => (
+                      <label key={w.name} className="block text-[11px] mb-1">
+                        {w.label || w.name}
+                        {Array.isArray(w.choices) && w.choices.length > 0 ? (
+                          <select
+                            className="mt-0.5 w-full px-2 py-1 border border-border rounded bg-surface"
+                            value={overrides[w.name] ?? ''}
+                            onChange={(e) => setOverrides((prev) => ({ ...prev, [w.name]: e.target.value }))}
+                          >
+                            <option value="">{w.default ? `Keep ${w.default}` : 'Keep the job value'}</option>
+                            {w.choices.map((choice) => <option key={String(choice)} value={String(choice)}>{String(choice)}</option>)}
+                          </select>
+                        ) : (
+                          <input
+                            className="mt-0.5 w-full px-2 py-1 border border-border rounded bg-surface"
+                            value={overrides[w.name] ?? ''}
+                            placeholder={w.default == null ? '' : String(w.default)}
+                            onChange={(e) => setOverrides((prev) => ({ ...prev, [w.name]: e.target.value }))}
+                          />
+                        )}
+                        {w.allowed && <span className="block text-[10px] text-text-tertiary">{w.allowed}</span>}
+                      </label>
+                    ))}
+                    {widgets.length === 0 && <p className="text-[11px] text-text-tertiary">No widgets to change; the re-run uses the job's values.</p>}
+                    <p className="text-[10px] text-text-tertiary">A preview of the notebook only. Blank fields keep the job's values, and the alert never fires on a preview.</p>
+                    <button
+                      type="button"
+                      disabled={rerunBusy || !latest?.job_id}
+                      onClick={rerun}
+                      className="mt-2 w-full inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid disabled:opacity-50"
+                    >
+                      {rerunBusy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Preview re-run
+                    </button>
+                  </div>
+                  <label className="flex items-center gap-2 text-[12px]">
+                    <input type="checkbox" checked={!!spec.schedule?.enabled} disabled={active || !latest || submitBusy} onChange={toggleSchedule} />
+                    Schedule on
+                  </label>
+                  {failedOutputs.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Failed outputs</div>
+                      {failedOutputs.map((o) => (
+                        <button
+                          key={o.id}
+                          type="button"
+                          disabled={active || submitBusy}
+                          onClick={() => retryOutput(o.id)}
+                          title={o.error}
+                          className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-error/40 text-error-fg disabled:opacity-50"
+                        >
+                          <RotateCcw size={12} /> Retry the {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <label className="flex items-center gap-2 text-[12px]">
-                  <input type="checkbox" checked={!!spec.schedule?.enabled} disabled={active || !latest || submitBusy} onChange={toggleSchedule} />
-                  Schedule on
-                </label>
-                {failedOutputs.length > 0 && (
-                  <div className="space-y-1">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Failed outputs</div>
-                    {failedOutputs.map((o) => (
-                      <button
-                        key={o.id}
-                        type="button"
-                        disabled={active || submitBusy}
-                        onClick={() => retryOutput(o.id)}
-                        title={o.error}
-                        className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-error/40 text-error-fg disabled:opacity-50"
-                      >
-                        <RotateCcw size={12} /> Retry the {o.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {builtOutputs.length > 0 && (
-                  <div className="space-y-1">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Rebuild an output</div>
-                    <p className="text-[10px] text-text-tertiary">Genie writes it again from this version, for an output that was built but does not work.</p>
-                    {builtOutputs.map((o) => (
-                      <button
-                        key={o.id}
-                        type="button"
-                        disabled={active || submitBusy}
-                        onClick={() => retryOutput(o.id)}
-                        className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-border text-text-secondary disabled:opacity-50"
-                      >
-                        <RotateCcw size={12} /> Rebuild the {o.label}
-                      </button>
-                    ))}
-                  </div>
+                {vibeTargets.length > 0 && (
+                  <OutputVibes
+                    cards={vibeTargets}
+                    drafts={vibeDrafts}
+                    active={active}
+                    submitBusy={submitBusy}
+                    onDraft={(name, text) => setVibeDrafts((prev) => ({ ...prev, [name]: text }))}
+                    onRebuild={vibeOutput}
+                    onRollback={rollbackOutput}
+                  />
                 )}
               </section>
             )}
