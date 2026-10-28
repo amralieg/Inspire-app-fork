@@ -67,7 +67,8 @@ function makeApp(overrides = {}) {
       if (sql.includes('__inspire_usecases')) return { rows: state.useCase ? [state.useCase] : [] };
       if (sql.includes('system.information_schema.catalogs')) {
         if (state.accessError) throw new Error(state.accessError);
-        return { rows: state.access };
+        const asked = ((parameters || []).find((p) => p.name === 's') || {}).value;
+        return { rows: (state.accessBySchema || {})[asked] || state.access };
       }
       if (sql.includes('COUNT_IF(use_case_id')) return { rows: [{ others: String(state.others) }] };
       if (sql.includes('information_schema.columns') && sql.includes('WITH o AS')) return { rows: state.swapRows || [] };

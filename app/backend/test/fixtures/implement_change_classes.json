@@ -3672,6 +3672,82 @@
         "problems": [
           "act_now_share + review_share is 1.01; allowed: at most 1"
         ]
+      },
+      {
+        "name": "a review amount above the act-now amount",
+        "widgets": [
+          {
+            "name": "act_now_amount",
+            "default": "5000",
+            "allowed": "at least 0"
+          },
+          {
+            "name": "review_amount",
+            "default": "1000",
+            "allowed": "at least 0"
+          },
+          {
+            "name": "currency",
+            "default": "USD",
+            "allowed": ""
+          }
+        ],
+        "values": {
+          "review_amount": "6000.50"
+        },
+        "problems": [
+          "review_amount is 6000.5, above act_now_amount 5000; a record needs at least as much at stake to act on now as to review"
+        ]
+      },
+      {
+        "name": "equal amounts pass",
+        "widgets": [
+          {
+            "name": "act_now_amount",
+            "default": "5000",
+            "allowed": "at least 0"
+          },
+          {
+            "name": "review_amount",
+            "default": "1000",
+            "allowed": "at least 0"
+          },
+          {
+            "name": "currency",
+            "default": "USD",
+            "allowed": ""
+          }
+        ],
+        "values": {
+          "review_amount": "5000"
+        },
+        "problems": []
+      },
+      {
+        "name": "an amount that is not a number is refused once",
+        "widgets": [
+          {
+            "name": "act_now_amount",
+            "default": "5000",
+            "allowed": "at least 0"
+          },
+          {
+            "name": "review_amount",
+            "default": "1000",
+            "allowed": "at least 0"
+          },
+          {
+            "name": "currency",
+            "default": "USD",
+            "allowed": ""
+          }
+        ],
+        "values": {
+          "act_now_amount": "lots"
+        },
+        "problems": [
+          "act_now_amount is 'lots'; allowed: at least 0"
+        ]
       }
     ]
   },
@@ -3720,6 +3796,13 @@
       "result_table",
       "as_of_date",
       "run_profile"
+    ],
+    "tier_widgets": [
+      "act_now_amount",
+      "act_now_share",
+      "currency",
+      "review_amount",
+      "review_share"
     ]
   },
   "result_key_columns": [

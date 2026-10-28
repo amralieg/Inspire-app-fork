@@ -91,6 +91,7 @@ executed, patched, said = run([("account users", "BROWSE"), ("SP", "USE CATALOG"
 volume = sorted(s for s in executed if "VOLUME" in s)
 assert volume == sorted(f"GRANT {p} VOLUME ON SCHEMA \x60main\x60.\x60_inspire\x60 TO \x60SP\x60" for p in ("CREATE", "READ", "WRITE")), volume
 assert "GRANT MODIFY ON SCHEMA \x60main\x60.\x60_inspire\x60 TO \x60SP\x60" in executed, executed
+assert "GRANT CREATE MODEL ON SCHEMA \x60main\x60.\x60_inspire\x60 TO \x60SP\x60" in executed, executed
 assert "GRANT MANAGE ON SCHEMA \x60main\x60.\x60_inspire\x60 TO \x60SP\x60" in executed, executed
 assert "GRANT BROWSE ON CATALOG \x60sales\x60 TO \x60SP\x60" in executed, executed
 assert not [s for s in executed if "samples" in s], executed
@@ -417,7 +418,7 @@ for (const [name, probe] of [
   });
 }
 
-test('the installer gives the app service principal volumes and MANAGE on the Inspire schema, CAN MANAGE on the warehouse and the Lakebase project, and names what new Apps need on the catalog', (t) => {
+test('the installer gives the app service principal volumes, CREATE MODEL and MANAGE on the Inspire schema, CAN MANAGE on the warehouse and the Lakebase project, and names what new Apps need on the catalog', (t) => {
   if (spawnSync('python3', ['--version']).status !== 0) {
     t.skip('python3 is not installed');
     return;

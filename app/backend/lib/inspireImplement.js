@@ -139,9 +139,9 @@ function plainTable(name) {
   return str(name).split('.').map((part) => part.trim().replace(/^`+|`+$/g, '')).join('.');
 }
 
-function resultTableNameError(name) {
+function resultTableNameError(name, field = 'result_table') {
   const table = tableText(name);
-  return table !== null && IMPLEMENT_TABLE_NAME_RE.test(table) ? '' : `result_table ${shownValue(name)} must be catalog.schema.table`;
+  return table !== null && IMPLEMENT_TABLE_NAME_RE.test(table) ? '' : `${field} ${shownValue(name)} must be catalog.schema.table`;
 }
 
 const CRON_FIELDS = [
@@ -1102,6 +1102,12 @@ function widgetSetProblems(values) {
   if (act !== null && review !== null && act + review > 1 + 1e-9) {
     problems.push(`act_now_share + review_share is ${numberText(act + review)}; allowed: at most 1`);
   }
+  const actAmount = number('act_now_amount');
+  const reviewAmount = number('review_amount');
+  if (actAmount !== null && reviewAmount !== null && reviewAmount > actAmount) {
+    problems.push(`review_amount is ${numberText(reviewAmount)}, above act_now_amount ${numberText(actAmount)}; `
+      + 'a record needs at least as much at stake to act on now as to review');
+  }
   for (const lowName of Object.keys(values).sort()) {
     const highName = `max_${lowName.slice(4)}`;
     if (!lowName.startsWith('min_') || !Object.prototype.hasOwnProperty.call(values, highName)) continue;
@@ -1524,7 +1530,7 @@ function groupWidgets(widgets) {
   for (const widget of widgets || []) {
     const name = str(widget && widget.name).toLowerCase();
     if (IMPLEMENT_INSPIRE_WIDGETS.includes(name)) continue;
-    if (/^(act_now_share|review_share|explanation_top_k|alert_quantile|fdr_alpha|spot_check_rows|(min|max)_.+|.+_threshold)$/.test(name)) business.push(widget);
+    if (/^(act_now_share|review_share|act_now_amount|review_amount|currency|alert_quantile|fdr_alpha|spot_check_rows|(min|max)_.+|.+_threshold)$/.test(name)) business.push(widget);
     else if (/^(model_name|horizon|season_length)$/.test(name)) model.push(widget);
     else if (name === 'ai_endpoint') ai.push(widget);
     else extras.push(widget);
@@ -1573,24 +1579,59 @@ function joinAnd(items) {
   return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
-function outputAccess(rows, name) {
-  const t = tableParts(name);
-  const table = `${t.catalog}.${t.schema}.${t.table}`;
+function schemaAccess(rows, t) {
   const list = Array.isArray(rows) ? rows : [];
   const owner = (level) => list.some((r) => r.level === level && privilegeOf(r.privilege) === 'OWNER');
   const mine = list.filter((r) => r.mine === true || str(r.mine).toLowerCase() === 'true');
   const holds = (levels, privilege) => mine.some((r) => levels.includes(r.level)
     && ['OWNER', 'ALL PRIVILEGES', privilege].includes(privilegeOf(r.privilege)));
+  const access = { list, owner, mine, holds, identity: str((list[0] || {}).me), needs: [] };
+  if (!owner('catalog')) return { ...access, missing: `catalog ${t.catalog} does not exist or you have no access to it` };
+  if (!owner('schema')) {
+    return { ...access, missing: `schema ${t.catalog}.${t.schema} does not exist or you have no access to it; create it or pick another schema` };
+  }
+  if (!holds(['catalog'], 'USE CATALOG')) access.needs.push(`USE CATALOG on ${t.catalog}`);
+  if (!holds(['catalog', 'schema'], 'USE SCHEMA')) access.needs.push(`USE SCHEMA on ${t.catalog}.${t.schema}`);
+  return access;
+}
+
+function sameSchema(a, b) {
+  const x = tableParts(a);
+  const y = tableParts(b);
+  return x.catalog.toLowerCase() === y.catalog.toLowerCase() && x.schema.toLowerCase() === y.schema.toLowerCase();
+}
+
+function defaultModelName(resultTable) {
+  const t = tableParts(resultTable);
+  return `${t.catalog}.${t.schema}.${t.table}_model`;
+}
+
+function trainsModel(useCase) {
+  const family = executionFamily((useCase || {}).code_structure_mandate);
+  return family ? IMPLEMENT_MODEL_FAMILIES.includes(family) : null;
+}
+
+function modelAccess(rows, modelName) {
+  const t = tableParts(modelName);
+  const model = `${t.catalog}.${t.schema}.${t.table}`;
+  const access = schemaAccess(rows, t);
+  if (access.missing) return { ok: false, detail: `${access.missing}, so Inspire cannot register the model ${model} there` };
+  const needs = [...access.needs];
+  if (!access.holds(['catalog', 'schema'], 'CREATE MODEL')) needs.push(`CREATE MODEL on ${t.catalog}.${t.schema}`);
+  return needs.length
+    ? { ok: false, detail: `you need ${joinAnd(needs)} to register the model ${model}` }
+    : { ok: true, detail: `you can register the model ${model}` };
+}
+
+function outputAccess(rows, name) {
+  const t = tableParts(name);
+  const table = `${t.catalog}.${t.schema}.${t.table}`;
+  const { list, owner, mine, holds, identity, missing, needs } = schemaAccess(rows, t);
   const exists = owner('table');
-  const identity = str((list[0] || {}).me);
   const verb = exists ? 'write to' : 'create';
   let write;
-  if (!owner('catalog')) write = { ok: false, detail: `catalog ${t.catalog} does not exist or you have no access to it` };
-  else if (!owner('schema')) write = { ok: false, detail: `schema ${t.catalog}.${t.schema} does not exist or you have no access to it; create it or pick another schema` };
+  if (missing) write = { ok: false, detail: missing };
   else {
-    const needs = [];
-    if (!holds(['catalog'], 'USE CATALOG')) needs.push(`USE CATALOG on ${t.catalog}`);
-    if (!holds(['catalog', 'schema'], 'USE SCHEMA')) needs.push(`USE SCHEMA on ${t.catalog}.${t.schema}`);
     if (exists) {
       if (!holds(['catalog', 'schema', 'table'], 'MODIFY')) needs.push(`MODIFY on ${table}`);
       if (!holds(['catalog', 'schema', 'table'], 'SELECT')) needs.push(`SELECT on ${table}`);
@@ -1989,6 +2030,10 @@ module.exports = {
   resultTableNameError,
   outputAccessStatement,
   outputAccess,
+  modelAccess,
+  defaultModelName,
+  sameSchema,
+  trainsModel,
   resultTableProblem,
   otherUseCaseRowsStatement,
   appOwnerTag,

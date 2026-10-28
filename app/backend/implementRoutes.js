@@ -191,8 +191,19 @@ function registerImplementRoutes(app, deps) {
   }
 
   async function checkOutput(req, warehouseId, table, useCaseId, options = {}) {
-    const rows = await sqlRows(req.dbHost, req.dbToken, warehouseId, I.outputAccessStatement(table));
+    const { catalog, schema } = dbOf(req, splitInspireDatabase);
+    const statement = I.outputAccessStatement(table);
+    const asked = q(req, 'model_name');
+    if (asked && I.resultTableNameError(asked, 'model_name')) throw I.badRequest(I.resultTableNameError(asked, 'model_name'));
+    const modelName = asked || I.defaultModelName(table);
+    const elsewhere = !I.sameSchema(modelName, table);
+    const [rows, useCase, modelRows] = await Promise.all([
+      sqlRows(req.dbHost, req.dbToken, warehouseId, statement),
+      loadUseCase(req.dbHost, req.dbToken, warehouseId, catalog, schema, sessionIdOf(req), useCaseId),
+      elsewhere ? sqlRows(req.dbHost, req.dbToken, warehouseId, I.outputAccessStatement(modelName)) : null,
+    ]);
     const access = I.outputAccess(rows, table);
+    const model = I.trainsModel(useCase) ? I.modelAccess(elsewhere ? modelRows : rows, modelName) : null;
     const warehouse = await appWarehouseCheck(req, warehouseId, access.identity, options.warehouseName);
     const warnings = [...I.shareWarnings(table, rows, options.principals),
       ...I.shareWarehouseWarnings(warehouse, options.principals, options.viewed, options.warehouseName)];
@@ -211,7 +222,7 @@ function registerImplementRoutes(app, deps) {
         safety = { ok: true, detail: `${access.table} exists but its columns could not be read, so Inspire could not check whose rows it holds` };
       }
     }
-    return { ...access, safety, ok: access.write.ok && safety.ok };
+    return { ...access, safety, ...(model ? { model } : {}), ok: access.write.ok && safety.ok && (!model || model.ok) };
   }
 
   async function countApps(req, limit) {
@@ -391,7 +402,7 @@ function registerImplementRoutes(app, deps) {
         latest,
         assets,
         family,
-        trains_model: family ? I.IMPLEMENT_MODEL_FAMILIES.includes(family) : null,
+        trains_model: I.trainsModel(useCase),
         evidence: I.parseEvidence(useCase.data_evidence),
         features,
         widgets: widgets.widgets,
@@ -599,9 +610,10 @@ function registerImplementRoutes(app, deps) {
           ? { ok: true, detail: `${warehouseName} ran the access check for you` }
           : { ok: false, detail: `${warehouseName} could not run a statement for you: ${outputError}` },
         output: output
-          ? { ok: output.ok, detail: output.write.ok ? `${output.write.detail}; ${output.safety.detail}` : output.write.detail }
+          ? { ok: output.write.ok && output.safety.ok, detail: output.write.ok ? `${output.write.detail}; ${output.safety.detail}` : output.write.detail }
           : { ok: false, detail: 'not checked, because the warehouse could not run the access check' },
       };
+      if (output && output.model) checks.model = output.model;
       if (shares) checks.result_grant = output ? output.grant : { ok: false, detail: 'not checked' };
       if (appName) {
         const name = I.appNameCheck(appName, existingApp && existingApp.ok ? existingApp.data : null, { useCaseId, sessionId: sid });

@@ -31,6 +31,10 @@ const {
   filterImplementSteps,
   outputAccessStatement,
   outputAccess,
+  modelAccess,
+  defaultModelName,
+  sameSchema,
+  trainsModel,
   resultTableProblem,
   otherUseCaseRowsStatement,
   appOwnerTag,
@@ -373,12 +377,14 @@ test('every readiness threshold is a business rule, Inspire\'s own widgets never
   const thresholds = FIXTURE.widget_groups.threshold_names.map((name) => ({ name, type: 'text', default: '1' }));
   const extras = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8'].map((name) => ({ name, type: 'text', default: '' }));
   const inspire = FIXTURE.widget_groups.inspire_widgets.map((name) => ({ name, type: 'text', default: '' }));
-  const groups = groupWidgets([...extras, ...inspire, ...thresholds, { name: 'horizon' }, { name: 'ai_endpoint' }]);
-  assert.deepEqual(groups.business.map((w) => w.name), FIXTURE.widget_groups.threshold_names);
+  const tiers = FIXTURE.widget_groups.tier_widgets.map((name) => ({ name, type: 'text', default: '' }));
+  const groups = groupWidgets([...extras, ...inspire, ...tiers, ...thresholds, { name: 'horizon' }, { name: 'ai_endpoint' },
+    { name: 'explanation_top_k' }]);
+  assert.deepEqual(groups.business.map((w) => w.name), [...FIXTURE.widget_groups.tier_widgets, ...FIXTURE.widget_groups.threshold_names]);
   assert.deepEqual(groups.model.map((w) => w.name), ['horizon']);
   assert.deepEqual(groups.ai.map((w) => w.name), ['ai_endpoint']);
   assert.deepEqual(groups.extras.map((w) => w.name), ['a1', 'a2', 'a3', 'a4', 'a5', 'a6']);
-  assert.deepEqual(groups.extras_kept_default, ['a7', 'a8']);
+  assert.deepEqual(groups.extras_kept_default, ['a7', 'a8', 'explanation_top_k']);
   assert.deepEqual(IMPLEMENT_INSPIRE_WIDGETS, FIXTURE.widget_groups.inspire_widgets);
   const shown = [...groups.business, ...groups.model, ...groups.ai, ...groups.extras].map((w) => w.name);
   for (const name of IMPLEMENT_INSPIRE_WIDGETS) assert.ok(!shown.includes(name), name);
@@ -565,6 +571,33 @@ test('a missing catalog or schema is named instead of a privilege list', () => {
   assert.deepEqual(outputAccess([], 'main.s.out').write, { ok: false, detail: 'catalog main does not exist or you have no access to it' });
   assert.deepEqual(outputAccess([grant('catalog', 'OWNER', 'admins', false)], 'main.s.out').write,
     { ok: false, detail: 'schema main.s does not exist or you have no access to it; create it or pick another schema' });
+});
+
+test('registering a model needs USE CATALOG, USE SCHEMA and CREATE MODEL, held directly, by a group, by ownership or through ALL PRIVILEGES', () => {
+  const traverse = [grant('catalog', 'USE_CATALOG', 'account users', true), grant('schema', 'USE SCHEMA', 'amr@x', true)];
+  assert.deepEqual(modelAccess([...CATALOG_AND_SCHEMA, ...traverse, grant('schema', 'CREATE TABLE', 'amr@x', true)], 'main.s.out_model'),
+    { ok: false, detail: 'you need CREATE MODEL on main.s to register the model main.s.out_model' });
+  assert.deepEqual(modelAccess([...CATALOG_AND_SCHEMA, ...traverse, grant('schema', 'CREATE MODEL', 'someone-else@x', false)], 'main.s.out_model').ok, false);
+  assert.deepEqual(modelAccess(CATALOG_AND_SCHEMA, 'main.s.out_model'),
+    { ok: false, detail: 'you need USE CATALOG on main, USE SCHEMA on main.s and CREATE MODEL on main.s to register the model main.s.out_model' });
+  assert.deepEqual(modelAccess([...CATALOG_AND_SCHEMA, ...traverse, grant('catalog', 'CREATE_MODEL', 'analysts', true)], 'main.s.out_model'),
+    { ok: true, detail: 'you can register the model main.s.out_model' });
+  assert.equal(modelAccess([...CATALOG_AND_SCHEMA, grant('schema', 'ALL_PRIVILEGES', 'amr@x', true), grant('catalog', 'USE CATALOG', 'amr@x', true)], 'main.s.m').ok, true);
+  assert.equal(modelAccess([grant('catalog', 'OWNER', 'amr@x', true), grant('schema', 'OWNER', 'amr@x', true)], 'main.s.m').ok, true);
+  assert.deepEqual(modelAccess([grant('catalog', 'OWNER', 'admins', false)], 'main.s.m'),
+    { ok: false, detail: 'schema main.s does not exist or you have no access to it; create it or pick another schema, so Inspire cannot register the model main.s.m there' });
+});
+
+test('the model of a use case defaults next to its result table, and only execution families A to D train one', () => {
+  assert.equal(defaultModelName('Main.Sales.Out_1'), 'Main.Sales.Out_1_model');
+  assert.equal(defaultModelName('`main`.`s`.`out`'), 'main.s.out_model');
+  assert.equal(sameSchema('main.sales.a', 'Main.Sales.b'), true);
+  assert.equal(sameSchema('main.sales.a', 'main.models.a'), false);
+  assert.equal(sameSchema('main.sales.a', 'other.sales.a'), false);
+  for (const family of ['A', 'B', 'C', 'D']) assert.equal(trainsModel({ code_structure_mandate: `Execution pattern: family ${family} (x).` }), true, family);
+  for (const family of ['E', 'F', 'G', 'H']) assert.equal(trainsModel({ code_structure_mandate: `Execution pattern: family ${family} (x).` }), false, family);
+  assert.equal(trainsModel({ code_structure_mandate: '' }), null);
+  assert.equal(trainsModel(null), null);
 });
 
 const accessRow = (level, privilege, principal, mine = false) => ({ level, privilege, principal, mine, me: 'inspire-sp' });

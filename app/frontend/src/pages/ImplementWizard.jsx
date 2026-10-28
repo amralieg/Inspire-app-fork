@@ -91,6 +91,7 @@ import {
   vibesProblem,
   VIBES_HELP,
   VIBES_MAX,
+  modelNameOf,
 } from '../lib/implementWizard';
 
 const ICONS = { notebook: NotebookPen, dashboard: LayoutDashboard, genie_space: Sparkles, app: AppWindow, alert: Bell };
@@ -415,10 +416,12 @@ export default function ImplementWizard({
       }
       if (stepId === 'results') {
         setChecking('Checking you can write the result table');
-        const check = await apiFetch(`/api/inspire/implement/output-check?${q}&table=${encodeURIComponent(spec.config.result_table)}`);
+        const check = await apiFetch(`/api/inspire/implement/output-check?${q}&${new URLSearchParams({
+          table: spec.config.result_table, model_name: modelNameOf(spec) }).toString()}`);
         setOutputCheck(check);
         if (!check.ok) {
-          setErrors([check.write?.ok ? check.safety?.detail : check.write?.detail].filter(Boolean));
+          const failed = [check.write, check.safety, check.model].find((c) => c && !c.ok);
+          setErrors([failed?.detail].filter(Boolean));
           return;
         }
       }
@@ -444,6 +447,7 @@ export default function ImplementWizard({
       const mergeApp = spec.outputs.app ? spec.outputs.merge.app : '';
       const checks = new URLSearchParams({
         result_table: spec.config.result_table,
+        model_name: modelNameOf(spec),
         app_name: spec.outputs.app && !mergeApp ? spec.outputs.app_name : '',
         merge_app: mergeApp,
         alert: spec.outputs.alert ? '1' : '0',
@@ -1521,6 +1525,7 @@ function ResultTableStep({ parts, table, defaultTable, catalogs, catalogsError, 
         <div className="text-[11px] space-y-0.5" aria-label="Result table check">
           <p className={outputCheck.write?.ok ? 'text-success-fg' : 'text-error-fg'}>{outputCheck.write?.detail}</p>
           {outputCheck.write?.ok && <p className={outputCheck.safety?.ok ? 'text-success-fg' : 'text-error-fg'}>{outputCheck.safety?.detail}</p>}
+          {outputCheck.model && <p className={outputCheck.model.ok ? 'text-success-fg' : 'text-error-fg'}>{outputCheck.model.detail}</p>}
           {outputCheck.write?.ok && outputCheck.safety?.ok && <p className="text-text-tertiary">Sharing: {outputCheck.grant?.detail}</p>}
           {outputCheck.identity && <p className="text-text-tertiary">Checked live as {outputCheck.identity}.</p>}
         </div>

@@ -604,6 +604,58 @@ test('the output check refuses an existing table that is not an Inspire result t
   });
 });
 
+const TRAINS = { id: 'N01-U01', use_case: 'Predict churn', code_structure_mandate: 'Execution pattern: family B (classification).', genie_instruction: '' };
+const WRITES_NO_MODEL = [...NOT_MINE_SCHEMA,
+  { level: 'schema', privilege: 'USE_SCHEMA', principal: 'amr@x', mine: 'true', me: 'amr@x' },
+  { level: 'schema', privilege: 'CREATE_TABLE', principal: 'amr@x', mine: 'true', me: 'amr@x' }];
+
+test('a use case that trains a model is checked for CREATE MODEL where its model is registered, before anything is built', async () => {
+  await withApp({ useCase: TRAINS, access: WRITES_NO_MODEL }, async (url) => {
+    const got = await call(url, CHECK);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.deepEqual([got.data.ok, got.data.write.ok, got.data.safety.ok], [false, true, true]);
+    assert.deepEqual(got.data.model, { ok: false, detail: 'you need CREATE MODEL on main.inspire to register the model main.inspire.churn_out_model' });
+    const pre = await call(url, `/api/inspire/implement/preflight?${Q}&${OUT}`);
+    assert.equal(pre.data.ok, false);
+    assert.equal(pre.data.checks.output.ok, true);
+    assert.deepEqual(pre.data.checks.model, got.data.model);
+  });
+  await withApp({ useCase: TRAINS }, async (url, made) => {
+    const got = await call(url, CHECK);
+    assert.deepEqual([got.data.ok, got.data.model], [true, { ok: true, detail: 'you can register the model main.inspire.churn_out_model' }]);
+    assert.equal(made.sqlCalls.filter((c) => String(c.sql).includes('system.information_schema.catalogs')).length, 1);
+  });
+  await withApp({ access: WRITES_NO_MODEL }, async (url) => {
+    const got = await call(url, CHECK);
+    assert.deepEqual([got.data.ok, 'model' in got.data], [true, false]);
+    const pre = await call(url, `/api/inspire/implement/preflight?${Q}&${OUT}`);
+    assert.deepEqual([pre.data.ok, 'model' in pre.data.checks], [true, false]);
+  });
+  await withApp({ useCase: { ...TRAINS, code_structure_mandate: 'Execution pattern: family F (rules).' }, access: WRITES_NO_MODEL }, async (url) => {
+    assert.equal((await call(url, CHECK)).data.ok, true);
+  });
+});
+
+test('a model name set in another schema is checked in that schema, not next to the result table', async () => {
+  const owner = [{ level: 'catalog', privilege: 'OWNER', principal: 'amr@x', mine: 'true', me: 'amr@x' },
+    { level: 'schema', privilege: 'OWNER', principal: 'amr@x', mine: 'true', me: 'amr@x' }];
+  await withApp({ useCase: TRAINS, access: owner, accessBySchema: { models: WRITES_NO_MODEL } }, async (url, made) => {
+    const got = await call(url, `${CHECK}&model_name=main.models.churn`);
+    assert.deepEqual([got.data.ok, got.data.write.ok], [false, true]);
+    assert.equal(got.data.model.detail, 'you need CREATE MODEL on main.models to register the model main.models.churn');
+    const asked = made.sqlCalls.filter((c) => String(c.sql).includes('system.information_schema.catalogs'))
+      .map((c) => c.parameters.find((p) => p.name === 's').value).sort();
+    assert.deepEqual(asked, ['inspire', 'models']);
+  });
+  await withApp({ useCase: TRAINS, access: WRITES_NO_MODEL, accessBySchema: { models: owner } }, async (url) => {
+    const got = await call(url, `${CHECK}&model_name=main.models.churn`);
+    assert.deepEqual([got.data.ok, got.data.model.ok], [true, true]);
+    const bad = await call(url, `${CHECK}&model_name=main.churn`);
+    assert.equal(bad.status, 400);
+    assert.match(bad.data.error, /^model_name 'main.churn' must be catalog.schema.table/);
+  });
+});
+
 test('preflight checks the grant only when sharing, and names a warehouse that cannot run statements', async () => {
   await withApp({ access: EXISTING, columns: KEY_COLUMNS }, async (url) => {
     const shared = await call(url, `/api/inspire/implement/preflight?${Q}&${OUT}&share=1`);

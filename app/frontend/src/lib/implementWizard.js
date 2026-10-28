@@ -768,6 +768,12 @@ export function widgetSetProblems(values) {
   if (act !== null && review !== null && act + review > 1 + 1e-9) {
     problems.push(`act_now_share + review_share is ${numberText(act + review)}; allowed: at most 1`);
   }
+  const actAmount = number('act_now_amount');
+  const reviewAmount = number('review_amount');
+  if (actAmount !== null && reviewAmount !== null && reviewAmount > actAmount) {
+    problems.push(`review_amount is ${numberText(reviewAmount)}, above act_now_amount ${numberText(actAmount)}; `
+      + 'a record needs at least as much at stake to act on now as to review');
+  }
   for (const lowName of Object.keys(values).sort()) {
     const highName = `max_${lowName.slice(4)}`;
     if (!lowName.startsWith('min_') || !Object.prototype.hasOwnProperty.call(values, highName)) continue;
@@ -850,9 +856,14 @@ export function profileEstimate({ evidence, table, dateColumn, windowDays, dataW
   return { rows: estimate, text: `${prefix} ${estimate.toLocaleString('en-US')} rows of ${table}${notes.length ? ` (${notes.join('; ')})` : ''}` };
 }
 
+export function modelNameOf(spec) {
+  return String(spec?.config?.widgets?.model_name ?? '').trim();
+}
+
 export const PREFLIGHT_LABELS = {
   warehouse: 'SQL warehouse',
   output: 'Output table',
+  model: 'Model registration',
   result_grant: 'Share the result table',
   app_name: 'App name',
   app_access: 'App reads the data',
