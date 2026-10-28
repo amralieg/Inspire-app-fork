@@ -105,6 +105,27 @@ test('the contrast check measures gradient fills by their weakest stop and skips
   }
 });
 
+test('the contrast check measures the colors a theme switch settles on, not the fade in between', async () => {
+  const ui = await openUi('header');
+  const { page } = ui;
+  try {
+    await page.setContent(`<style>
+      body { margin:0; background:#ffffff; color:#18181B; transition: background-color 10s ease, color 10s ease; }
+      .panel { background:#ffffff; }
+      .dim { color:#18181B; }
+      html.dark body { background:#09090B; color:#F0F0F3; }
+      html.dark .panel { background:#111113; }
+      html.dark .dim { color:#1A1A1F; }
+    </style><div class="panel"><p>Inherited text</p><p class="dim">Dark text on the dark panel</p></div>`);
+    await page.evaluate(() => document.documentElement.classList.add('dark'));
+    const result = await lowContrast(page, ['body']);
+    assert.equal(result.checked, 2);
+    assert.deepEqual(result.low.map((l) => l.replace(/: [\d.]+$/, '')), ['Dark text on the dark panel']);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('the landing page reads at 4.5:1 or better in light and in dark at every point of its animations', async () => {
   const ui = await openUi('landing');
   const { page } = ui;

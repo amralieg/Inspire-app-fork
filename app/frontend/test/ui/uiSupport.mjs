@@ -49,6 +49,7 @@ export async function until(check, what, timeout = 10000) {
 
 export async function lowContrast(page, selectors = ['[aria-label="Control tower"]', '[role="dialog"]']) {
   return page.evaluate((rootSelectors) => {
+    document.getAnimations().filter((a) => a instanceof CSSTransition).forEach((a) => a.finish());
     const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
     const parse = (c) => {
       const m = String(c).match(/^rgba?\(([^)]+)\)$/);
