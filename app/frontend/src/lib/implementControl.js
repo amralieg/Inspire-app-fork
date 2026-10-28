@@ -3,6 +3,16 @@ import { formatWhen } from './formatWhen.js';
 
 export const CONTROL_REFRESH_MS = 15000;
 
+export const PROGRESS_TAB = 'Progress';
+export const CONTROL_TAB = 'Control Tower';
+
+export function implementDefaultTab(view, active, picked = null) {
+  const on = Boolean(active);
+  if ([PROGRESS_TAB, CONTROL_TAB].includes(picked)) return { tab: picked, active: on };
+  if (view && view.active === on) return view;
+  return { tab: on ? PROGRESS_TAB : CONTROL_TAB, active: on };
+}
+
 const APP_STATES = {
   ACTIVE: { label: 'Running', tone: 'success', actions: [['stop', 'Stop the App']] },
   STOPPED: { label: 'Stopped', tone: 'idle', actions: [['start', 'Start the App']] },

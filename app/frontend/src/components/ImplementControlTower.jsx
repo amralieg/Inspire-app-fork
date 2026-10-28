@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
-  AlertTriangle, AppWindow, Ban, Bell, Briefcase, ExternalLink, Eye, EyeOff, Hammer, LayoutDashboard, Loader2, Pause, Play, Plus, Radar, RefreshCw, Square, Trash2,
+  AlertTriangle, AppWindow, Ban, Bell, Briefcase, ExternalLink, Eye, EyeOff, Hammer, LayoutDashboard, Loader2, NotebookPen, PanelRightOpen, Pause, Play, Plus, Radar,
+  RefreshCw, RotateCcw, Square, Trash2,
 } from 'lucide-react';
 import BodyPortal from './BodyPortal';
 import GenieLogo from './GenieLogo';
@@ -24,7 +25,7 @@ function RemoveDialog({ row, useCaseId, busy, onCancel, onConfirm }) {
           <h3 className="text-sm font-semibold text-text-primary">Remove the {row.label}</h3>
           <p className="text-[12px] text-text-secondary">
             Inspire deletes the {row.label} <span className="font-medium text-text-primary">{row.name}</span> in a new version of this PoC/MVP and keeps the other outputs.
-            You can add it back from the Edit tab.
+            You can add it back with Edit the PoC/MVP.
           </p>
           <label className="block text-[12px] text-text-secondary">
             Type <span className="font-mono font-semibold text-text-primary">{useCaseId}</span> to confirm
@@ -53,7 +54,24 @@ function RemoveDialog({ row, useCaseId, busy, onCancel, onConfirm }) {
   );
 }
 
-function RowControls({ row, active, actionBusy, submitBusy, onAction, onToggleSchedule, onRemove }) {
+function DetailsButton({ label, onDetails }) {
+  return (
+    <button type="button" aria-label={`${label} details`} onClick={onDetails} className={`${BUTTON} border border-border bg-surface text-text-primary`}>
+      <PanelRightOpen size={11} /> Details
+    </button>
+  );
+}
+
+function RetryButton({ failed, disabled, onRetry }) {
+  return (
+    <button type="button" disabled={disabled} onClick={onRetry} title={failed.error || undefined} aria-label={`Retry the ${failed.label}`}
+      className={`${BUTTON} border border-error/40 bg-surface text-error-fg`}>
+      <RotateCcw size={11} /> Retry
+    </button>
+  );
+}
+
+function RowControls({ row, active, actionBusy, submitBusy, failed = null, onAction, onToggleSchedule, onRemove, onDetails = null, onRetry }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {row.url && (
@@ -61,6 +79,7 @@ function RowControls({ row, active, actionBusy, submitBusy, onAction, onToggleSc
           Open <ExternalLink size={11} />
         </a>
       )}
+      {onDetails && <DetailsButton label={row.label} onDetails={onDetails} />}
       {row.actions.map((a) => {
         const Icon = ACTION_ICONS[a.action] || Square;
         const key = `${a.asset}:${a.action}`;
@@ -83,6 +102,7 @@ function RowControls({ row, active, actionBusy, submitBusy, onAction, onToggleSc
           {row.schedule.on ? <Pause size={11} /> : <Play size={11} />} {row.schedule.label}
         </button>
       )}
+      {failed && <RetryButton failed={failed} disabled={active || submitBusy} onRetry={onRetry} />}
       {row.removable && (
         <button type="button" disabled={active || submitBusy} onClick={() => onRemove(row)} className={`${BUTTON} border border-error/40 bg-surface text-error-fg`}>
           <Trash2 size={11} /> Remove
@@ -115,7 +135,7 @@ function LiveTile({ row, controls }) {
   const warned = row.warnings?.length > 0;
   const tone = warned && row.state.tone === 'success' ? 'warning' : TONE_CHIP[row.state.tone] || 'idle';
   return (
-    <li data-control={row.id} className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm">
+    <li data-control={row.id} data-tile={row.id} className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm">
       <div className="flex items-start gap-3">
         <IconChip icon={ASSET_ICONS[row.id]} tone={tone} size="md" />
         <div className="min-w-0 flex-1">
@@ -142,12 +162,13 @@ function LiveTile({ row, controls }) {
   );
 }
 
-function PendingTile({ tile, liveError, active, onAddOutput }) {
+function PendingTile({ tile, liveError, active, submitBusy, failed, onAddOutput, onDetails, onRetry }) {
   const { output, kind } = tile;
   const Icon = ASSET_ICONS[output.id];
+  const details = <DetailsButton label={output.label} onDetails={onDetails} />;
   if (kind === 'off') {
     return (
-      <li className="flex flex-col gap-2 rounded-xl border border-dashed border-border bg-bg-subtle/50 p-3.5 text-[12px]">
+      <li data-tile={output.id} className="flex flex-col gap-2 rounded-xl border border-dashed border-border bg-bg-subtle/50 p-3.5 text-[12px]">
         <div className="flex items-start gap-3">
           <IconChip icon={Icon} tone="idle" size="md" />
           <div className="min-w-0">
@@ -155,11 +176,14 @@ function PendingTile({ tile, liveError, active, onAddOutput }) {
             <p className="text-text-secondary">{output.blurb}</p>
           </div>
         </div>
-        {onAddOutput && (
-          <button type="button" disabled={active} onClick={onAddOutput} className={`${BUTTON} self-start border border-border bg-surface text-text-primary`}>
-            <Plus size={11} /> Add the {output.label}
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {onAddOutput && (
+            <button type="button" disabled={active} onClick={onAddOutput} className={`${BUTTON} border border-border bg-surface text-text-primary`}>
+              <Plus size={11} /> Add the {output.label}
+            </button>
+          )}
+          {details}
+        </div>
       </li>
     );
   }
@@ -170,7 +194,7 @@ function PendingTile({ tile, liveError, active, onAddOutput }) {
     missing: { tone: 'warning', text: 'Not built on this version' },
   }[kind];
   return (
-    <li className="relative flex flex-col gap-2 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm overflow-hidden" data-tile-kind={kind}>
+    <li className="relative flex flex-col gap-2 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm overflow-hidden" data-tile={output.id} data-tile-kind={kind}>
       <div className="flex items-start gap-3">
         <IconChip icon={Icon} tone={look.tone} size="md" />
         <div className="min-w-0">
@@ -186,37 +210,105 @@ function PendingTile({ tile, liveError, active, onAddOutput }) {
           <span className={`absolute inset-y-0 left-0 w-1/3 rounded-full ${tile.now ? 'bg-db-red motion-safe:animate-[shimmer_1.8s_ease-in-out_infinite]' : 'bg-border'}`} />
         </div>
       )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {details}
+        {failed && <RetryButton failed={failed} disabled={active || submitBusy} onRetry={onRetry} />}
+      </div>
+    </li>
+  );
+}
+
+export function NotebookFacts({ notebook }) {
+  return (
+    <>
+      {notebook.state.reason && <p className={notebook.state.state === 'failed' ? 'text-error-fg' : 'text-text-secondary'}>{notebook.state.reason}</p>}
+      {notebook.runError && <p className="text-error-fg">{notebook.runError}</p>}
+      {notebook.path && <p className="font-mono text-[11px] text-text-secondary break-all">{notebook.path}</p>}
+    </>
+  );
+}
+
+export function NotebookLinks({ notebook }) {
+  return (
+    <>
+      {notebook.href && (
+        <a className={`${BUTTON} font-semibold text-white bg-db-red-solid hover:opacity-90`} href={notebook.href} target="_blank" rel="noreferrer">
+          Open the notebook <ExternalLink size={11} />
+        </a>
+      )}
+      {notebook.runUrl && (
+        <a className={`${BUTTON} border border-border bg-surface text-text-primary`} href={notebook.runUrl} target="_blank" rel="noreferrer">
+          Open the notebook run <ExternalLink size={11} />
+        </a>
+      )}
+    </>
+  );
+}
+
+function NotebookTile({ notebook, onDetails }) {
+  return (
+    <li data-tile="notebook" className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm">
+      <div className="flex items-start gap-3 min-w-0 flex-1">
+        <IconChip icon={NotebookPen} tone={TONE_CHIP[notebook.state.tone] || 'idle'} size="md" />
+        <div className="min-w-0 space-y-0.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13px] font-semibold text-text-primary">Genie Code notebook</span>
+            <ImplementStatusBadge state={notebook.state} />
+          </div>
+          <NotebookFacts notebook={notebook} />
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <NotebookLinks notebook={notebook} />
+        <DetailsButton label="Genie Code notebook" onDetails={onDetails} />
+      </div>
     </li>
   );
 }
 
 export default function ImplementControlTower({
-  live, liveError, latest, useCaseId, active, buildingNow, actionBusy, submitBusy, onAction, onRemove, onToggleSchedule, onRefresh, onAddOutput,
+  poc = true, notebook = null, banner = null, failed = [], live, liveError, latest, useCaseId, active, buildingNow, actionBusy, submitBusy,
+  onAction, onRemove, onToggleSchedule, onRefresh, onAddOutput, onRetry, onDetails,
 }) {
   const [removing, setRemoving] = useState(null);
-  const { strips, tiles } = controlTiles(live, latest, { active, buildingNow });
-  const actions = (live?.actions || []).slice(0, 5);
+  const { strips, tiles } = poc ? controlTiles(live, latest, { active, buildingNow }) : { strips: [], tiles: [] };
+  const actions = poc ? (live?.actions || []).slice(0, 5) : [];
   const hasRows = strips.length > 0 || tiles.some((t) => t.kind === 'live');
+  const failedById = new Map(failed.map((o) => [o.id, o]));
   const confirmRemove = async () => {
     const row = removing;
     await onRemove(row.id);
     setRemoving(null);
   };
-  const controls = (row) => (
-    <RowControls row={row} active={active} actionBusy={actionBusy} submitBusy={submitBusy} onAction={onAction} onToggleSchedule={onToggleSchedule} onRemove={setRemoving} />
+  const controls = (row, tile = false) => (
+    <RowControls
+      row={row}
+      active={active}
+      actionBusy={actionBusy}
+      submitBusy={submitBusy}
+      failed={tile ? failedById.get(row.id) || null : null}
+      onAction={onAction}
+      onToggleSchedule={onToggleSchedule}
+      onRemove={setRemoving}
+      onDetails={tile ? () => onDetails(row.id) : null}
+      onRetry={() => onRetry(row.id)}
+    />
   );
+  let hint = 'The Genie Code notebook of this use case';
+  if (poc) hint = live?.checked_at ? `Live status checked ${formatWhen(live.checked_at, live.checked_at)}` : 'Reading the live status of every asset';
   return (
     <section role="region" aria-label="Control tower" className={PANEL_CLASS}>
       <SectionTitle
         icon={Radar}
         title="Control tower"
-        hint={live?.checked_at ? `Live status checked ${formatWhen(live.checked_at, live.checked_at)}` : 'Reading the live status of every asset'}
-        right={(
+        hint={hint}
+        right={poc && (
           <button type="button" onClick={onRefresh} aria-label="Check the live status now" className="p-1.5 rounded-lg border border-border bg-surface text-text-secondary hover:text-text-primary">
             <RefreshCw size={13} />
           </button>
         )}
       />
+      {banner && <div className="px-4 pt-4">{banner}</div>}
       {liveError && <p className="px-4 pt-3 text-[12px] text-error-fg">Inspire cannot read the live status: {liveError}</p>}
       {live && !hasRows && <p className="px-4 pt-3 text-[12px] text-text-secondary">This PoC/MVP has no job or outputs yet.</p>}
       {strips.length > 0 && (
@@ -225,9 +317,22 @@ export default function ImplementControlTower({
         </ul>
       )}
       <ul className="grid gap-3 p-4 sm:grid-cols-2">
+        {notebook && <NotebookTile notebook={notebook} onDetails={() => onDetails('notebook')} />}
         {tiles.map((tile) => (tile.kind === 'live'
-          ? <LiveTile key={tile.output.id} row={tile.row} controls={controls(tile.row)} />
-          : <PendingTile key={tile.output.id} tile={tile} liveError={liveError} active={active} onAddOutput={onAddOutput} />))}
+          ? <LiveTile key={tile.output.id} row={tile.row} controls={controls(tile.row, true)} />
+          : (
+            <PendingTile
+              key={tile.output.id}
+              tile={tile}
+              liveError={liveError}
+              active={active}
+              submitBusy={submitBusy}
+              failed={failedById.get(tile.output.id) || null}
+              onAddOutput={onAddOutput}
+              onDetails={() => onDetails(tile.output.id)}
+              onRetry={() => onRetry(tile.output.id)}
+            />
+          )))}
       </ul>
       {actions.length > 0 && (
         <div className="px-4 py-3 border-t border-border bg-bg-subtle/50">

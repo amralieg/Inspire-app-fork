@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { defaultSpecFromUseCase, lostTablesText } from '../../src/lib/implementWizard.js';
 import { HARNESS_USE_CASE, HARNESS_SETTINGS } from './implementFixtures.js';
 import { closeBrowser, lowContrast, openUi, until } from './uiSupport.mjs';
@@ -72,7 +74,38 @@ async function onStep(page, label) {
 
 const next = (page) => page.getByRole('button', { name: 'Next' }).click();
 const studioTab = (page, name) => page.getByRole('tab', { name, exact: true }).click();
-const editPane = (page) => page.getByRole('region', { name: 'Edit the PoC/MVP' });
+const selectedTab = (page) => page.getByRole('tablist', { name: 'PoC/MVP views' }).locator('[aria-selected="true"]').innerText();
+const towerOf = (page) => page.getByRole('region', { name: 'Control tower' });
+const runPane = (page) => page.getByRole('region', { name: 'Run and schedule', exact: true });
+const historyPane = (page) => page.getByRole('region', { name: 'History', exact: true });
+const historyToggle = (page) => historyPane(page).getByRole('button', { name: /^History/ });
+const statusLoaded = (page) => historyPane(page).getByText(/^\d+ spec versions? · /).waitFor({ timeout: 15000 });
+const focusedName = (page) => page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim() || '');
+const SHOTS = process.env.PAGE_SHOTS || '';
+
+async function shot(page, name, fullPage = true) {
+  if (!SHOTS) return;
+  fs.mkdirSync(SHOTS, { recursive: true });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage });
+}
+
+async function openDetails(page, label) {
+  await towerOf(page).getByRole('button', { name: `${label} details`, exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: `${label} details`, exact: true });
+  await drawer.waitFor();
+  return drawer;
+}
+
+async function closeDetails(page, drawer) {
+  await page.keyboard.press('Escape');
+  await drawer.waitFor({ state: 'detached' });
+}
+
+async function openHistory(page) {
+  const toggle = historyToggle(page);
+  if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+}
 
 async function toData(page) {
   await onStep(page, 'Choose');
@@ -204,8 +237,7 @@ test('Edit keeps the card name even when the saved version carries the tracking-
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     await page.getByRole('heading', { name: HARNESS_USE_CASE.Name, exact: true }).waitFor();
     assert.equal(await shown.getByText('Keep customers who would leave').count(), 0);
-    await studioTab(page, 'Edit');
-    await editPane(page).getByRole('button', { name: 'Edit the PoC/MVP' }).click();
+    await runPane(page).getByRole('button', { name: 'Edit the PoC/MVP' }).click();
     await onStep(page, 'Choose');
     const summary = page.getByRole('region', { name: 'Executive summary' });
     await summary.waitFor();
@@ -538,32 +570,87 @@ test('Change swaps a table for a similar one or drops it, and never offers to dr
   }
 });
 
-test('the Implement page is about the delivery methods: every output and the job runs of a built version, and no result rows', async () => {
-  const ui = await openUi('implement', STUDIO_STATE);
-  const { page, made } = ui;
+const NOTEBOOK_PATH = '/Users/owner@example.com/inspire/Acme/N01-U01';
+
+test('the Build page has two views and opens a ready PoC/MVP on the Control Tower, with the notebook tile first and a Details drawer per output that shows what its old tab showed', async () => {
+  const ui = await openUi('implement', { ...STUDIO_STATE, useCase: { ...HARNESS_USE_CASE, has_genie_code: 'Y', notebook_path: NOTEBOOK_PATH } });
+  const { page } = ui;
   try {
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    await page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
+    await statusLoaded(page);
     const listed = page.getByRole('navigation', { name: 'Use cases' });
     await listed.getByRole('region', { name: 'Ready' }).getByText('PoC/MVP ready', { exact: true }).waitFor();
     assert.equal(await listed.locator('[aria-current="true"]').innerText().then((t) => t.includes(HARNESS_USE_CASE.Name)), true);
-    assert.deepEqual(await page.getByRole('tablist', { name: 'PoC/MVP views' }).getByRole('tab').allTextContents(),
-      ['Progress', 'Dashboard', 'Genie', 'App', 'Alert', 'History', 'Edit']);
-    assert.equal(await page.getByRole('tab', { name: 'Results', exact: true }).count(), 0);
+    const tabs = page.getByRole('tablist', { name: 'PoC/MVP views' }).getByRole('tab');
+    assert.deepEqual(await tabs.allTextContents(), ['Progress', 'Control Tower']);
+    for (const gone of ['Dashboard', 'Genie', 'App', 'Alert', 'History', 'Edit', 'Results']) {
+      assert.equal(await page.getByRole('tab', { name: gone, exact: true }).count(), 0, `no ${gone} tab`);
+    }
+    assert.deepEqual(await tabs.evaluateAll((els) => els.map((t) => t.getAttribute('aria-selected'))), ['false', 'true'], 'a ready PoC/MVP opens on the Control Tower');
+    const panelId = await tabs.nth(1).getAttribute('aria-controls');
+    assert.equal(await page.locator(`[id="${panelId}"]`).getAttribute('role'), 'tabpanel');
+    assert.equal(await page.locator(`[id="${panelId}"]`).getAttribute('aria-labelledby'), await tabs.nth(1).getAttribute('id'));
+    assert.equal(await page.getByRole('tabpanel').count(), 1, 'only the chosen view shows');
+    assert.equal(await page.getByRole('region', { name: 'Build failed' }).count(), 0, 'a ready build has no failed banner');
 
-    await studioTab(page, 'Dashboard');
-    assert.equal(await page.getByRole('link', { name: 'Open dashboard' }).getAttribute('href'), 'https://workspace.example.com/dashboardsv3/d1/published');
+    const tower = towerOf(page);
+    assert.deepEqual(await tower.locator('[data-tile]').evaluateAll((els) => els.map((e) => e.dataset.tile)), ['notebook', 'dashboard', 'genie_space', 'app', 'alert'],
+      'the Genie Code notebook tile comes first');
+    const notebookTile = tower.locator('[data-tile="notebook"]');
+    await notebookTile.getByText('Notebook ready', { exact: true }).waitFor();
+    await notebookTile.getByText(NOTEBOOK_PATH, { exact: true }).waitFor();
+    assert.equal(await notebookTile.getByRole('link', { name: 'Open the notebook', exact: true }).getAttribute('href'),
+      `https://workspace.example.com/#workspace/Workspace${NOTEBOOK_PATH}`);
+    assert.equal(await page.locator('[data-implement-page] section[aria-label="Use case"] > div').first().getByText(NOTEBOOK_PATH).count(), 0,
+      'the notebook left the header');
+    for (const label of ['Genie Code notebook', 'Dashboard', 'Genie Agent', 'App', 'Alert']) {
+      assert.equal(await tower.getByRole('button', { name: `${label} details`, exact: true }).count(), 1, `${label} has its Details`);
+    }
+    await shot(page, 'control-tower-ready');
 
-    await studioTab(page, 'Genie');
-    await page.getByText('Sample questions in the Genie Agent').waitFor();
-    assert.deepEqual(await page.locator('ul.list-disc li > span').allTextContents(), ['Which customers should we call first?', 'How many customers are in Act now?']);
-    assert.deepEqual(await page.locator('ul.list-disc li').evaluateAll((items) => items.map((li) => li.querySelector('p')?.textContent || '')),
+    await tabs.nth(1).focus();
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await selectedTab(page), 'Progress', 'the arrow keys move between the two tabs');
+    assert.equal(await focusedName(page), 'Progress');
+    await page.getByRole('progressbar', { name: 'Build progress' }).waitFor();
+    assert.equal(await towerOf(page).count(), 0);
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await selectedTab(page), 'Control Tower');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await selectedTab(page), 'Progress', 'the arrows wrap');
+    await page.keyboard.press('End');
+    assert.equal(await selectedTab(page), 'Control Tower');
+    assert.equal(await focusedName(page), 'Control Tower');
+
+    let drawer = await openDetails(page, 'Genie Code notebook');
+    await drawer.getByText(NOTEBOOK_PATH, { exact: true }).waitFor();
+    await drawer.getByText('Notebook ready', { exact: true }).waitFor();
+    assert.equal(await drawer.getByRole('link', { name: 'Open the notebook', exact: true }).getAttribute('href'),
+      `https://workspace.example.com/#workspace/Workspace${NOTEBOOK_PATH}`);
+    await closeDetails(page, drawer);
+
+    drawer = await openDetails(page, 'Dashboard');
+    assert.equal(await page.evaluate(() => Boolean(document.activeElement?.closest('[role="dialog"]'))), true, 'the focus moves into the drawer');
+    assert.equal(await drawer.getAttribute('aria-modal'), 'true');
+    await drawer.getByText('The decision list, trend and run health Genie built').waitFor();
+    assert.equal(await drawer.getByRole('link', { name: 'Open dashboard' }).getAttribute('href'), 'https://workspace.example.com/dashboardsv3/d1/published');
+    await closeDetails(page, drawer);
+    assert.equal(await focusedName(page), 'Dashboard details', 'Escape gives the focus back to Details');
+
+    drawer = await openDetails(page, 'Genie Agent');
+    await drawer.getByText('Sample questions in the Genie Agent').waitFor();
+    assert.deepEqual(await drawer.locator('ul.list-disc li > span').allTextContents(), ['Which customers should we call first?', 'How many customers are in Act now?']);
+    assert.deepEqual(await drawer.locator('ul.list-disc li').evaluateAll((items) => items.map((li) => li.querySelector('p')?.textContent || '')),
       ['', 'The rows are accounts, so it counts accounts in Act now.']);
-    await page.getByText('Inspire checked the Genie Agent with: Which customers should we call first?').waitFor();
-    await page.getByText(`SELECT entity_id FROM ${RESULT_TABLE} ORDER BY rank LIMIT 10`).waitFor();
+    await drawer.getByText('Inspire checked the Genie Agent with: Which customers should we call first?').waitFor();
+    await drawer.getByText(`SELECT entity_id FROM ${RESULT_TABLE} ORDER BY rank LIMIT 10`).waitFor();
+    await shot(page, 'details-drawer-genie-agent', false);
+    await drawer.getByRole('button', { name: 'Close', exact: true }).click();
+    await drawer.waitFor({ state: 'detached' });
+    assert.equal(await focusedName(page), 'Genie Agent details', 'the close button gives the focus back to Details');
 
-    await studioTab(page, 'App');
-    const appRows = await page.locator('table tr').evaluateAll((rows) => rows.map((r) => [...r.querySelectorAll('td')].map((td) => td.textContent)));
+    drawer = await openDetails(page, 'App');
+    const appRows = await drawer.locator('table tr').evaluateAll((rows) => rows.map((r) => [...r.querySelectorAll('td')].map((td) => td.textContent)));
     assert.deepEqual(appRows.slice(0, 3), [
       ['App', 'RUNNING: App is running'],
       ['Compute', 'ACTIVE'],
@@ -571,17 +658,32 @@ test('the Implement page is about the delivery methods: every output and the job
     ]);
     assert.ok(appRows.some(([label]) => label === 'Health check'));
     assert.deepEqual(appRows.find(([label]) => label === 'Built on'), ['Built on', 'v1']);
+    assert.equal(await drawer.getByRole('link', { name: 'Open App' }).getAttribute('href'), 'https://churn-desk-1.aws.databricksapps.com');
+    await closeDetails(page, drawer);
 
-    await studioTab(page, 'Alert');
-    await page.getByText('Fires when: Act now rows in the latest run >= 1').waitFor();
-    await page.getByText('Last check: OK').waitFor();
+    drawer = await openDetails(page, 'Alert');
+    await drawer.getByText('Fires when: Act now rows in the latest run >= 1').waitFor();
+    await drawer.getByText(`Notifies: ${OWNER}`).waitFor();
+    await drawer.getByText('Subscribers on the job task: 1').waitFor();
+    await drawer.getByText('Last check: OK').waitFor();
+    await drawer.getByText('Preview re-runs never send it.', { exact: false }).waitFor();
+    await page.locator('[data-details-drawer] > button[aria-label="Close the Alert details"]').click({ position: { x: 80, y: 400 } });
+    await drawer.waitFor({ state: 'detached' });
 
-    await studioTab(page, 'History');
+    const toggle = historyToggle(page);
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'History starts collapsed');
+    assert.match(await toggle.innerText(), /1 spec version · 2 job runs/);
+    assert.equal(await historyPane(page).getByText('v1 · ready · initial').isVisible(), false);
+    await toggle.click();
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.locator(`[id="${await toggle.getAttribute('aria-controls')}"]`).isVisible(), true);
     await page.getByText('v1 · ready · initial').waitFor();
     await page.getByText('SUCCESS · preview · started by hand').waitFor();
     await page.getByText('FAILED · full (job default) · scheduled').waitFor();
     await page.getByText('Workload failed').waitFor();
     assert.equal(await page.getByRole('link', { name: 'Open run' }).first().getAttribute('href'), 'https://workspace.example.com/#job/77/run/9001');
+    await toggle.click();
+    assert.equal(await historyPane(page).getByText('v1 · ready · initial').isVisible(), false, 'History folds again');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -593,11 +695,10 @@ test('a quick re-run is a preview that sends only the widgets the person changed
   const { page, made } = ui;
   try {
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    await page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
-    await studioTab(page, 'Edit');
-    const rerun = page.getByRole('button', { name: 'Preview re-run' });
+    const quick = runPane(page);
+    const rerun = quick.getByRole('button', { name: 'Preview re-run' });
     await rerun.waitFor();
-    const quick = editPane(page);
+    await quick.getByPlaceholder('25').waitFor();
     const ownText = (labels) => labels.map((l) => [...l.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent.trim()).join(' ').trim());
     assert.deepEqual(await quick.locator('label').evaluateAll(ownText), ['Top K', 'Schedule on']);
     assert.equal(await quick.locator('label', { hasText: 'Top K' }).locator('span').textContent(), 'whole number, at least 1');
@@ -621,6 +722,10 @@ test('a version that ended with a warning says why under its status, and a ready
   const warned = await openUi('implement', { ...STUDIO_STATE, history: [built({ status: 'ready_with_warnings', status_message: why })] });
   try {
     await warned.page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
+    await statusLoaded(warned.page);
+    assert.equal(await selectedTab(warned.page), 'Control Tower', 'a build that ended with warnings opens on the Control Tower');
+    assert.equal(await warned.page.getByRole('region', { name: 'Build failed' }).count(), 0, 'warnings are not a failed build');
+    await studioTab(warned.page, 'Progress');
     const chip = warned.page.locator('p', { hasText: /^Warnings$/ }).first();
     await chip.waitFor();
     assert.equal(await chip.evaluate((p) => p.nextElementSibling?.textContent), why);
@@ -630,6 +735,7 @@ test('a version that ended with a warning says why under its status, and a ready
   }
   const ready = await openUi('implement', { ...STUDIO_STATE, history: [built({ status_message: 'ready: preview wrote 3 row(s)' })] });
   try {
+    await ready.page.getByRole('tab', { name: 'Progress', exact: true }).click();
     await ready.page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
     assert.equal(await ready.page.getByText('ready: preview wrote 3 row(s)').count(), 0);
   } finally {
@@ -644,18 +750,24 @@ test('a version whose run stopped reads as Stopped with the reason and the run, 
     state: { life_cycle_state: 'TERMINATED', result_state: 'CANCELED', state_message: 'Run cancelled' } };
   const ui = await openUi('implement', { ...STUDIO_STATE, history: [stopped, built()], implementRun: run });
   const { page } = ui;
+  const why = 'the run building v2 ended (CANCELED: Run cancelled) while v2 was still filling. Edit submits a new version.';
   try {
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
+    const failed = page.getByRole('region', { name: 'Build failed' });
+    await failed.getByText(why, { exact: true }).waitFor();
+    assert.equal(await selectedTab(page), 'Control Tower', 'a stopped build opens on the Control Tower');
+    assert.equal(await failed.locator('p').first().innerText(), 'The build stopped');
+    await failed.getByRole('button', { name: 'See the build' }).click();
+    assert.equal(await selectedTab(page), 'Progress');
     const chip = page.locator('p', { hasText: /^Stopped$/ }).first();
     await chip.waitFor();
-    assert.equal(await chip.evaluate((p) => p.nextElementSibling?.textContent),
-      'the run building v2 ended (CANCELED: Run cancelled) while v2 was still filling. Edit submits a new version.');
+    assert.equal(await chip.evaluate((p) => p.nextElementSibling?.textContent), why);
     assert.equal(await page.getByRole('link', { name: 'Open the run that stopped' }).getAttribute('href'), run.run_page_url);
     await page.getByRole('navigation', { name: 'Use cases' }).getByRole('region', { name: 'Failed' }).getByText('PoC/MVP stopped', { exact: true }).waitFor();
-    await studioTab(page, 'Edit');
-    assert.equal(await editPane(page).getByRole('button', { name: 'Edit the PoC/MVP' }).isEnabled(), true);
+    await studioTab(page, 'Control Tower');
+    assert.equal(await runPane(page).getByRole('button', { name: 'Edit the PoC/MVP' }).isEnabled(), true);
     assert.equal(await page.getByRole('checkbox', { name: 'Schedule on' }).isEnabled(), true);
-    await studioTab(page, 'History');
+    await openHistory(page);
     await page.getByText('v2 · stopped before it finished · initial').waitFor();
     await page.getByText('v1 · ready · initial').waitFor();
     assert.deepEqual(ui.pageErrors, []);
@@ -666,15 +778,22 @@ test('a version whose run stopped reads as Stopped with the reason and the run, 
     implementRun: { run_id: 1066484287074577, state: { life_cycle_state: 'RUNNING' } } });
   try {
     await busy.page.locator('p', { hasText: /^filling$/ }).first().waitFor();
+    assert.equal(await selectedTab(busy.page), 'Progress', 'a running build opens on Progress');
     await busy.page.getByRole('navigation', { name: 'Use cases' }).getByRole('region', { name: 'In progress' }).getByText('PoC/MVP running', { exact: true }).waitFor();
-    await studioTab(busy.page, 'Edit');
+    await studioTab(busy.page, 'Control Tower');
     assert.equal(await busy.page.getByRole('button', { name: 'Edit applies after this run' }).isEnabled(), false);
     assert.equal(await busy.page.getByRole('checkbox', { name: 'Schedule on' }).isEnabled(), false);
     assert.equal(await busy.page.getByText('Open the run that stopped').count(), 0);
+    assert.equal(await busy.page.getByRole('region', { name: 'Build failed' }).count(), 0, 'a running build has no failed banner');
     assert.deepEqual(busy.pageErrors, []);
   } finally {
     await busy.close();
   }
+});
+
+const stepRow = (phase, status, time) => ({
+  stage_name: 'Implement Use Cases', step_id: phase.length, step_name: `Inspire is working on ${phase.toLowerCase()}`, sub_step_name: 'Completed: n01-u01',
+  status, last_updated: `2026-10-26T${time}.000Z`, result_json: JSON.stringify({ use_case_id: 'N01-U01', phase }),
 });
 
 const genieLogLine = (second, words) => `2026-10-26 10:${String(Math.floor(second / 60)).padStart(2, '0')}:${String(second % 60).padStart(2, '0')}`
@@ -686,10 +805,6 @@ test('the Progress tab keeps Genie\'s messages in a fixed box that scrolls as th
   first.push(genieLogLine(30, JSON.stringify({ status: 'built', summary: 'Built the dashboard and checked every tile.', files: ['x.py'] })));
   first.push(genieLogLine(31, 'I ran it once with `run_profile=preview` and the **preview run** passed.'));
   const building = built({ status: 'building_outputs', status_message: 'building outputs', implement_run_id: '1066484287074577', updated_at: new Date().toISOString() });
-  const stepRow = (phase, status, time) => ({
-    stage_name: 'Implement Use Cases', step_id: phase.length, step_name: `Inspire is working on ${phase.toLowerCase()}`, sub_step_name: 'Completed: n01-u01',
-    status, last_updated: `2026-10-26T${time}.000Z`, result_json: JSON.stringify({ use_case_id: 'N01-U01', phase }),
-  });
   const steps = [stepRow('Plan', 'ended_success', '10:01:00'), stepRow('Instruction', 'started', '10:01:05'),
     stepRow('Instruction', 'ended_success', '10:03:50'), stepRow('Genie build', 'started', '10:04:05')];
   const ui = await openUi('implement', { ...STUDIO_STATE, history: [building], liveLog: first.join('\n'), steps,
@@ -704,6 +819,8 @@ test('the Progress tab keeps Genie\'s messages in a fixed box that scrolls as th
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     await box.getByText('Built the dashboard and checked every tile.').waitFor();
     await page.locator('[data-stage-state="done"]', { hasText: '2m 45s' }).waitFor();
+    assert.equal(await selectedTab(page), 'Progress', 'a running build opens on Progress');
+    assert.equal(await towerOf(page).count(), 0, 'the Control Tower waits behind its tab while Genie builds');
     const text = await box.innerText();
     assert.ok(text.includes(said(23)), 'messages already in the log show at once');
     for (const raw of ['[GENIE', '[build]', 'Genie: ', '{"status"', '"summary"', 'x.py', '`', '**']) assert.ok(!text.includes(raw), `the box never shows ${raw}`);
@@ -727,6 +844,7 @@ test('the Progress tab keeps Genie\'s messages in a fixed box that scrolls as th
     assert.ok(after.gap < 48, 'the box follows new messages to the bottom');
     assert.equal(after.page, before.page, 'the page does not grow as messages arrive');
     assert.equal(after.y, before.y, 'the page does not scroll as messages arrive');
+    await shot(page, 'progress-running');
     for (const dark of [false, true]) {
       await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
       await page.waitForTimeout(400);
@@ -734,6 +852,85 @@ test('the Progress tab keeps Genie\'s messages in a fixed box that scrolls as th
       assert.ok(progress.checked >= 20, `measured ${progress.checked} progress elements`);
       assert.deepEqual(progress.low, [], dark ? 'dark Progress tab' : 'light Progress tab');
     }
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+const FAILED_REASON = 'Genie stopped the build: No approved model yet: candidate precision 0.455 was below baseline precision 0.527.';
+const NOTHING_BUILT = { result_rows: null, asset_status: null, dashboard_id: null, dashboard_url: null, genie_space_id: null, genie_space_url: null,
+  app_name: null, app_url: null, alert_id: null, alert_url: null };
+
+test('a failed build opens on the Control Tower under a red banner with the failed step and the reason, See the build opens Progress, and Edit opens the wizard', async () => {
+  const failed = built({ status: 'failed', status_message: FAILED_REASON, ...NOTHING_BUILT });
+  const steps = [stepRow('Plan', 'ended_success', '10:01:00'), stepRow('Instruction', 'ended_success', '10:03:50'), stepRow('Genie Code', 'ended_success', '10:04:00'),
+    stepRow('Genie build', 'started', '10:04:05'), stepRow('Genie build', 'ended_error', '10:20:00')];
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [failed], steps, me: { userName: OWNER, displayName: 'Owner' } });
+  const { page } = ui;
+  try {
+    await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
+    const tower = towerOf(page);
+    const banner = tower.getByRole('region', { name: 'Build failed' });
+    await banner.getByText('Step: Genie builds the notebook', { exact: true }).waitFor();
+    assert.equal(await selectedTab(page), 'Control Tower', 'a failed build opens on the Control Tower');
+    assert.deepEqual(await banner.locator('p').allInnerTexts(), ['The build failed', 'Step: Genie builds the notebook', FAILED_REASON]);
+    const top = async (locator) => (await locator.boundingBox()).y;
+    assert.ok(await top(banner) < await top(tower.locator('[data-tile]').first()), 'the banner sits at the top of the Control Tower, above the tiles');
+    assert.match(await banner.evaluate((el) => el.className), /bg-error-bg/);
+    await shot(page, 'control-tower-failed');
+
+    await banner.getByRole('button', { name: 'See the build' }).click();
+    assert.equal(await selectedTab(page), 'Progress');
+    assert.equal(await focusedName(page), 'Progress', 'the focus lands on the Progress tab');
+    await page.locator('[data-stage-state="error"]', { hasText: 'Genie builds the notebook' }).waitFor();
+    const chip = page.locator('p', { hasText: /^Failed$/ }).first();
+    assert.equal(await chip.evaluate((p) => p.nextElementSibling?.textContent), FAILED_REASON);
+    assert.equal(await page.getByRole('region', { name: 'Build failed' }).count(), 0, 'the banner belongs to the Control Tower');
+
+    await studioTab(page, 'Control Tower');
+    await tower.getByRole('region', { name: 'Build failed' }).getByRole('button', { name: 'Edit the PoC/MVP' }).click();
+    await onStep(page, 'Choose');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('the view follows the build: Progress while it runs, the Control Tower once it ends, Progress when a new version starts, and a click in between stays', async () => {
+  const run = { run_id: 1066484287074577, state: { life_cycle_state: 'RUNNING' } };
+  const building = (v) => built({ spec_version: v, status: 'building_outputs', status_message: 'building outputs', implement_run_id: String(run.run_id),
+    updated_at: new Date().toISOString() });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [building(2), built()], implementRun: run });
+  const { page, made } = ui;
+  const polled = () => page.waitForResponse((r) => r.url().includes('/api/inspire/implement/status'), { timeout: 20000 });
+  try {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
+    await page.getByRole('progressbar', { name: 'Build progress' }).waitFor();
+    assert.equal(await selectedTab(page), 'Progress', 'the build runs');
+
+    made.state.history = [built({ spec_version: 2 }), built()];
+    await towerOf(page).waitFor({ timeout: 25000 });
+    assert.equal(await selectedTab(page), 'Control Tower', 'the build ended');
+
+    made.state.history = [building(3), built({ spec_version: 2 }), built()];
+    await page.getByRole('progressbar', { name: 'Build progress' }).waitFor({ timeout: 25000 });
+    assert.equal(await selectedTab(page), 'Progress', 'a new version started');
+
+    await studioTab(page, 'Control Tower');
+    await polled();
+    await polled();
+    assert.equal(await selectedTab(page), 'Control Tower', 'the click stays while the build keeps running');
+    await openHistory(page);
+    await page.getByText('v3 · building_outputs · initial').waitFor();
+
+    made.state.history = [built({ spec_version: 3 }), built({ spec_version: 2 }), built()];
+    await page.getByText('v3 · ready · initial').waitFor({ timeout: 25000 });
+    assert.equal(await selectedTab(page), 'Control Tower', 'the build ended while the Control Tower was open');
+    await studioTab(page, 'Progress');
+    await polled();
+    assert.equal(await selectedTab(page), 'Progress', 'a click after the build stays too');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -751,18 +948,32 @@ test('a failed output offers its own retry, which submits the next version that 
   try {
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     await page.getByText('The Genie Agent failed.', { exact: false }).waitFor();
-    await studioTab(page, 'Genie');
-    await page.getByText('The Genie Agent failed on v1: space create 403').waitFor();
-    await studioTab(page, 'App');
-    await page.locator('table tr').first().waitFor();
-    assert.equal(await page.getByText(/failed on v1/).count(), 0);
+    assert.equal(await page.getByText('Retry on the Edit tab').count(), 0, 'no pointer names a tab that is gone');
+    const tower = towerOf(page);
+    await tower.locator('[data-tile="genie_space"]').getByRole('button', { name: 'Retry the Genie Agent' }).waitFor();
+    const retried = [];
+    for (const id of ['dashboard', 'genie_space', 'app', 'alert']) {
+      if (await tower.locator(`[data-tile="${id}"]`).getByRole('button', { name: /^Retry the / }).count()) retried.push(id);
+    }
+    assert.deepEqual(retried, ['genie_space'], 'only the failed output\'s tile offers a retry');
+    assert.equal(await tower.locator('[data-tile="genie_space"]').getByRole('button', { name: 'Retry the Genie Agent' }).getAttribute('title'), 'space create 403');
+    await studioTab(page, 'Progress');
+    await page.getByRole('button', { name: 'Open the Genie Agent details', exact: true }).click();
+    assert.equal(await selectedTab(page), 'Control Tower', 'the banner opens the drawer on the Control Tower');
+    const genie = page.getByRole('dialog', { name: 'Genie Agent details', exact: true });
+    await genie.getByText('The Genie Agent failed on v1: space create 403').waitFor();
+    await genie.getByRole('button', { name: 'Retry the Genie Agent' }).waitFor();
+    await closeDetails(page, genie);
+    assert.equal(await focusedName(page), 'Open the Genie Agent details', 'closing gives the focus back to the banner');
+    const app = await openDetails(page, 'App');
+    await app.locator('table tr').first().waitFor();
+    assert.equal(await app.getByText(/failed on v1/).count(), 0, 'only the failed output\'s drawer shows its failure');
+    await closeDetails(page, app);
     assert.equal(made.jobs.length, 0);
 
-    await page.getByRole('button', { name: 'Retry on the Edit tab' }).click();
-    const retries = editPane(page).getByRole('button', { name: /^Retry the / });
+    const retries = runPane(page).getByRole('button', { name: /^Retry the / });
     await retries.first().waitFor();
     assert.deepEqual((await retries.allTextContents()).map((t) => t.trim()), ['Retry the Genie Agent']);
-    assert.equal(await page.getByRole('button', { name: 'Retry on the Edit tab' }).count(), 0, 'the pointer goes once the retries are on screen');
     await retries.first().click();
     await until(() => made.jobs.length === 1, 'the retry implement run');
     const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
@@ -783,7 +994,9 @@ test('a failed output offers its own retry, which submits the next version that 
   }
 });
 
-test('an output that was built can be rebuilt on its own from the Edit tab, and a failed one stays under the retries', async () => {
+const OUTPUT_LABELS = ['Dashboard', 'Genie Agent', 'App', 'Alert'];
+
+test('an output that was built can be rebuilt on its own from its Details drawer, and a failed one stays under the retries', async () => {
   const assets = JSON.parse(built().asset_status);
   const warned = built({
     spec_version: 2, status: 'ready_with_warnings', status_message: 'Genie Agent: space create 403',
@@ -793,13 +1006,18 @@ test('an output that was built can be rebuilt on its own from the Edit tab, and 
   const { page, made } = ui;
   try {
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    await studioTab(page, 'Edit');
-    const rebuilds = editPane(page).getByRole('button', { name: /^Rebuild the / });
-    await rebuilds.first().waitFor();
-    assert.deepEqual((await rebuilds.allTextContents()).map((t) => t.trim()), ['Rebuild the App', 'Rebuild the Alert']);
-    assert.deepEqual((await editPane(page).getByRole('button', { name: /^Retry the / }).allTextContents()).map((t) => t.trim()),
+    await statusLoaded(page);
+    const rebuilds = {};
+    for (const label of OUTPUT_LABELS) {
+      const drawer = await openDetails(page, label);
+      rebuilds[label] = (await drawer.getByRole('button', { name: /^Rebuild the / }).allTextContents()).map((t) => t.trim());
+      await closeDetails(page, drawer);
+    }
+    assert.deepEqual(rebuilds, { Dashboard: [], 'Genie Agent': [], App: ['Rebuild the App'], Alert: ['Rebuild the Alert'] });
+    assert.deepEqual((await runPane(page).getByRole('button', { name: /^Retry the / }).allTextContents()).map((t) => t.trim()),
       ['Retry the Genie Agent']);
-    await editPane(page).getByRole('button', { name: 'Rebuild the App' }).click();
+    const app = await openDetails(page, 'App');
+    await app.getByRole('button', { name: 'Rebuild the App' }).click();
     await until(() => made.jobs.length === 1, 'the rebuild implement run');
     const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
     assert.equal(inserts.length, 1);
@@ -817,9 +1035,14 @@ test('an output that was built can be rebuilt on its own from the Edit tab, and 
     implementRun: { run_id: 1066484287074577, state: { life_cycle_state: 'RUNNING' } } });
   try {
     await busy.page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    await studioTab(busy.page, 'Edit');
+    await studioTab(busy.page, 'Control Tower');
     await busy.page.getByRole('checkbox', { name: 'Schedule on' }).waitFor();
-    assert.equal(await editPane(busy.page).getByRole('button', { name: /^Rebuild the / }).count(), 0, 'nothing is rebuilt while a version runs');
+    await statusLoaded(busy.page);
+    for (const label of OUTPUT_LABELS) {
+      const drawer = await openDetails(busy.page, label);
+      assert.equal(await drawer.getByRole('button', { name: /^Rebuild the / }).count(), 0, `nothing is rebuilt while a version runs: ${label}`);
+      await closeDetails(busy.page, drawer);
+    }
     assert.deepEqual(busy.pageErrors, []);
   } finally {
     await busy.close();
@@ -833,8 +1056,9 @@ test('a version saved while the App offered downloads rebuilds and opens in Edit
   const ui = await openUi('implement', { ...STUDIO_STATE, history: [withDownloads] });
   try {
     await ui.page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    await studioTab(ui.page, 'Edit');
-    await editPane(ui.page).getByRole('button', { name: 'Rebuild the App' }).click();
+    await statusLoaded(ui.page);
+    const app = await openDetails(ui.page, 'App');
+    await app.getByRole('button', { name: 'Rebuild the App' }).click();
     await until(() => ui.made.jobs.length === 1, 'the rebuild implement run');
     const spec = submittedSpec(ui.made);
     assert.deepEqual(spec.retry_outputs, ['app']);
@@ -869,9 +1093,8 @@ test('a dropped source table stops the re-run with its name, and Edit opens the 
   const missing = [{ table: 'main.s.returns', reason: 'not found' }];
   try {
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    await page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
-    await studioTab(page, 'Edit');
-    await page.getByRole('button', { name: 'Preview re-run' }).click();
+    await statusLoaded(page);
+    await runPane(page).getByRole('button', { name: 'Preview re-run' }).click();
     await page.getByText(lostTablesText(missing)).waitFor();
     await page.getByText('the preview cannot run because these source tables are missing or not readable: main.s.returns (not found).', { exact: false }).waitFor();
     assert.equal(await page.getByText('409:', { exact: false }).count(), 0, 'no HTTP status code reaches the screen');
@@ -901,7 +1124,7 @@ test('Use case details on the Implement page open the full use case in a drawer 
   const { page } = ui;
   try {
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    await studioTab(page, 'Genie');
+    await studioTab(page, 'Progress');
     await page.getByRole('button', { name: 'Use case details' }).click();
     const drawer = page.getByRole('dialog', { name: `Use case details: ${HARNESS_USE_CASE.Name}` });
     await drawer.getByRole('heading', { name: HARNESS_USE_CASE.Name, level: 2 }).waitFor();
@@ -911,7 +1134,8 @@ test('Use case details on the Implement page open the full use case in a drawer 
     assert.equal(await drawer.getByRole('button', { name: /^(Previous|Next) use case$/ }).count(), 0, 'one use case, no paging');
     await page.keyboard.press('Escape');
     await drawer.waitFor({ state: 'detached' });
-    assert.equal(await page.getByRole('tab', { name: 'Genie', exact: true }).getAttribute('aria-selected'), 'true');
+    assert.equal(await page.getByRole('tab', { name: 'Progress', exact: true }).getAttribute('aria-selected'), 'true');
+    assert.equal(await focusedName(page), 'Use case details', 'the focus comes back to the button that opened it');
     await page.getByRole('button', { name: 'Use case details' }).click();
     await drawer.getByRole('button', { name: 'Close', exact: true }).click();
     await drawer.waitFor({ state: 'detached' });
@@ -927,6 +1151,7 @@ test('a use case with no PoC offers to start one, reads no result table, and the
     await never.page.getByText('No PoC/MVP yet.', { exact: false }).waitFor();
     await never.page.getByRole('navigation', { name: 'Use cases' }).getByRole('region', { name: 'Not started' }).getByText(HARNESS_USE_CASE.Name).waitFor();
     assert.equal(await never.page.getByRole('tablist', { name: 'PoC/MVP views' }).count(), 0, 'no tabs before a PoC exists');
+    assert.equal(await towerOf(never.page).count(), 0, 'nothing to control before a PoC/MVP or a notebook exists');
     assert.equal(never.made.sqlCalls.some((c) => /^SELECT \* FROM `main`\.`inspire`\.`n01_u01_out`/.test(String(c.sql))), false, 'no result table read');
     await never.page.getByRole('button', { name: 'Start Use Case PoC/MVP with Genie' }).click();
     await onStep(never.page, 'Choose');
@@ -988,7 +1213,7 @@ test('a version stopped by notebook edits offers a rebuild that overwrites them,
   const kept = await openUi('implement', { ...STUDIO_STATE,
     history: [built({ asset_status: JSON.stringify({ ...assets, notebook: { modified_at: 1, state: 'edited', edited_at: EDITED_AT } }) })] });
   try {
-    await kept.page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
+    await statusLoaded(kept.page);
     assert.equal(await kept.page.getByRole('button', { name: 'Rebuild and overwrite the edits' }).count(), 0,
       'a built version that kept the edits offers no overwrite');
   } finally {
@@ -1098,8 +1323,14 @@ test('Notebook only skips the PoC settings, flags only this use case, starts Gen
 
     const nav = page.getByRole('navigation', { name: 'Use cases' });
     await nav.getByRole('region', { name: 'In progress' }).getByText('Notebook running', { exact: true }).waitFor();
-    const panel = page.getByRole('region', { name: 'Genie Code notebook' });
+    const tower = towerOf(page);
+    const panel = tower.locator('[data-tile="notebook"]');
     assert.equal(await panel.getByRole('link', { name: 'Open the notebook run' }).getAttribute('href'), runUrl);
+    assert.equal(await page.getByRole('tablist', { name: 'PoC/MVP views' }).count(), 0, 'a notebook alone shows the Control Tower without tabs');
+    assert.deepEqual(await tower.locator('[data-tile]').evaluateAll((tiles) => tiles.map((t) => t.dataset.tile)), ['notebook'], 'only the notebook tile');
+    assert.equal(await tower.getByRole('button', { name: 'Check the live status now' }).count(), 0, 'a notebook has no live status to check');
+    assert.equal(await page.getByRole('region', { name: 'Run and schedule', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('region', { name: 'History', exact: true }).count(), 0);
     assert.equal(await panel.getByRole('link', { name: 'Open the notebook', exact: true }).count(), 0, 'no notebook link before it is written');
 
     made.state.useCase = { ...flaggedRow, generate_genie_code_instruction: 'No', has_genie_code: 'Y', notebook_path: notebookPath };
@@ -1108,6 +1339,16 @@ test('Notebook only skips the PoC settings, flags only this use case, starts Gen
     assert.equal(await panel.getByRole('link', { name: 'Open the notebook', exact: true }).getAttribute('href'),
       `https://workspace.example.com/#workspace/Workspace${notebookPath}`);
     await page.getByRole('button', { name: 'Start Use Case PoC/MVP with Genie' }).waitFor();
+    await page.getByText('No PoC/MVP yet.', { exact: false }).waitFor();
+    await shot(page, 'notebook-only');
+    const drawer = await openDetails(page, 'Genie Code notebook');
+    await drawer.getByText(notebookPath, { exact: true }).waitFor();
+    assert.equal(await drawer.getByRole('link', { name: 'Open the notebook', exact: true }).getAttribute('href'),
+      `https://workspace.example.com/#workspace/Workspace${notebookPath}`);
+    await drawer.getByText('Notebook ready', { exact: true }).waitFor();
+    assert.equal(await drawer.locator('[data-vibe-card]').count(), 0, 'a notebook without a PoC/MVP has no vibes to rebuild');
+    await closeDetails(page, drawer);
+    assert.equal(await focusedName(page), 'Genie Code notebook details');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -1160,7 +1401,8 @@ test('the Implement page groups every use case by its state, searches by name, i
     await page.locator('[data-implement-overlay]').waitFor({ state: 'detached' });
 
     await group('Ready').getByRole('button', { name: /Score suppliers/ }).click();
-    const panel = page.getByRole('region', { name: 'Genie Code notebook' });
+    const panel = towerOf(page).locator('[data-tile="notebook"]');
+    assert.equal(await page.getByRole('tablist', { name: 'PoC/MVP views' }).count(), 0, 'a notebook alone has no tabs');
     assert.equal(await panel.getByRole('link', { name: 'Open the notebook', exact: true }).getAttribute('href'),
       'https://workspace.example.com/#workspace/Workspace/Users/owner@example.com/inspire/Acme/N02-U01');
     await page.getByRole('button', { name: 'Start Use Case PoC/MVP with Genie' }).waitFor();
@@ -1220,6 +1462,8 @@ test('the control tower shows each asset live, stops the App through Inspire, an
     const dialog = page.getByRole('dialog', { name: 'Remove the Dashboard' });
     const confirm = dialog.getByRole('button', { name: 'Remove the Dashboard' });
     assert.equal(await confirm.isDisabled(), true);
+    await dialog.getByText('You can add it back with Edit the PoC/MVP.', { exact: false }).waitFor();
+    assert.equal(await dialog.getByText('Edit tab', { exact: false }).count(), 0, 'the dialog points at a button that exists');
     await dialog.getByLabel('Type the use case id to confirm').fill('n01-u01');
     assert.equal(await confirm.isDisabled(), true, 'the id must match exactly');
     await dialog.getByLabel('Type the use case id to confirm').fill('N01-U01');
@@ -1245,15 +1489,20 @@ test('while its status loads, the Build page shows the built version from the ra
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     const tower = page.getByRole('region', { name: 'Control tower' });
     await tower.locator('li').first().waitFor();
+    assert.equal(await selectedTab(page), 'Control Tower', 'the built version from the rail opens on the Control Tower');
     assert.equal(await tower.locator('[data-tile-kind="checking"]').count(), 4, 'every built output reads its live status');
     assert.equal(await tower.getByRole('button', { name: /^Add the / }).count(), 0, 'no built output is offered as missing');
+    await studioTab(page, 'Progress');
     const bar = page.getByRole('progressbar', { name: 'Build progress' });
     assert.equal(await bar.getAttribute('aria-valuenow'), '100', 'a ready version reads 100%, not 0%');
     assert.equal(await page.locator('[data-stage-state="waiting"]').count(), 0, 'no stage reads not started');
-    await studioTab(page, 'Genie');
-    await page.getByRole('link', { name: /Open Genie Agent/ }).waitFor();
-    assert.equal(await page.getByText('No Genie Agent on this version.').count(), 0);
-    await studioTab(page, 'History');
+    await studioTab(page, 'Control Tower');
+    const genie = await openDetails(page, 'Genie Agent');
+    await genie.getByRole('link', { name: /Open Genie Agent/ }).waitFor();
+    assert.equal(await genie.getByText('No Genie Agent on this version.').count(), 0);
+    await closeDetails(page, genie);
+    assert.equal(await historyToggle(page).innerText().then((t) => t.includes('Loading…')), true, 'the History header waits for the counts');
+    await openHistory(page);
     await page.getByText('Loading the versions and job runs…').waitFor();
     assert.equal(await page.getByText('This use case has no job yet.').count(), 0, 'loading is not read as no job');
     release();
@@ -1288,23 +1537,37 @@ test('the whole Implement page, the use case details and the wizard read at 4.5:
   const { page } = ui;
   try {
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    await page.locator('p', { hasText: /^Ready$/ }).first().waitFor();
+    await statusLoaded(page);
+    await openHistory(page);
     for (const dark of [false, true]) {
       await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
       await page.waitForTimeout(400);
       const mode = dark ? 'dark' : 'light';
       const plain = await lowContrast(page, ['body']);
       assert.ok(plain.checked >= 40, `${mode}: measured ${plain.checked} text elements`);
-      assert.deepEqual(plain.low, [], `${mode} Implement page`);
+      assert.deepEqual(plain.low, [], `${mode} Implement page on the Control Tower`);
+      await studioTab(page, 'Progress');
+      await page.getByRole('progressbar', { name: 'Build progress' }).waitFor();
+      const progress = await lowContrast(page, ['body']);
+      assert.ok(progress.checked >= 40, `${mode}: measured ${progress.checked} text elements on Progress`);
+      assert.deepEqual(progress.low, [], `${mode} Implement page on Progress`);
+      await studioTab(page, 'Control Tower');
       await page.getByRole('button', { name: 'Use case details' }).click();
       const details = await lowContrast(page, ['[role="dialog"]']);
       assert.ok(details.checked >= 15, `${mode}: measured ${details.checked} detail elements`);
       assert.deepEqual(details.low, [], `${mode} use case details`);
       await page.keyboard.press('Escape');
       await page.getByRole('dialog').waitFor({ state: 'detached' });
-      await studioTab(page, 'Edit');
-      await editPane(page).getByRole('button', { name: 'Edit the PoC/MVP' }).click();
+      for (const label of ['Genie Agent', 'Alert']) {
+        const drawer = await openDetails(page, label);
+        const output = await lowContrast(page, ['[role="dialog"]']);
+        assert.ok(output.checked >= 8, `${mode}: measured ${output.checked} ${label} details elements`);
+        assert.deepEqual(output.low, [], `${mode} ${label} details`);
+        await closeDetails(page, drawer);
+      }
+      await runPane(page).getByRole('button', { name: 'Edit the PoC/MVP' }).click();
       await onStep(page, 'Choose');
+      await page.getByRole('region', { name: 'Executive summary' }).getByText(HARNESS_USE_CASE.statement).waitFor();
       const wizard = await lowContrast(page, ['[role="dialog"]']);
       assert.ok(wizard.checked >= 15, `${mode}: measured ${wizard.checked} wizard elements`);
       assert.deepEqual(wizard.low, [], `${mode} wizard`);

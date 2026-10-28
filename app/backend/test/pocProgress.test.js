@@ -251,7 +251,7 @@ test('the Progress tab shows the stepper and Genie\'s scrolling messages, never 
   const src = (p) => fs.readFileSync(path.resolve(__dirname, '..', '..', 'frontend', 'src', p), 'utf8');
   const page = src('pages/ImplementPage.jsx');
   assert.doesNotMatch(page, /log_lines/);
-  const progressTab = page.slice(page.indexOf("tab === 'Progress' && ("), page.indexOf('{TAB_OUTPUT[tab] && retryBanner'));
+  const progressTab = page.slice(page.indexOf('{tab === PROGRESS_TAB && ('), page.indexOf('{tab === CONTROL_TAB && ('));
   assert.ok(progressTab.length > 100);
   assert.doesNotMatch(progressTab, /<pre|steps \|\| \[\]\)\.map/);
   assert.match(page, /<PocProgress /);
