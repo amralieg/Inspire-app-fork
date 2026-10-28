@@ -397,3 +397,25 @@ test('while a version builds, the assets it rebuilds read Rebuilding with the as
   assert.deepEqual(c.vibeCards(stopped, stopped[0], { reason: 'stopped' }), [], 'a stopped version offers nothing until it is edited');
   assert.deepEqual([c.askCount('Show the biggest first, add a filter, and hide small ones'), c.askCount('one'), c.askCount(''), c.askCount('Rows first\nA map')], [3, 0, 0, 2]);
 });
+
+test('an output whose options an edit changed reads Rebuilding with its parts while that version builds, for every option the backend knows', async () => {
+  const c = await lib('implementControl.js');
+  const built = versionRow(2, { assets: PARTS });
+  const rebuilding = (outputs) => {
+    const rows = [{ ...versionRow(3, { status: 'building_outputs', outputs, assets: {} }), implement_run_id: '1066' }, built].map(I.parseImplementRow);
+    return c.vibeCards(rows, rows[0]).filter((x) => x.building).map((x) => x.id).sort();
+  };
+  const partsOf = { dashboard: ['dashboard', CHART], genie_space: ['genie_space'], app: ['app', PAGE, 'app:page:detail'], alert: ['alert'] };
+  const changed = { dashboard_name: 'Churn board', dashboard_filters: ['region'], genie_space_name: 'Churn agent', genie_questions: ['Who left?'], app_purpose: 'Act on churn',
+    app_access: 'user', app_look: { style: 'b' }, app_options: { modify: true }, app_backend: 'lakebase', alert_name: 'Churn alert', alert_tiers: 'act_now_review',
+    alert_operator: '>', alert_threshold: 9, alert_threshold_basis: 'baseline', alert_condition_text: 'more than nine', alert_recipients: ['b@example.com'],
+    alert_destinations: [{ id: 'abcdef12', name: 'Ops' }], dashboard_vibes: 'x', genie_space_vibes: 'x', app_vibes: 'x', alert_vibes: 'x' };
+  for (const name of I.IMPLEMENT_OUTPUTS) {
+    for (const option of I.IMPLEMENT_OUTPUT_OPTIONS[name]) {
+      assert.ok(Object.hasOwn(changed, option), `the test changes ${option}`);
+      assert.deepEqual(rebuilding({ [option]: changed[option] }), [...partsOf[name]].sort(), `${option} rebuilds the ${name} and its parts only`);
+    }
+  }
+  assert.deepEqual(rebuilding({ merge: { app: 'other-app' } }), [...partsOf.app].sort(), 'moving the App into another rebuilds it');
+  assert.deepEqual(rebuilding({}), [], 'an unchanged version rebuilds nothing');
+});

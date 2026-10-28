@@ -226,6 +226,7 @@ const ASSET_PILLS = {
   rebuilding: { label: 'Rebuilding', tone: 'busy' },
 };
 const ALL_ASSETS = 'all';
+const OPTION_PREFIXES = { dashboard: ['dashboard_'], genie_space: ['genie_space_', 'genie_questions'], app: ['app_'], alert: ['alert_'] };
 
 export function vibeChecks(raw) {
   let list = raw;
@@ -283,6 +284,11 @@ function rebuildTargets(latest, base) {
   const after = spec.outputs || {};
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
     if (key.endsWith('_vibes') && String(before[key] ?? '').trim() !== String(after[key] ?? '').trim()) ids.add(key.slice(0, -'_vibes'.length));
+  }
+  for (const [output, prefixes] of Object.entries(OPTION_PREFIXES)) {
+    const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((key) => prefixes.some((prefix) => key.startsWith(prefix)));
+    const moved = JSON.stringify(before.merge?.[output] ?? '') !== JSON.stringify(after.merge?.[output] ?? '');
+    if (moved || keys.some((key) => JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null))) ids.add(output);
   }
   if (String(base?.spec_json?.data?.notes ?? '').trim() !== String(spec.data?.notes ?? '').trim()) ids.add('notebook');
   return ids;
