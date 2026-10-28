@@ -27,8 +27,8 @@ import VibesEditor from '../components/VibesEditor';
 import { Counter, CounterDivider, IconChip, PANEL_CLASS, SectionTitle } from '../components/BuildUi';
 import { catalogRow } from '../lib/useCaseFacets';
 import {
-  CONTROL_REFRESH_MS, CONTROL_TAB, PROGRESS_TAB, assetGroups, buildSummary, controlRows, deliveredOutputs, implementDefaultTab, removeChanges, vibeCards, vibeChanges,
-  rollbackChanges,
+  CONTROL_REFRESH_MS, CONTROL_TAB, PROGRESS_TAB, assetGroups, buildSummary, checksSummary, controlRows, deliveredOutputs, implementDefaultTab, missingAsks, removeChanges,
+  vibeCards, vibeChanges, rollbackChanges,
 } from '../lib/implementControl';
 import { pocStages, pocProgressSummary, feedArrivals } from '../lib/pocProgress';
 import PocProgress from '../components/PocProgress';
@@ -376,6 +376,7 @@ function VersionRow({ card, version, locked, pending, confirming, onAsk, onCance
       <p className="truncate text-text-secondary" title={version.vibes || undefined}>
         {version.vibes ? `“${vibesPreview(version.vibes)}”` : 'no vibes'}
       </p>
+      {version.checks?.length > 0 && <p data-version-checks="" className="text-text-secondary">{checksSummary(version.checks)}</p>}
       {confirming && (
         <div ref={confirmRef} role="group" aria-label={`Confirm the roll back to v${version.version}`}
           className="rounded-lg border border-border-strong bg-bg-subtle px-3 py-2 space-y-2 motion-safe:animate-terminal-line">
@@ -412,9 +413,10 @@ function VibeCard({ card, draft, locked, rebuildText = '', onDraft, onRebuild, o
   const partLabel = card.id === card.output ? '' : card.label;
   const problem = vibesProblem(card.id, text, partLabel);
   const title = card.rebuild ? `Vibe the ${card.label}` : `The ${card.label}`;
-  const rebuild = async () => {
-    setPending('rebuild');
-    const ok = await onRebuild(card.id, text);
+  const missing = card.checks.filter((check) => !check.done);
+  const rebuild = async (asks = text, kind = 'rebuild') => {
+    setPending(kind);
+    const ok = await onRebuild(card.id, asks);
     setPending('');
     if (ok) onDraft(card.id, null);
   };
@@ -449,7 +451,7 @@ function VibeCard({ card, draft, locked, rebuildText = '', onDraft, onRebuild, o
         <>
           <VibesEditor id={card.id} label={partLabel} value={text} onChange={(value) => onDraft(card.id, value)} />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <button type="button" disabled={locked || Boolean(problem) || Boolean(pending)} onClick={rebuild} className={changed ? PRIMARY_BUTTON : OUTLINE_BUTTON}>
+            <button type="button" disabled={locked || Boolean(problem) || Boolean(pending)} onClick={() => rebuild()} className={changed ? PRIMARY_BUTTON : OUTLINE_BUTTON}>
               {pending === 'rebuild' ? <Loader2 size={12} className="animate-spin" /> : changed ? <Wand2 size={12} /> : <RotateCcw size={12} />}
               {rebuildText || (changed ? 'Rebuild with these vibes' : `Rebuild the ${card.label}`)}
             </button>
@@ -461,6 +463,37 @@ function VibeCard({ card, draft, locked, rebuildText = '', onDraft, onRebuild, o
             <span className="text-[11px] text-text-secondary">{rebuildHint(card, changed)}</span>
           </div>
         </>
+      )}
+      {card.checks.length > 0 && (
+        <div data-checks="" className="rounded-lg border border-border bg-bg-subtle px-3 py-2 space-y-1.5">
+          <p className="text-[12px] font-semibold text-text-primary">{checksSummary(card.checks)}</p>
+          <ul aria-label={`What you asked for on the ${card.label}`} className="space-y-1.5">
+            {card.checks.map((check, i) => (
+              <li key={`${i}-${check.ask}`} data-check={check.done ? 'done' : 'missing'} className="flex items-start gap-2 text-[11px]">
+                {check.done
+                  ? <CheckCircle2 size={13} className="mt-px shrink-0 text-success-fg" aria-hidden />
+                  : <XCircle size={13} className="mt-px shrink-0 text-error-fg" aria-hidden />}
+                <div className="min-w-0 space-y-0.5">
+                  <p className="text-text-primary">
+                    <span className={`mr-1.5 font-semibold ${check.done ? 'text-success-fg' : 'text-error-fg'}`}>{check.done ? 'Done' : 'Missing'}</span>
+                    {check.ask}
+                  </p>
+                  {check.evidence && <p className="text-text-secondary">{check.evidence}</p>}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {missing.length > 0 && card.rebuild && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-0.5">
+              <button type="button" disabled={locked || Boolean(pending)} onClick={() => rebuild(missingAsks(card.checks), 'retry')} className={PRIMARY_BUTTON}>
+                {pending === 'retry' ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />} Try again
+              </button>
+              <span className="text-[11px] text-text-secondary">
+                Genie rebuilds the {card.label} with only the {missing.length === 1 ? 'ask' : `${missing.length} asks`} it missed.
+              </span>
+            </div>
+          )}
+        </div>
       )}
       {card.warnings.length > 0 && (
         <ul aria-label={`Vibes Genie could not do on the ${card.label}`} className="space-y-0.5">

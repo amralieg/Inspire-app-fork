@@ -260,3 +260,72 @@ test('an asset that a missing ask left ready_with_warnings is still built: it ca
   assert.equal(c.appBackendFacts(rows[0]).backend, c.APP_BACKEND_FACTS.delta, 'an App built before the backend choice still reads Delta tables');
 });
 
+const checksOf = (...pairs) => pairs.map(([ask, status, evidence = '']) => ({ ask, status, evidence }));
+
+test('the build record vibes_checks read as a list of asks, each done or missing with its evidence, from an array or its JSON text', async () => {
+  const c = await lib('implementControl.js');
+  const raw = checksOf(['Rows to act on first', 'done', 'the first widget lists them'], ['A map by region', 'missing', 'no region column'], ['Dark header', ' DONE ']);
+  const read = [{ ask: 'Rows to act on first', done: true, evidence: 'the first widget lists them' }, { ask: 'A map by region', done: false, evidence: 'no region column' },
+    { ask: 'Dark header', done: true, evidence: '' }];
+  assert.deepEqual(c.vibeChecks(raw), read);
+  assert.deepEqual(c.vibeChecks(JSON.stringify(raw)), read, 'the agent may store the list as JSON text');
+  assert.deepEqual(c.vibeChecks([{ ask: '  ', status: 'done' }, null, 'text', { ask: 'Bigger', status: 'skipped' }, { ask: 'Blue' }]),
+    [{ ask: 'Bigger', done: false, evidence: '' }, { ask: 'Blue', done: false, evidence: '' }], 'only a done status counts as done; an empty ask is dropped');
+  for (const bad of [undefined, null, '', 'not json', '{"ask":"x"}', 5, {}]) assert.deepEqual(c.vibeChecks(bad), [], JSON.stringify(bad));
+  assert.equal(c.checksSummary(c.vibeChecks(raw)), 'You asked for 3 things. Done: 2 of 3');
+  assert.equal(c.checksSummary([{ ask: 'x', done: true, evidence: '' }]), 'You asked for 1 thing. Done: 1 of 1');
+  assert.equal(c.missingAsks(c.vibeChecks([...raw, { ask: 'Bigger bars', status: 'missing' }])), 'A map by region\nBigger bars');
+});
+
+test('every asset shows the checklist of the version that built it, a missing ask marks it with warnings, and the old warning lines give way to it', async () => {
+  const c = await lib('implementControl.js');
+  const pageChecks = checksOf(['Rows to act on first', 'done', 'first widget'], ['A map by region', 'missing', 'no region column']);
+  const rows = [
+    versionRow(3, { status: 'ready_with_warnings', assets: {
+      app: { state: 'ready', spec_version: 3, snapshot: true, vibes_checks: JSON.stringify(checksOf(['Dark header', 'done', 'header is #111'])) },
+      [PAGE]: { state: 'ready_with_warnings', spec_version: 3, name: 'Decisions', vibes_checks: pageChecks },
+      dashboard: { state: 'ready', spec_version: 2, snapshot: true },
+      notebook: { spec_version: 3, vibes_checks: checksOf(['Hold out the last month', 'done', 'cell 4']) },
+      ai_reasoning: { state: 'ready', spec_version: 3, vibes_checks: checksOf(['Name two columns', 'missing', 'it names one']) },
+    } }),
+    versionRow(2, { assets: { dashboard: { state: 'ready', spec_version: 2, snapshot: true, vibes_checks: checksOf(['Weekly bars', 'done', 'grain is week']) } } }),
+    versionRow(1),
+  ].map(I.parseImplementRow);
+  rows[0].status_message = 'App vibe not done: a logo: no logo file was given';
+  const cards = c.vibeCards(rows, rows[0]);
+  const byId = (id) => cards.find((x) => x.id === id);
+  assert.deepEqual(byId(PAGE).checks.map((x) => [x.ask, x.done]), [['Rows to act on first', true], ['A map by region', false]]);
+  assert.equal(byId(PAGE).state.label, 'Warnings');
+  assert.deepEqual([byId('app').checks.length, byId('app').state.label, byId('app').warnings], [1, 'Ready', []], 'the checklist replaces the old warning lines');
+  assert.deepEqual(byId('dashboard').checks.map((x) => x.ask), ['Weekly bars'], 'a carried dashboard shows the checklist of v2, which built it');
+  assert.deepEqual([byId('notebook').checks.length, byId('ai_reasoning').state.label], [1, 'Warnings'], 'a ready part with a missing ask reads Warnings');
+  assert.deepEqual(byId('genie_space').checks, []);
+  assert.deepEqual(byId('genie_space').warnings, [], 'no checks and no warning lines');
+  const legacy = c.vibeCards([{ ...rows[0], asset_status: { ...rows[0].asset_status, app: { state: 'ready', spec_version: 3, snapshot: true } } }, ...rows.slice(1)],
+    { ...rows[0], asset_status: { ...rows[0].asset_status, app: { state: 'ready', spec_version: 3, snapshot: true } } });
+  assert.deepEqual(legacy.find((x) => x.id === 'app').warnings, ['App vibe not done: a logo: no logo file was given'], 'with no checklist the old warning lines still show');
+});
+
+test('a rolled back output, and its parts, show the checklist of the version they rolled back to, and each earlier version shows its own', async () => {
+  const c = await lib('implementControl.js');
+  const v1 = checksOf(['Put the trend first', 'done', 'first widget'], ['Arabic labels', 'missing', 'no Arabic font']);
+  const rows = [
+    versionRow(4, { top: { rollback_outputs: { dashboard: 2 } }, assets: {
+      dashboard: { state: 'ready', spec_version: 4, snapshot: true, vibes_checks: [] }, [CHART]: { state: 'ready', spec_version: 4, name: 'Trend' } } }),
+    versionRow(3, { assets: { dashboard: { state: 'ready', spec_version: 3, snapshot: true, vibes_checks: checksOf(['Make it blue', 'done', 'blue']) } } }),
+    versionRow(2, { top: { rollback_outputs: { dashboard: 1 } }, assets: { dashboard: { state: 'ready', spec_version: 2, snapshot: true } } }),
+    versionRow(1, { assets: { dashboard: { state: 'ready', spec_version: 1, snapshot: true, vibes_checks: v1 }, [CHART]: { state: 'ready', spec_version: 1, vibes_checks: checksOf(['Weekly', 'done', 'week']) } } }),
+  ].map(I.parseImplementRow);
+  const cards = c.vibeCards(rows, rows[0]);
+  const dash = cards.find((x) => x.id === 'dashboard');
+  assert.deepEqual(dash.checks.map((x) => x.ask), ['Put the trend first', 'Arabic labels'], 'v4 rolled back to v2, which rolled back to v1');
+  assert.equal(dash.state.label, 'Warnings');
+  assert.deepEqual(cards.find((x) => x.id === CHART).checks.map((x) => x.ask), ['Weekly'], 'the chart came back with its dashboard, with the asks of v1');
+  assert.deepEqual(dash.versions.map((v) => [v.version, c.checksSummary(v.checks)]),
+    [[3, 'You asked for 1 thing. Done: 1 of 1'], [2, 'You asked for 2 things. Done: 1 of 2'], [1, 'You asked for 2 things. Done: 1 of 2']]);
+  const latest = { spec_json: { outputs: { dashboard: true, dashboard_vibes: 'Put the trend first\nArabic labels', [`${CHART}_vibes`]: 'Weekly' } } };
+  assert.deepEqual(c.vibeChanges(latest, 'dashboard', c.missingAsks(dash.checks)), { outputs: { ...latest.spec_json.outputs, dashboard_vibes: 'Arabic labels' } },
+    'Try again sends only the missing asks');
+  assert.deepEqual(c.vibeChanges(latest, CHART, c.missingAsks(c.vibeChecks(checksOf(['Weekly', 'missing'])))), { retry_outputs: [CHART] },
+    'when the missing asks are all the vibes, Try again rebuilds with them as they are');
+});

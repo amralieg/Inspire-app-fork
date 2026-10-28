@@ -208,8 +208,46 @@ export function vibeWarnings(row, id) {
 
 const PART_STATES = [...BUILT_ASSET_STATES, 'failed'];
 
-function assetChip(entry) {
-  return statusChip(entry?.state || 'ready');
+export function vibeChecks(raw) {
+  let list = raw;
+  if (typeof raw === 'string') {
+    try {
+      list = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  return list.filter((check) => check && typeof check === 'object' && String(check.ask ?? '').trim()).map((check) => ({
+    ask: String(check.ask).trim(),
+    done: String(check.status ?? '').trim().toLowerCase() === 'done',
+    evidence: String(check.evidence ?? '').trim(),
+  }));
+}
+
+export function checksSummary(checks) {
+  const done = checks.filter((check) => check.done).length;
+  return `You asked for ${checks.length} ${checks.length === 1 ? 'thing' : 'things'}. Done: ${done} of ${checks.length}`;
+}
+
+export function missingAsks(checks) {
+  return checks.filter((check) => !check.done).map((check) => check.ask).join('\n');
+}
+
+function builtChecks(rows, version, id) {
+  const output = partOf(id)?.output || id;
+  let row = rows.find((r) => r.spec_version === version);
+  let back = Number(row?.spec_json?.rollback_outputs?.[output]);
+  while (row && Number.isInteger(back) && back < row.spec_version) {
+    row = rows.find((r) => r.spec_version === back);
+    back = Number(row?.spec_json?.rollback_outputs?.[output]);
+  }
+  return vibeChecks(row?.asset_status?.[id]?.vibes_checks);
+}
+
+function assetChip(entry, checks) {
+  const state = entry?.state || 'ready';
+  return statusChip(state === 'ready' && checks.some((check) => !check.done) ? 'ready_with_warnings' : state);
 }
 
 export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
@@ -226,13 +264,15 @@ export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
     .map(([id, entry]) => {
       const name = String(entry.name ?? entry.title ?? '').trim();
       const version = BUILT_ASSET_STATES.includes(entry.state) ? (entry.spec_version ?? base.spec_version ?? null) : null;
+      const checks = builtChecks(rows, version, id);
       return {
         id, output, label: partLabel(id, name), name, vibes: String(chosen[vibesKey(id)] ?? ''), rebuild: true, live: liveAt(version),
-        url: urlOf(output), versions: [], warnings: [], state: assetChip(entry),
+        url: urlOf(output), versions: [], warnings: [], checks, state: assetChip(entry, checks),
       };
     });
   const notebookEntry = base.asset_status?.notebook;
   const notebookVersion = notebookEntry?.spec_version ?? null;
+  const notebookChecks = builtChecks(rows, notebookVersion, 'notebook');
   const notebook = notebookVersion == null ? [] : [{
     id: 'notebook',
     output: 'notebook',
@@ -244,7 +284,8 @@ export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
     url: urlOf('notebook'),
     versions: [],
     warnings: [],
-    state: assetChip(notebookEntry),
+    checks: notebookChecks,
+    state: assetChip(notebookEntry, notebookChecks),
   }];
   return [...notebook, ...parts('notebook'), ...IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id]).flatMap((o) => {
     const entry = base.asset_status?.[o.id];
@@ -252,7 +293,10 @@ export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
     const versions = rows.filter((r) => {
       const saved = r.asset_status?.[o.id];
       return saved?.snapshot === true && r.spec_version !== liveVersion && (saved.spec_version ?? r.spec_version) === r.spec_version;
-    }).map((r) => ({ version: r.spec_version, at: at(r), status: String(r.status || ''), vibes: savedVibes(r, o.id) }));
+    }).map((r) => ({
+      version: r.spec_version, at: at(r), status: String(r.status || ''), vibes: savedVibes(r, o.id), checks: builtChecks(rows, r.spec_version, o.id),
+    }));
+    const checks = builtChecks(rows, liveVersion, o.id);
     const card = {
       ...o,
       output: o.id,
@@ -262,8 +306,9 @@ export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
       live: liveAt(liveVersion),
       url: urlOf(o.id),
       versions,
-      warnings: vibeWarnings(base, o.id),
-      state: assetChip(entry),
+      warnings: checks.length ? [] : vibeWarnings(base, o.id),
+      checks,
+      state: assetChip(entry, checks),
     };
     return [card, ...parts(o.id)];
   }).filter((card) => card.rebuild || card.versions.length)];
