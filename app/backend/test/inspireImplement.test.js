@@ -8,6 +8,7 @@ const {
   IMPLEMENT_COLUMNS,
   IMPLEMENT_USE_CASE_PARAM,
   IMPLEMENT_SPEC_VERSION_PARAM,
+  IMPLEMENT_RUN_ID_PARAM,
   IMPLEMENT_OPERATION,
   validateImplementSpec,
   classifyImplementChange,
@@ -306,6 +307,7 @@ test('job parameters target one use case and survive the widget allowlist', () =
   assert.equal(params['15_operation'], 'Implement Use Cases');
   assert.equal(params[IMPLEMENT_USE_CASE_PARAM], 'N01-U01');
   assert.equal(params[IMPLEMENT_SPEC_VERSION_PARAM], '3');
+  assert.equal(params[IMPLEMENT_RUN_ID_PARAM], '{{job.run_id}}', 'the run names its own log after the job run the App records');
   assert.equal(params.bogus, undefined);
 });
 
@@ -425,6 +427,13 @@ test('a preview re-run only accepts this notebook\'s widgets', () => {
 test('live log paths stay inside the inspire volume and lines keep the use-case tags', () => {
   assert.equal(liveLogPath('main.inspire', 'Acme Bank!', '42'), '/Volumes/main/inspire/vol_root/logs/Acme_Bank_/session_42/log.log');
   assert.equal(liveLogPath('bad', 'x', '1'), null);
+  assert.equal(liveLogPath('main.inspire', 'Acme', '42', '111122223333444'),
+    '/Volumes/main/inspire/vol_root/logs/Acme/session_42/log_implement_111122223333444.log');
+  assert.equal(liveLogPath('main.inspire', 'Acme', '42', 111122223333444),
+    '/Volumes/main/inspire/vol_root/logs/Acme/session_42/log_implement_111122223333444.log');
+  for (const runId of [null, undefined, '', '{{job.run_id}}', '12a', '../x', '1'.repeat(20)]) {
+    assert.equal(liveLogPath('main.inspire', 'Acme', '42', runId), '/Volumes/main/inspire/vol_root/logs/Acme/session_42/log.log', String(runId));
+  }
   const lines = useCaseLogLines('[IMPLEMENT N01-U01] filling\nnoise\n[GENIE N01-U02] skip\n[IMPLEMENT-FAILED] N01-U01 timeout', 'N01-U01');
   assert.equal(lines.length, 2);
   const steps = filterImplementSteps([
@@ -651,7 +660,8 @@ test('Inspire may attach a warehouse to a new App only when it holds CAN MANAGE,
   assert.deepEqual(I.warehouseManageCheck({ ok: false, status: 403, data: { message: 'no' } }, ['sp-1'], [], 'SQL'), { ok: false, detail: cannot });
   assert.deepEqual(I.warehouseManageCheck({ ok: false, status: 500, data: { message: 'boom' } }, ['sp-1'], [], ''),
     { ok: false, detail: 'Inspire could not check its permission on the SQL warehouse: boom' });
-  assert.equal(I.warehouseManageCheck(null, ['sp-1'], [], 'SQL').detail, 'Inspire could not check its permission on SQL: HTTP 0');
+  assert.equal(I.warehouseManageCheck(null, ['sp-1'], [], 'SQL').detail, 'Inspire could not check its permission on SQL: no response');
+  assert.equal(I.warehouseManageCheck({ ok: false, status: 502, data: {} }, ['sp-1'], [], 'SQL').detail, 'Inspire could not check its permission on SQL: HTTP 502');
   assert.equal(I.warehouseManageCheck(acl(null), ['sp-1'], [], 'SQL').ok, false);
 });
 

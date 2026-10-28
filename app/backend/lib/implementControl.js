@@ -13,12 +13,15 @@ const CONTROL_ACTIONS = {
   build: { cancel: 'Stop the build' },
 };
 const RUN_ENDED = ['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR'];
+const LAKEBASE_KIND = 'lakebase';
+const LAKEBASE_PROBE_PATH = '/api/2.0/postgres/projects?page_size=1';
 
 const str = (v) => (v == null ? '' : String(v).trim());
 const dataOf = (got) => (got && got.data && typeof got.data === 'object' ? got.data : {});
 const errorOf = (got) => {
   const d = dataOf(got);
-  return str(d.message || d.error || d.raw || `HTTP ${got && got.status}`);
+  const status = Number(got && got.status);
+  return str(d.message || d.error || d.raw || (status > 0 ? `HTTP ${status}` : 'no response'));
 };
 
 function controlPhrase(label) {
@@ -227,6 +230,14 @@ function controlLogOwnerFix(rows, logTable) {
   return `ALTER TABLE ${logTable} OWNER TO \`${want}\``;
 }
 
+function lakebaseOffer(got, backends) {
+  if (!(backends || []).includes(LAKEBASE_KIND)) return { state: 'absent', detail: '' };
+  if (got && got.ok) return { state: 'available', detail: '' };
+  if (got && got.status === 404) return { state: 'absent', detail: '' };
+  if (got && got.status === 403) return { state: 'denied', detail: errorOf(got) };
+  return { state: 'unknown', detail: errorOf(got) };
+}
+
 module.exports = {
   CONTROL_ACTIONS,
   CONTROL_CACHE_MS,
@@ -244,6 +255,8 @@ module.exports = {
   controlTargets,
   createLiveCache,
   jobOwnerProblem,
+  LAKEBASE_PROBE_PATH,
+  lakebaseOffer,
   livePaths,
   liveStatus,
   ownerCheckPath,

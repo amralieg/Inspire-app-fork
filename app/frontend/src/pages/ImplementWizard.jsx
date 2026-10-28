@@ -55,6 +55,12 @@ import {
   RESET_ROLES_LABEL,
   BUILD_STEP_IDS,
   APP_ACCESS_CHOICES,
+  APP_BACKEND_CHOICES,
+  LAKEBASE_CHECKING,
+  appBackendOf,
+  lakebaseBlock,
+  specWithBackend,
+  withAppBackend,
   APP_OPTIONS,
   APP_NO_DOWNLOADS,
   APP_REFRESH_NOTE,
@@ -228,6 +234,7 @@ export default function ImplementWizard({
   const [targetsError, setTargetsError] = useState('');
   const [look, setLook] = useState(null);
   const [lookError, setLookError] = useState('');
+  const [lakebase, setLakebase] = useState(null);
   const [catalogs, setCatalogs] = useState(null);
   const [catalogsError, setCatalogsError] = useState('');
   const [schemas, setSchemas] = useState({});
@@ -341,7 +348,8 @@ export default function ImplementWizard({
   const groups = context?.widget_groups || NO_WIDGET_GROUPS;
   const segmentRef = spec.data.column_roles.segment || '';
   const exclusionRefs = (spec.data.filters || []).filter((f) => f.op === 'not in').map((f) => `${f.table}.${f.column}`);
-  const extras = { columnsByTable, widgets: context?.widgets || [], trainsModel, mergeTargets: targets, held: context?.assets || {}, appLook: look };
+  const extras = { columnsByTable, widgets: context?.widgets || [], trainsModel, mergeTargets: targets, held: context?.assets || {}, appLook: look,
+    lakebase };
   const ownErrors = stepErrors(stepId, spec, extras, mode);
 
   const primaryOriginal = primaryTableOf(ucRow);
@@ -422,7 +430,8 @@ export default function ImplementWizard({
     }
   };
 
-  const specKey = JSON.stringify(spec);
+  const sent = useMemo(() => specWithBackend(spec, lakebase), [spec, lakebase]);
+  const specKey = JSON.stringify(sent);
   const ownErrorsKey = ownErrors.join('|');
   const buildStep = BUILD_STEP_IDS.includes(stepId);
   const planReady = steps.filter((s) => BUILD_STEP_IDS.includes(s.id)).every((s) => !stepErrors(s.id, spec, extras, mode).length);
@@ -446,7 +455,7 @@ export default function ImplementWizard({
       const [pre, planned] = await Promise.allSettled([
         apiFetch(`/api/inspire/implement/preflight?${q}&${checks.toString()}`),
         planNow
-          ? apiPostJson('/api/inspire/implement/plan', { inspire_database: inspireDatabase, warehouse_id: warehouseId, session_id: String(sessionId), spec })
+          ? apiPostJson('/api/inspire/implement/plan', { inspire_database: inspireDatabase, warehouse_id: warehouseId, session_id: String(sessionId), spec: sent })
           : Promise.resolve(null),
       ]);
       if (cancelled) return;
@@ -480,6 +489,15 @@ export default function ImplementWizard({
       .catch((e) => { if (!cancelled) setLookError(e.message); });
     return () => { cancelled = true; };
   }, [spec.outputs.app, look, lookError, apiFetch]);
+
+  useEffect(() => {
+    if (!spec.outputs.app || lakebase !== null) return undefined;
+    let cancelled = false;
+    apiFetch('/api/inspire/implement/lakebase')
+      .then((data) => { if (!cancelled) setLakebase(data); })
+      .catch((e) => { if (!cancelled) setLakebase({ state: 'unknown', detail: e.message }); });
+    return () => { cancelled = true; };
+  }, [spec.outputs.app, lakebase, apiFetch]);
 
   const resultParts = resultTableParts(spec.config.result_table);
   useEffect(() => {
@@ -515,7 +533,7 @@ export default function ImplementWizard({
         warehouse_id: warehouseId,
         session_id: String(sessionId),
         notebook_path: settings.notebookPath,
-        spec,
+        spec: sent,
       });
       onImplemented(data);
     } catch (e) {
@@ -1257,8 +1275,10 @@ export default function ImplementWizard({
           <AppAccessStep
             spec={spec}
             target={appTarget}
+            lakebase={lakebase}
             onAccess={(access) => setSpec((prev) => withAppAccess(prev, access))}
             onOption={(key, value) => setSpec((prev) => withAppOption(prev, key, value))}
+            onBackend={(backend) => setSpec((prev) => withAppBackend(prev, backend))}
           />
         )}
 
@@ -1510,12 +1530,57 @@ function ResultTableStep({ parts, table, defaultTable, catalogs, catalogsError, 
   );
 }
 
-function AppAccessStep({ spec, target, onAccess, onOption }) {
+function AppBackendChoice({ spec, target, lakebase, onBackend }) {
+  if (lakebase?.state === 'absent') return null;
+  const backend = appBackendOf(spec, lakebase);
+  const block = lakebaseBlock(spec, lakebase);
+  const loading = lakebase === null && !block;
+  const chosen = loading ? null : APP_BACKEND_CHOICES.find((choice) => choice.id === backend);
+  return (
+    <fieldset className="space-y-1.5">
+      <legend className="text-sm font-semibold text-text-primary">Where does the App read its data?</legend>
+      {target ? (
+        <p className="text-[11px] text-text-secondary" role="note" aria-label="Why the data source is set">
+          This use case joins {target.name}, which keeps reading its data where it does today.
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-x-6 gap-y-1.5 pt-1">
+            {APP_BACKEND_CHOICES.map((choice) => {
+              const off = loading || (choice.id === 'lakebase' && Boolean(block));
+              const checked = !loading && backend === choice.id;
+              return (
+                <label
+                  key={choice.id}
+                  aria-disabled={off ? 'true' : undefined}
+                  className={`inline-flex items-center gap-2 text-sm glow-focus ${off ? 'cursor-not-allowed text-text-secondary' : 'cursor-pointer text-text-primary'}`}
+                >
+                  <input type="radio" name="app-backend" value={choice.id} checked={checked} disabled={off} onChange={() => onBackend(choice.id)} />
+                  <span className={checked ? 'font-semibold' : 'font-medium'}>{choice.label}</span>
+                </label>
+              );
+            })}
+          </div>
+          {chosen && <p className="text-[12px] text-text-secondary">{chosen.blurb}</p>}
+          {loading && <p className="text-[11px] text-text-tertiary" role="status">{LAKEBASE_CHECKING}…</p>}
+          {block && <p className="text-[11px] text-text-secondary" role="note" aria-label="Why Lakebase is off">{block}</p>}
+          {lakebase?.state === 'unknown' && !block && (
+            <p className="text-[11px] text-text-secondary" role="note" aria-label="Lakebase not checked">
+              Inspire could not check Lakebase ({lakebase.detail}). If the build cannot use it, the App reads Delta tables and the build says why.
+            </p>
+          )}
+        </>
+      )}
+    </fieldset>
+  );
+}
+
+function AppAccessStep({ spec, target, lakebase, onAccess, onOption, onBackend }) {
   const access = spec.outputs.app_access;
   const options = spec.outputs.app_options;
   const block = appMergeBlock({ outputs: { app_access: 'user' } }, target);
   return (
-    <section className="space-y-5" aria-label="App access">
+    <section className="space-y-4" aria-label="App access">
       <fieldset className="space-y-2">
         <legend className="text-sm font-semibold text-text-primary">Who does the App sign people in as?</legend>
         <p className="text-[11px] text-text-tertiary">
@@ -1546,6 +1611,7 @@ function AppAccessStep({ spec, target, onAccess, onOption }) {
           <p className="text-[11px] text-text-secondary">{target.name} signs each person in as themselves, so this use case&apos;s page does too.</p>
         )}
       </fieldset>
+      <AppBackendChoice spec={spec} target={target} lakebase={lakebase} onBackend={onBackend} />
       <fieldset className="space-y-2">
         <legend className={LEGEND}>What people can do in the App</legend>
         <p className="text-[11px] text-text-tertiary">Each one stays off unless you turn it on.</p>
@@ -1577,10 +1643,7 @@ function AppAccessStep({ spec, target, onAccess, onOption }) {
           ))}
         </div>
         {access === 'user' && <p className="text-[11px] text-text-secondary" role="note" aria-label="Why some options are hidden">{PER_USER_REASON}</p>}
-        <div className="text-[11px] text-text-secondary space-y-0.5" role="note" aria-label="What every App offers">
-          <p>{APP_REFRESH_NOTE}</p>
-          <p>{APP_NO_DOWNLOADS}</p>
-        </div>
+        <p className="text-[11px] text-text-secondary" role="note" aria-label="What every App offers"><span>{APP_REFRESH_NOTE}</span> <span>{APP_NO_DOWNLOADS}</span></p>
       </fieldset>
     </section>
   );

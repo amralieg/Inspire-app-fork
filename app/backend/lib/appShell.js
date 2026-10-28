@@ -13,6 +13,8 @@ const APP_SHELL_CONSTANT = `${APP_SHELL_NAME} = `;
 const APP_SHELL_VERSION = 1;
 const APP_SHELL_LISTS = { styles: 'STYLES', layouts: 'LAYOUTS', auths: 'AUTHS', themes: 'THEMES', palettes: 'PALETTES', options: 'OPTIONS' };
 const APP_SHELL_BUNDLE = 'static/assets/app.js';
+const APP_SHELL_PG = 'shell_pg.py';
+const APP_SHELL_DELTA = 'delta';
 const UPDATE_HINT = 'update the Inspire App so it carries an agent notebook with the App shell';
 
 function bundledNotebookText() {
@@ -132,6 +134,9 @@ function appShellLook(payload) {
   if (typeof core !== 'string') throw new Error(`the App shell has no shell_core.py; ${UPDATE_HINT}`);
   const lists = Object.fromEntries(Object.entries(APP_SHELL_LISTS).map(([key, name]) => [key, pythonTuple(core, name)]));
   if (/^USER_OFF = \(/m.test(core)) lists.user_off = pythonTuple(core, 'USER_OFF');
+  const pg = payload.files[APP_SHELL_PG];
+  lists.backends = typeof pg === 'string' ? pythonTuple(pg, 'KINDS') : [APP_SHELL_DELTA];
+  if (!lists.backends.includes(APP_SHELL_DELTA)) throw new Error(`the App shell's KINDS has no ${APP_SHELL_DELTA}; ${UPDATE_HINT}`);
   const colors = payload.palettes && typeof payload.palettes === 'object'
     ? payload.palettes
     : palettesFromBundle(payload.files[APP_SHELL_BUNDLE], lists.palettes);

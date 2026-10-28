@@ -1,4 +1,5 @@
 const { appShellCatalog } = require('./appShell');
+const { IMPLEMENT_RUN_ID_PARAM } = require('./inspireJobParams');
 
 const IMPLEMENT_OPERATION = 'Implement Use Cases';
 const IMPLEMENT_TABLE = '__inspire_implement';
@@ -22,7 +23,7 @@ const IMPLEMENT_VIBES_MAX = 2000;
 const IMPLEMENT_OUTPUT_OPTIONS = {
   dashboard: ['dashboard_name', 'dashboard_filters', 'dashboard_vibes'],
   genie_space: ['genie_space_name', 'genie_questions', 'genie_space_vibes'],
-  app: ['app_purpose', 'app_access', 'app_look', 'app_options', 'app_vibes'],
+  app: ['app_purpose', 'app_access', 'app_look', 'app_options', 'app_backend', 'app_vibes'],
   alert: ['alert_name', 'alert_tiers', 'alert_operator', 'alert_threshold', 'alert_threshold_basis', 'alert_condition_text',
     'alert_recipients', 'alert_destinations', 'alert_vibes'],
 };
@@ -34,6 +35,7 @@ const IMPLEMENT_MERGE_OUTPUTS = ['dashboard', 'genie_space', 'app'];
 const IMPLEMENT_MERGE_NOUNS = { app: 'an App', dashboard: 'a dashboard', genie_space: 'a Genie Agent' };
 const IMPLEMENT_MERGE_LABELS = { app: 'App', dashboard: 'dashboard', genie_space: 'Genie Agent' };
 const IMPLEMENT_APP_ACCESS_CHOICE = "choose who the App reads its data as: 'user' (each person sees only the rows and columns their Unity Catalog grants allow) or 'sp' (everyone sees the same data through the App's service principal)";
+const IMPLEMENT_APP_BACKEND_CHOICE = "choose where the App reads its data: 'lakebase' (its pages load instantly) or 'delta' (Delta tables, its pages take a few seconds to load)";
 const IMPLEMENT_MERGE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const IMPLEMENT_MERGE_TARGET_CAP = 40;
 const IMPLEMENT_ALERT_TIER_SETS = { act_now: ['Act now'], act_now_review: ['Act now', 'Review'] };
@@ -45,6 +47,7 @@ const IMPLEMENT_NOTEBOOK_TASK_KEY = 'inspire_task';
 const IMPLEMENT_PRINCIPAL_TYPES = ['user', 'group', 'service_principal'];
 const IMPLEMENT_USE_CASE_PARAM = 'inspire_implement_use_case';
 const IMPLEMENT_SPEC_VERSION_PARAM = 'inspire_implement_spec_version';
+const IMPLEMENT_RUN_ID_REFERENCE = '{{job.run_id}}';
 const IMPLEMENT_APP_NAME_RE = /^[a-z][a-z0-9-]{1,28}[a-z0-9]$/;
 const IMPLEMENT_WIDGET_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,40}$/;
 const IMPLEMENT_TABLE_NAME_RE = /^[A-Za-z0-9_`-]+\.[A-Za-z0-9_`-]+\.[A-Za-z0-9_`-]+$/;
@@ -445,6 +448,7 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
     app_access: app.access,
     app_look: app.look,
     app_options: app.options,
+    app_backend: app.backend,
     merge,
     ...alert.options,
     ...outputVibes(outputs, chosen, errors),
@@ -576,11 +580,11 @@ function alertOptions(given, on) {
 function appSettings(outputs, on, shell, errors, legacyAccess = '') {
   const look = { ...IMPLEMENT_APP_LOOK_DEFAULT };
   const options = Object.fromEntries(IMPLEMENT_APP_OPTION_KEYS.map((key) => [key, false]));
-  if (!on) return { access: '', look: {}, options: {} };
+  if (!on) return { access: '', look: {}, options: {}, backend: '' };
   const catalog = shell || appShellCatalog();
   if (!catalog.ok) {
     errors.push(`the App cannot be built: ${catalog.error}`);
-    return { access: '', look, options };
+    return { access: '', look, options, backend: '' };
   }
   const rawAccess = outputs.app_access;
   const text = textValue(rawAccess);
@@ -611,7 +615,11 @@ function appSettings(outputs, on, shell, errors, legacyAccess = '') {
   }
   if (access === 'user') for (const key of IMPLEMENT_PER_USER_OFF) options[key] = false;
   if (!options.modify) options.replace_edits = false;
-  return { access: catalog.auths.includes(access) ? access : '', look, options };
+  const fallback = catalog.backends[catalog.backends.length - 1];
+  const backendText = textValue(outputs.app_backend);
+  const backend = backendText === '' ? fallback : backendText === null ? null : backendText.toLowerCase();
+  if (!catalog.backends.includes(backend)) errors.push(`${IMPLEMENT_APP_BACKEND_CHOICE}, not ${shownValue(outputs.app_backend)}`);
+  return { access: catalog.auths.includes(access) ? access : '', look, options, backend: catalog.backends.includes(backend) ? backend : fallback };
 }
 
 function mergeChoices(outputs, chosen, errors) {
@@ -1040,6 +1048,7 @@ function implementJobParams(baseParams, useCaseId, specVersion) {
     '15_operation': IMPLEMENT_OPERATION,
     [IMPLEMENT_USE_CASE_PARAM]: String(useCaseId),
     [IMPLEMENT_SPEC_VERSION_PARAM]: String(specVersion),
+    [IMPLEMENT_RUN_ID_PARAM]: IMPLEMENT_RUN_ID_REFERENCE,
   };
 }
 
@@ -1368,11 +1377,12 @@ function jobRunsFrom(got, job = null) {
   };
 }
 
-function liveLogPath(inspireDatabase, businessName, sessionId) {
+function liveLogPath(inspireDatabase, businessName, sessionId, runId = '') {
   const parts = str(inspireDatabase).split('.');
   if (parts.length !== 2 || parts.some((p) => !p)) return null;
   const biz = str(businessName).replace(/[^A-Za-z0-9._-]+/g, '_');
-  return `/Volumes/${parts[0]}/${parts[1]}/vol_root/logs/${biz}/session_${sessionId}/log.log`;
+  const name = /^\d{1,19}$/.test(str(runId)) ? `log_implement_${str(runId)}.log` : 'log.log';
+  return `/Volumes/${parts[0]}/${parts[1]}/vol_root/logs/${biz}/session_${sessionId}/${name}`;
 }
 
 function useCaseLogLines(text, useCaseId) {
@@ -1712,7 +1722,7 @@ function warehouseManageCheck(got, identities, groups, warehouseName) {
     const status = got ? Number(got.status) : 0;
     if (status === 401 || status === 403) return { ok: false, detail: cannot };
     const d = got && got.data && typeof got.data === 'object' ? got.data : {};
-    return { ok: false, detail: `Inspire could not check its permission on ${name}: ${str(d.message || d.error || `HTTP ${status}`)}` };
+    return { ok: false, detail: `Inspire could not check its permission on ${name}: ${str(d.message || d.error || (status > 0 ? `HTTP ${status}` : 'no response'))}` };
   }
   const lower = (v) => str(v).trim().toLowerCase();
   const ids = new Set((identities || []).map(lower).filter(Boolean));
@@ -1906,6 +1916,8 @@ module.exports = {
   IMPLEMENT_NOTEBOOK_TASK_KEY,
   IMPLEMENT_USE_CASE_PARAM,
   IMPLEMENT_SPEC_VERSION_PARAM,
+  IMPLEMENT_RUN_ID_PARAM,
+  IMPLEMENT_RUN_ID_REFERENCE,
   IMPLEMENT_APP_NAME_RE,
   IMPLEMENT_USE_CASE_ID_RE,
   IMPLEMENT_NOT_AVAILABLE,

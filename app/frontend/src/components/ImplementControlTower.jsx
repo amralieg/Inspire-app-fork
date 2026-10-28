@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   AlertTriangle, AppWindow, Ban, Bell, Briefcase, ExternalLink, Eye, EyeOff, Hammer, LayoutDashboard, Loader2, NotebookPen, PanelRightOpen, Pause, Play, Plus, Radar,
-  RefreshCw, RotateCcw, Square, Trash2,
+  RefreshCw, RotateCcw, Square, Trash2, Zap,
 } from 'lucide-react';
 import BodyPortal from './BodyPortal';
 import GenieLogo from './GenieLogo';
@@ -103,6 +103,11 @@ function RowControls({ row, active, actionBusy, submitBusy, failed = null, onAct
         </button>
       )}
       {failed && <RetryButton failed={failed} disabled={active || submitBusy} onRetry={onRetry} />}
+      {!failed && row.lakebaseSwitch && (
+        <button type="button" disabled={active || submitBusy} onClick={onRetry} className={`${BUTTON} border border-border bg-surface text-text-primary`}>
+          <Zap size={11} /> Switch to Lakebase
+        </button>
+      )}
       {row.removable && (
         <button type="button" disabled={active || submitBusy} onClick={() => onRemove(row)} className={`${BUTTON} border border-error/40 bg-surface text-error-fg`}>
           <Trash2 size={11} /> Remove
@@ -145,6 +150,7 @@ function LiveTile({ row, controls }) {
           </div>
           <p className="font-mono text-[11px] text-text-secondary truncate" title={row.name}>{row.name}</p>
           {row.detail && <p data-control-detail="" className={`mt-1 ${row.state.tone === 'error' ? 'text-error-fg' : 'text-text-secondary'}`}>{row.detail}</p>}
+          {row.backend && <p data-app-backend="" className="mt-1 text-text-secondary">{row.backend}</p>}
         </div>
       </div>
       {warned && (

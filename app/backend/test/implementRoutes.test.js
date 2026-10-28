@@ -190,6 +190,36 @@ test('the Implement page progress shows only the steps of the latest version', a
   });
 });
 
+test('the Genie feed reads the log of the run building the latest version, so another run of the session never replaces it', async () => {
+  const note = (text) => `2026-10-28 04:55:00 - DatabricksInspire - INFO - [IMPLEMENT N01-U01] ${text}`;
+  const history = [{ spec_version: 2, status: 'building_outputs', spec_json: SPEC, use_case_id: 'N01-U01', implement_run_id: '111122223333444',
+    created_at: '2026-10-28T04:50:00Z', updated_at: new Date().toISOString() }];
+  const notes = (got) => got.data.feed.filter((item) => item.kind === 'note').map((item) => item.text);
+  const logs = { 'log_implement_111122223333444.log': note('this run'), 'log.log': note('another run of the session') };
+  await withApp({ history, liveLogs: logs }, async (url, made) => {
+    const got = await call(url, `/api/inspire/implement/status?${Q}`);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.equal(got.data.log_path, '/Volumes/main/inspire/vol_root/logs/Acme/session_42/log_implement_111122223333444.log');
+    assert.deepEqual(notes(got), ['this run']);
+    assert.ok(!made.fetches.some((f) => f.path.endsWith('/log.log')), 'the run log was there, so the session log is never read');
+  });
+  await withApp({ history, liveLogs: { 'log.log': note('written by an agent that predates run logs') } }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/status?${Q}`);
+    assert.equal(got.data.log_path, '/Volumes/main/inspire/vol_root/logs/Acme/session_42/log.log');
+    assert.deepEqual(notes(got), ['written by an agent that predates run logs']);
+  });
+  await withApp({ history: [{ ...history[0], implement_run_id: null }], liveLogs: logs }, async (url, made) => {
+    const got = await call(url, `/api/inspire/implement/status?${Q}`);
+    assert.deepEqual(notes(got), ['another run of the session']);
+    assert.ok(!made.fetches.some((f) => f.path.includes('log_implement_')), 'a version without a run id has no run log to read');
+  });
+  await withApp({ history, liveLogs: {} }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/status?${Q}`);
+    assert.equal(got.status, 200);
+    assert.deepEqual(got.data.feed, []);
+  });
+});
+
 test('a version whose run ended while it was still active shows as stalled, and a new version may replace it', async () => {
   const history = [{ spec_version: 1, status: 'filling', spec_json: SPEC, use_case_id: 'N01-U01', implement_run_id: '1066484287074577',
     updated_at: new Date().toISOString() }];

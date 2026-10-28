@@ -98,6 +98,20 @@ function builtWarnings(latest, id) {
   return Array.isArray(warnings) ? warnings.map((w) => String(w ?? '').trim()).filter(Boolean) : [];
 }
 
+export const APP_BACKEND_FACTS = {
+  lakebase: 'Reads Lakebase: pages load instantly',
+  delta: 'Reads Delta tables: pages take a few seconds to load',
+};
+
+export function appBackendFacts(latest) {
+  const asset = latest?.asset_status?.app || {};
+  const built = asset.backend == null && asset.state === 'ready' ? 'delta' : asset.backend;
+  if (!Object.prototype.hasOwnProperty.call(APP_BACKEND_FACTS, built)) return { backend: '', lakebaseSwitch: false };
+  const outputs = latest?.spec_json?.outputs || {};
+  const wanted = outputs.app_backend === 'lakebase' && outputs.app_access === 'sp' && !outputs.merge?.app;
+  return { backend: APP_BACKEND_FACTS[built], lakebaseSwitch: built === 'delta' && wanted };
+}
+
 export function controlRows(live, latest) {
   const assets = live?.assets || {};
   const targets = live?.targets || {};
@@ -118,6 +132,7 @@ export function controlRows(live, latest) {
       url: latest?.[OUTPUT_URLS[output.id]] || entry?.url || '',
       removable: true,
       warnings: builtWarnings(latest, output.id),
+      ...(output.id === 'app' ? appBackendFacts(latest) : {}),
       ...OUTPUT_ROWS[output.id](entry),
     });
   }

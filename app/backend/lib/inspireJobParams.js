@@ -23,6 +23,9 @@ const INSPIRE_NOTEBOOK_WIDGET_KEYS = [
   'inspire_implement_spec_version',
 ];
 
+const IMPLEMENT_RUN_ID_PARAM = 'inspire_implement_run_id';
+const INSPIRE_JOB_ONLY_PARAM_KEYS = [IMPLEMENT_RUN_ID_PARAM];
+
 const USE_CASES_QUALITY_VALID = ['Good', 'High', 'Ultra High'];
 const USE_CASES_QUALITY_DEFAULT = 'Good';
 
@@ -134,7 +137,7 @@ function sanitizeInspireNotebookJobParams(params) {
   validateStrategicContextParams(params);
   validateBestOfBestCountParams(params);
   const out = {};
-  for (const k of INSPIRE_NOTEBOOK_WIDGET_KEYS) {
+  for (const k of [...INSPIRE_NOTEBOOK_WIDGET_KEYS, ...INSPIRE_JOB_ONLY_PARAM_KEYS]) {
     if (!Object.prototype.hasOwnProperty.call(params, k)) continue;
     const v = params[k];
     if (v == null) continue;
@@ -280,6 +283,8 @@ function normalizeV130UseCaseFields(row) {
 module.exports = {
   INSPIRE_AGENT_VERSION,
   INSPIRE_NOTEBOOK_WIDGET_KEYS,
+  IMPLEMENT_RUN_ID_PARAM,
+  INSPIRE_JOB_ONLY_PARAM_KEYS,
   USE_CASES_QUALITY_VALID,
   USE_CASES_QUALITY_DEFAULT,
   USE_CASES_QUALITY_ALIASES,

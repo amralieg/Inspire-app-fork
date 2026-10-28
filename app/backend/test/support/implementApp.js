@@ -91,6 +91,7 @@ function makeApp(overrides = {}) {
     dbFetch: async (_host, _token, path, opts = {}) => {
       fetches.push({ path, opts });
       const routed = `${String(opts.method || 'GET').toUpperCase()} ${path.split('?')[0]}`;
+      if (state.fetchThrows && Object.prototype.hasOwnProperty.call(state.fetchThrows, routed)) throw new Error(state.fetchThrows[routed]);
       if (state.responses && Object.prototype.hasOwnProperty.call(state.responses, routed)) {
         const [data, status = 200] = state.responses[routed];
         return json(data, status);
@@ -126,6 +127,10 @@ function makeApp(overrides = {}) {
       }
       if (path.startsWith('/api/2.1/jobs/get')) return json(state.job || { job_id: 77 }, state.jobStatus || 200);
       if (path.includes('/serving-endpoints')) return json({ endpoints: [{ name: 'databricks-meta-llama-3-3-70b-instruct' }] });
+      if (path.includes('/fs/files') && state.liveLogs) {
+        const log = state.liveLogs[path.split('/').pop()];
+        return log === undefined ? json('raw', 404) : json(log);
+      }
       if (path.includes('/fs/files')) return state.liveLog === undefined ? json('raw', 404) : json(state.liveLog);
       return json({ message: 'not mocked ' + path }, 500);
     },

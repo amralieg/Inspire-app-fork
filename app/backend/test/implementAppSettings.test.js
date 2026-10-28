@@ -69,6 +69,32 @@ test('the palettes come from the payload when the notebook carries them, and fro
   assert.throws(() => S.appShellLook({ version: 1, files: { 'shell_core.py': core.replace(/^PALETTES.*$/m, '') } }), /defines no PALETTES/);
 });
 
+test('the backends come from the shell\'s Postgres layer: a shell without it reads only Delta tables, and one whose list has no Delta is refused', () => {
+  assert.deepEqual(SHELL.backends, ['lakebase', 'delta'], 'the bundled shell reads Lakebase or Delta tables, Delta last as the default');
+  const payload = S.appShellPayload(S.bundledNotebookText());
+  assert.deepEqual(S.pythonTuple(payload.files['shell_pg.py'], 'KINDS'), SHELL.backends);
+  const { 'shell_pg.py': _pg, ...older } = payload.files;
+  assert.deepEqual(S.appShellLook({ ...payload, files: older }).backends, ['delta']);
+  const noDelta = { ...payload.files, 'shell_pg.py': payload.files['shell_pg.py'].replace(/^KINDS = .*$/m, 'KINDS = ("lakebase",)') };
+  assert.throws(() => S.appShellLook({ ...payload, files: noDelta }), /KINDS has no delta/);
+});
+
+test('the App backend is lakebase or delta, Delta when unset, and an App that is not built has none', () => {
+  const backend = (outputs) => check(outputs).spec.outputs.app_backend;
+  assert.equal(backend({}), 'delta');
+  assert.equal(backend({ app_backend: '' }), 'delta');
+  assert.equal(backend({ app_backend: ' Lakebase ' }), 'lakebase');
+  assert.equal(backend({ app_backend: 'DELTA' }), 'delta');
+  assert.equal(backend({ app: false, app_backend: 'postgres' }), '');
+  const refused = check({ app_backend: 'postgres' });
+  assert.equal(refused.spec.outputs.app_backend, 'delta');
+  assert.deepEqual(refused.errors.filter((e) => e.includes('reads its data')),
+    ["choose where the App reads its data: 'lakebase' (its pages load instantly) or 'delta' (Delta tables, its pages take a few seconds to load), not 'postgres'"]);
+  const old = check({ app_backend: 'lakebase' }, { shell: { ...SHELL, backends: ['delta'] } });
+  assert.ok(old.errors.some((e) => e.endsWith("not 'lakebase'")), 'a shell that reads only Delta tables refuses Lakebase');
+  assert.equal(I.classifyImplementChange(check({ app_backend: 'delta' }).spec, check({ app_backend: 'lakebase' }).spec).join(), 'outputs');
+});
+
 test('a notebook without the App shell, or with a broken one, is refused with the reason', () => {
   const notebook = (line) => JSON.stringify({ cells: [{ source: [] }, { source: ['x = 1\n', ...(line === null ? [] : [line])] }] });
   const encode = (data) => zlib.deflateSync(Buffer.from(JSON.stringify(data))).toString('base64');

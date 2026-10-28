@@ -937,6 +937,85 @@ test('the view follows the build: Progress while it runs, the Control Tower once
   }
 });
 
+test('an App that wanted Lakebase and fell back to Delta tables says so on its tile, and Switch to Lakebase rebuilds only the App', async () => {
+  const assets = JSON.parse(built().asset_status);
+  const spec = builtSpec();
+  const fallback = 'App: it reads Delta tables, so its pages take a few seconds to load, because Inspire could not set up Lakebase: no capacity.';
+  const fell = built({
+    spec_version: 2, status: 'ready_with_warnings', status_message: fallback,
+    spec_json: JSON.stringify({ ...spec, outputs: { ...spec.outputs, app_access: 'sp', app_backend: 'lakebase' } }),
+    asset_status: JSON.stringify({ ...assets, app: { ...assets.app, backend: 'delta', warnings: [fallback] } }),
+  });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [fell] });
+  const { page, made } = ui;
+  try {
+    const tile = towerOf(page).locator('[data-tile="app"]');
+    await tile.locator('[data-app-backend]').waitFor();
+    assert.equal(await tile.locator('[data-app-backend]').innerText(), 'Reads Delta tables: pages take a few seconds to load');
+    await tile.getByRole('list', { name: 'App warnings' }).getByText(fallback).waitFor();
+    for (const id of ['dashboard', 'genie_space', 'alert']) {
+      assert.equal(await towerOf(page).locator(`[data-tile="${id}"]`).getByRole('button', { name: 'Switch to Lakebase' }).count(), 0, id);
+    }
+    await tile.getByRole('button', { name: 'Switch to Lakebase' }).click();
+    await until(() => made.jobs.length === 1, 'the Lakebase rebuild run');
+    const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
+    assert.equal(inserts.length, 1);
+    const sent = JSON.parse(inserts[0].parameters.find((p) => p.name === 'spec').value);
+    assert.deepEqual([sent.retry_outputs, sent.outputs.app_backend], [['app'], 'lakebase']);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('an App on Lakebase says so on its tile and offers no switch', async () => {
+  const assets = JSON.parse(built().asset_status);
+  const spec = builtSpec();
+  const onLakebase = built({
+    spec_json: JSON.stringify({ ...spec, outputs: { ...spec.outputs, app_access: 'sp', app_backend: 'lakebase' } }),
+    asset_status: JSON.stringify({ ...assets, app: { ...assets.app, backend: 'lakebase' } }),
+  });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [onLakebase] });
+  const { page } = ui;
+  try {
+    const tile = towerOf(page).locator('[data-tile="app"]');
+    await tile.locator('[data-app-backend]').waitFor();
+    assert.equal(await tile.locator('[data-app-backend]').innerText(), 'Reads Lakebase: pages load instantly');
+    assert.equal(await tile.getByRole('button', { name: 'Switch to Lakebase' }).count(), 0);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('the picked view sticks to its use case: Progress picked on one PoC/MVP is still open after looking at another use case', async () => {
+  const useCases = [
+    { ...HARNESS_USE_CASE, _domain: 'Retention' },
+    { id: 'N01-U02', Name: 'Forecast demand', use_case: 'Forecast demand', _domain: 'Supply', statement: 'Plan stock a week ahead',
+      primary_table: 'main.s.orders', tables_involved: 'main.s.orders' },
+  ];
+  const ui = await openUi('implement', { ...STUDIO_STATE, useCases });
+  const { page } = ui;
+  const nav = page.getByRole('navigation', { name: 'Use cases' });
+  try {
+    await page.getByRole('heading', { name: 'Predict churn', exact: true }).waitFor();
+    await towerOf(page).waitFor();
+    assert.equal(await selectedTab(page), 'Control Tower', 'a ready PoC/MVP opens on the Control Tower');
+    await studioTab(page, 'Progress');
+    assert.equal(await selectedTab(page), 'Progress');
+
+    await nav.getByRole('button', { name: /Forecast demand/ }).click();
+    await page.getByRole('heading', { name: 'Forecast demand', exact: true }).waitFor();
+    await nav.getByRole('button', { name: /Predict churn/ }).click();
+    await page.getByRole('heading', { name: 'Predict churn', exact: true }).waitFor();
+    await page.getByRole('tablist', { name: 'PoC/MVP views' }).waitFor();
+    assert.equal(await selectedTab(page), 'Progress', 'the view picked on Predict churn is still open');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('a failed output offers its own retry, which submits the next version that rebuilds only that output', async () => {
   const assets = JSON.parse(built().asset_status);
   const warned = built({

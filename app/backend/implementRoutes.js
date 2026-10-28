@@ -434,6 +434,18 @@ function registerImplementRoutes(app, deps) {
     return res.json(catalog);
   });
 
+  app.get('/api/inspire/implement/lakebase', requireToken, async (req, res) => {
+    const catalog = appShellCatalog();
+    if (!catalog.ok) return res.status(503).json({ error: catalog.error });
+    let got;
+    try {
+      got = await fetchJsonFor(req)(C.LAKEBASE_PROBE_PATH);
+    } catch (err) {
+      got = { ok: false, status: 0, data: { message: err.message } };
+    }
+    return res.json(C.lakebaseOffer(got, catalog.backends));
+  });
+
   app.get('/api/inspire/implement/merge-targets', requireToken, async (req, res) => {
     try {
       const sid = sessionIdOf(req);
@@ -780,10 +792,16 @@ function registerImplementRoutes(app, deps) {
         if (!isMissingTableError(err)) throw err;
       }
       const session = await loadSession(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid).catch(() => null);
-      const logPath = I.liveLogPath(`${catalog}.${schema}`, session?.business_name, sid);
+      const runLog = I.liveLogPath(`${catalog}.${schema}`, session?.business_name, sid, history[0] && history[0].implement_run_id);
+      const sessionLog = I.liveLogPath(`${catalog}.${schema}`, session?.business_name, sid);
+      let logPath = runLog;
       let feed = [];
-      if (logPath) {
-        const got = await jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/fs/files${logPath}`);
+      if (runLog) {
+        let got = await jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/fs/files${runLog}`);
+        if (!got.ok && got.status === 404 && runLog !== sessionLog) {
+          logPath = sessionLog;
+          got = await jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/fs/files${sessionLog}`);
+        }
         if (got.ok) {
           const text = typeof got.data === 'string' ? got.data : (got.data.raw || '');
           feed = I.genieFeed(text, useCaseId, history[0] && history[0].created_at);

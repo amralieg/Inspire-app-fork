@@ -106,6 +106,16 @@ test('widget keys follow the notebook order with the two v1.3.0 keys in their sl
   assert.equal(INSPIRE_NOTEBOOK_WIDGET_KEYS.length, 19);
 });
 
+test('the implement run id reaches the job but is not a notebook widget, so a forked run never copies it', () => {
+  const I = require('../lib/inspireImplement');
+  assert.equal(I.IMPLEMENT_RUN_ID_PARAM, 'inspire_implement_run_id');
+  assert.ok(!INSPIRE_NOTEBOOK_WIDGET_KEYS.includes(I.IMPLEMENT_RUN_ID_PARAM));
+  const params = sanitizeInspireNotebookJobParams(I.implementJobParams({ '00_business_name': 'Acme', not_a_param: 'x' }, 'N01-U01', 2));
+  assert.equal(params[I.IMPLEMENT_RUN_ID_PARAM], '{{job.run_id}}');
+  assert.equal(params.inspire_implement_use_case, 'N01-U01');
+  assert.ok(!('not_a_param' in params), 'anything else that is not a widget is still dropped');
+});
+
 test('discovery type keeps Deep or Standard, defaults to Deep and refuses anything else', () => {
   for (const [input, expected] of [['Deep', 'Deep'], ['standard', 'Standard'], [' STANDARD ', 'Standard'], ['', 'Deep'], [undefined, 'Deep']]) {
     const params = { '03_discovery_type': input };

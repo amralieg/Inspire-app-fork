@@ -124,6 +124,59 @@ test('joining an existing App deploys to it with its look, Create new brings the
   assert.deepEqual(w.stepErrors('delivery', stale, {}), [], 'nothing is judged before the list loads');
 });
 
+test('the App reads Lakebase by default when the workspace has it, Delta tables otherwise, and a per-user App always reads Delta tables', async () => {
+  const { w, spec } = await appSpec({ app_access: 'sp' });
+  const offer = (state, detail = '') => ({ state, detail });
+  assert.deepEqual(w.APP_BACKEND_CHOICES.map((c) => [c.id, c.label]), [
+    ['lakebase', 'Lakebase (Loads instantly)'], ['delta', 'Delta Tables (Takes a few seconds to load)']]);
+  assert.deepEqual(w.APP_BACKENDS, SHELL.backends, 'the wizard offers the backends the App shell reads');
+  for (const text of [...w.APP_BACKEND_CHOICES.flatMap((c) => [c.label, c.blurb]), w.LAKEBASE_PER_USER_REASON, w.LAKEBASE_CHECKING]) {
+    assert.doesNotMatch(text, /\u2014|\u2013/, `no dashes: ${text}`);
+  }
+  assert.equal(spec.outputs.app_backend, '', 'a new spec leaves the backend to the default');
+  assert.equal(w.appBackendOf(spec, offer('available')), 'lakebase');
+  for (const state of ['absent', 'denied', 'unknown']) assert.equal(w.appBackendOf(spec, offer(state)), 'delta', state);
+  assert.equal(w.appBackendOf(spec, null), 'delta', 'nothing is assumed before the check answers');
+  const picked = w.withAppBackend(spec, 'delta');
+  assert.equal(w.appBackendOf(picked, offer('available')), 'delta', 'a pick of Delta stays');
+  const kept = w.withAppBackend(spec, 'lakebase');
+  assert.equal(w.appBackendOf(kept, offer('denied', 'no access')), 'lakebase', 'an App already on Lakebase stays there when the editor cannot use it');
+  assert.equal(w.appBackendOf(kept, offer('absent')), 'delta', 'a workspace without Lakebase reads Delta tables');
+  const perUser = w.withAppAccess(kept, 'user');
+  assert.equal(w.appBackendOf(perUser, offer('available')), 'delta');
+  assert.equal(w.lakebaseBlock(perUser, offer('available')), w.LAKEBASE_PER_USER_REASON);
+  assert.equal(w.lakebaseBlock(spec, offer('denied', 'PERMISSION_DENIED')), 'Lakebase is on in this workspace, but you cannot use it: PERMISSION_DENIED');
+  assert.equal(w.lakebaseBlock(spec, offer('available')), '');
+  assert.equal(w.appBackendOf(w.withAppAccess(perUser, 'sp'), offer('available')), 'lakebase', 'back to a shared App, the pick comes back');
+  const joined = w.withMergeTarget(spec, 'app', { id: 'churn-desk', name: 'churn-desk', access: 'sp' });
+  assert.equal(w.appBackendOf(joined, offer('available')), 'delta', 'a use case that joins an App sends no new backend of its own');
+  assert.equal(w.appBackendOf({ ...spec, outputs: { ...spec.outputs, app: false } }, offer('available')), '');
+
+  const sent = w.specWithBackend(spec, offer('available'));
+  assert.equal(sent.outputs.app_backend, 'lakebase');
+  assert.equal(w.specWithBackend(sent, offer('available')), sent, 'a spec that already says it is sent as it is');
+  assert.deepEqual(backend.validateImplementSpec(sent).errors, []);
+  assert.equal(backend.validateImplementSpec(sent).spec.outputs.app_backend, 'lakebase');
+  assert.equal(backend.validateImplementSpec(w.specWithBackend(perUser, offer('available'))).spec.outputs.app_backend, 'delta');
+
+  assert.deepEqual(w.stepErrors('app_access', spec, { lakebase: null }), [w.LAKEBASE_CHECKING], 'Next waits for the Lakebase check');
+  assert.deepEqual(w.stepErrors('app_access', spec, { lakebase: offer('absent') }), []);
+  assert.deepEqual(w.stepErrors('app_access', perUser, { lakebase: null }), [], 'a per-user App does not wait: it reads Delta tables');
+  assert.deepEqual(w.stepErrors('app_access', spec, {}), [], 'a caller that does not check Lakebase is not blocked');
+});
+
+test('Edit of an App built before Lakebase keeps it on Delta tables, and one never built keeps the choice open', async () => {
+  const w = await load();
+  const fallback = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire' });
+  const outputs = { ...fallback.outputs, app: true, app_access: 'sp' };
+  delete outputs.app_backend;
+  const latest = { spec_version: 3, spec_json: { ...fallback, outputs } };
+  assert.equal(w.specFromLatest(latest, fallback, { app: 'churn-desk' }).outputs.app_backend, 'delta');
+  assert.equal(w.specFromLatest(latest, fallback).outputs.app_backend, '');
+  const onLakebase = { spec_version: 4, spec_json: { ...fallback, outputs: { ...outputs, app_backend: 'lakebase' } } };
+  assert.equal(w.specFromLatest(onLakebase, fallback, { app: 'churn-desk' }).outputs.app_backend, 'lakebase');
+});
+
 test('the result table is picked as catalog, schema and name, defaults to the Inspire Database and refuses a partial name', async () => {
   const w = await load();
   const spec = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire' });

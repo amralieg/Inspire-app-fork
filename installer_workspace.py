@@ -962,6 +962,26 @@ def _catalog_access_for_new_apps(w, warehouse_id, catalog, sp):
     )
 
 
+LAKEBASE_PROJECT = "inspire-apps"
+LAKEBASE_CATALOG = "inspire_lakebase"
+
+
+def _lakebase_project_access(api, sp, project):
+    resp = api(
+        "PATCH",
+        f"/api/2.0/permissions/database-projects/{project}",
+        {"access_control_list": [{"service_principal_name": sp, "permission_level": "CAN_MANAGE"}]},
+    )
+    if resp.status_code == 200:
+        return f"CAN_MANAGE on Lakebase project {project}, so the Apps Implement builds can read Lakebase: ✅"
+    if resp.status_code == 404:
+        return f"No Lakebase project {project} yet: the first App that reads Lakebase creates it ✅"
+    return (
+        f"⚠️ Apps cannot read Lakebase project {project} yet ({resp.text[:160]}). A workspace admin can give {sp} "
+        f"Can Manage on that project; until then the Apps read Delta tables"
+    )
+
+
 def step_grant_permissions(ctx):
     new_sp_app_id = ctx.get("NEW_SP_APP_ID")
     warehouse_id = ctx["WAREHOUSE_ID"]
@@ -1002,6 +1022,8 @@ def step_grant_permissions(ctx):
                 continue
             grants.append(f"GRANT USE_CATALOG ON CATALOG `{cat}` TO `{sp}`")
             grants.append(f"GRANT BROWSE ON CATALOG `{cat}` TO `{sp}`")
+        if LAKEBASE_CATALOG in all_catalogs and LAKEBASE_CATALOG != catalog:
+            grants.append(f"GRANT ALL PRIVILEGES ON CATALOG `{LAKEBASE_CATALOG}` TO `{sp}`")
 
         for sql in grants:
             try:
@@ -1025,6 +1047,7 @@ def step_grant_permissions(ctx):
             "  CAN_MANAGE on warehouse, so Implement can attach it to the Apps it creates: "
             f"{'✅' if resp.status_code == 200 else '⚠️ ' + resp.text[:100]}"
         )
+        print(f"  {_lakebase_project_access(api, sp, LAKEBASE_PROJECT)}")
     elif not new_sp_app_id:
         print("⚠️ Skipped — SP not found. Grant manually after checking /api/health.")
     elif not warehouse_id:

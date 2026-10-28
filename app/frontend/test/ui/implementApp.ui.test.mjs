@@ -128,6 +128,83 @@ test('ticking the App locks the Genie Agent on, App access must be chosen, per-u
   }
 });
 
+test('the App reads Lakebase by default when the workspace has it, a per-user App reads Delta tables, a 403 says why, and a 404 shows no choice', async () => {
+  const probe = (data, status) => ({ me: { userName: OWNER, displayName: 'Owner' }, responses: { 'GET /api/2.0/postgres/projects': [data, status] } });
+  const toAccess = async (page) => {
+    await toDelivery(page);
+    await page.getByRole('checkbox', { name: /^App / }).check();
+    await next(page);
+    await onStep(page, 'App access');
+    return page.getByRole('region', { name: 'App access' });
+  };
+  const choice = (access) => access.getByRole('group', { name: 'Where does the App read its data?' });
+  const radios = async (group) => group.getByRole('radio').evaluateAll((els) => els.map((e) => [e.value, e.checked, e.disabled]));
+  const toStart = async (page) => {
+    await next(page);
+    await onStep(page, 'App look');
+    await startWhenReady(page);
+  };
+
+  let ui = await openUi('wizard', probe({ projects: [] }, 200));
+  try {
+    const access = await toAccess(ui.page);
+    await access.getByRole('radio', { name: /^Internal data/ }).check();
+    const group = choice(access);
+    await group.getByRole('status').waitFor({ state: 'detached' });
+    await group.getByText('Lakebase (Loads instantly)', { exact: true }).waitFor();
+    await group.getByText('Delta Tables (Takes a few seconds to load)', { exact: true }).waitFor();
+    assert.deepEqual(await radios(group), [['lakebase', true, false], ['delta', false, false]], 'Lakebase is the default');
+    await access.getByRole('radio', { name: /^Sensitive data/ }).check();
+    assert.deepEqual(await radios(group), [['lakebase', false, true], ['delta', true, false]], 'a per-user App reads Delta tables');
+    await group.getByRole('note', { name: 'Why Lakebase is off' }).getByText(/does not carry Unity Catalog row filters, column masks or grants/).waitFor();
+    await access.getByRole('radio', { name: /^Internal data/ }).check();
+    assert.deepEqual(await radios(group), [['lakebase', true, false], ['delta', false, false]], 'back to a shared App, Lakebase comes back');
+    await toStart(ui.page);
+    assert.equal(submittedSpec(ui.made).outputs.app_backend, 'lakebase');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+
+  ui = await openUi('wizard', probe({ projects: [] }, 200));
+  try {
+    const access = await toAccess(ui.page);
+    await access.getByRole('radio', { name: /^Internal data/ }).check();
+    await choice(access).getByRole('status').waitFor({ state: 'detached' });
+    await choice(access).getByText('Delta Tables (Takes a few seconds to load)', { exact: true }).click();
+    await toStart(ui.page);
+    assert.equal(submittedSpec(ui.made).outputs.app_backend, 'delta', 'a pick of Delta is kept');
+  } finally {
+    await ui.close();
+  }
+
+  ui = await openUi('wizard', probe({ message: 'PERMISSION_DENIED: Lakebase is not enabled for this user' }, 403));
+  try {
+    const access = await toAccess(ui.page);
+    await access.getByRole('radio', { name: /^Internal data/ }).check();
+    const group = choice(access);
+    await group.getByRole('note', { name: 'Why Lakebase is off' })
+      .getByText('Lakebase is on in this workspace, but you cannot use it: PERMISSION_DENIED: Lakebase is not enabled for this user').waitFor();
+    assert.deepEqual(await radios(group), [['lakebase', false, true], ['delta', true, false]]);
+    await toStart(ui.page);
+    assert.equal(submittedSpec(ui.made).outputs.app_backend, 'delta');
+  } finally {
+    await ui.close();
+  }
+
+  ui = await openUi('wizard', probe({ error_code: 'ENDPOINT_NOT_FOUND' }, 404));
+  try {
+    const access = await toAccess(ui.page);
+    await access.getByRole('radio', { name: /^Internal data/ }).check();
+    await choice(access).waitFor({ state: 'detached' });
+    assert.equal(await choice(access).count(), 0, 'a workspace without Lakebase shows no choice');
+    await toStart(ui.page);
+    assert.equal(submittedSpec(ui.made).outputs.app_backend, 'delta');
+  } finally {
+    await ui.close();
+  }
+});
+
 test('Where results live picks a catalog and a schema from Unity Catalog, offers the default back, and Next checks the table live', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' }, catalogs: ['main', 'sales'], schemas: { main: ['inspire', 's'], sales: ['poc', 'gold'] } });
   const { page, made } = ui;

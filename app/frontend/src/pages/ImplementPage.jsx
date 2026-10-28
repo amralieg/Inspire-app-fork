@@ -237,6 +237,8 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
   const [refreshKey, setRefreshKey] = useState(0);
   const [listVersion, setListVersion] = useState(0);
   const lastNotebookRun = useRef(null);
+  const [views, setViews] = useState({});
+  const rememberView = useCallback((id, view) => setViews((prev) => (prev[id] === view ? prev : { ...prev, [id]: view })), []);
 
   const qBase = useMemo(() => new URLSearchParams({
     inspire_database: settings.inspireDatabase,
@@ -328,6 +330,8 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
               databricksHost={databricksHost}
               notebookRunError={rail.notebook_run_error}
               refreshKey={refreshKey}
+              savedView={views[selected.id] || null}
+              onView={(view) => rememberView(selected.id, view)}
               onEdit={(focus) => setWizard({ uc: selected.uc, focus })}
             />
           ) : (
@@ -509,13 +513,14 @@ function DetailsDrawer({ id, useCaseId, onClose, children }) {
   );
 }
 
-function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson, databricksHost, notebookRunError, refreshKey, onEdit }) {
+function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson, databricksHost, notebookRunError, refreshKey, savedView,
+  onView, onEdit }) {
   const useCaseId = item.id;
   const hasPoc = Boolean(item.latest);
   const viewId = useId();
   const tabRefs = useRef({});
   const [status, setStatus] = useState(null);
-  const [view, setView] = useState(null);
+  const [view, setView] = useState(savedView);
   const [details, setDetails] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [error, setError] = useState('');
@@ -590,6 +595,9 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     if (shown.tab !== CONTROL_TAB && details) setDetails(null);
   }
   const tab = shown.tab;
+  useEffect(() => {
+    if (view) onView?.(view);
+  }, [view, onView]);
 
   useEffect(() => {
     const current = latest?.status || null;

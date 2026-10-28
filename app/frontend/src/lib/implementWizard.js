@@ -40,6 +40,40 @@ export const APP_ACCESS_CHOICES = [
     blurb: 'Everyone sees the same rows, read with the App\'s own access. Inspire grants it read access to the result table.' },
 ];
 
+export const APP_BACKENDS = ['lakebase', 'delta'];
+export const APP_BACKEND_CHOICES = [
+  { id: 'lakebase', label: 'Lakebase (Loads instantly)',
+    blurb: 'Inspire copies the result into Lakebase after every run, so pages open at once. Edits still go to the Delta tables.' },
+  { id: 'delta', label: 'Delta Tables (Takes a few seconds to load)', blurb: 'Pages read the Delta tables through the SQL warehouse.' },
+];
+export const LAKEBASE_PER_USER_REASON = 'Each person signs in as themselves, and Lakebase does not carry Unity Catalog row filters, column masks '
+  + 'or grants to each viewer, so this App reads Delta tables.';
+export const LAKEBASE_CHECKING = 'Inspire is still checking whether this workspace has Lakebase';
+
+export function appBackendOf(spec, offer) {
+  const outputs = spec?.outputs || {};
+  if (!outputs.app) return '';
+  const picked = APP_BACKENDS.includes(outputs.app_backend) ? outputs.app_backend : '';
+  if (outputs.merge?.app) return picked || 'delta';
+  if (outputs.app_access === 'user' || offer?.state === 'absent') return 'delta';
+  return picked || (offer?.state === 'available' ? 'lakebase' : 'delta');
+}
+
+export function lakebaseBlock(spec, offer) {
+  if (spec?.outputs?.app_access === 'user') return LAKEBASE_PER_USER_REASON;
+  if (offer?.state === 'denied') return `Lakebase is on in this workspace, but you cannot use it: ${offer.detail}`;
+  return '';
+}
+
+export function specWithBackend(spec, offer) {
+  const backend = appBackendOf(spec, offer);
+  return !spec?.outputs?.app || backend === spec.outputs.app_backend ? spec : { ...spec, outputs: { ...spec.outputs, app_backend: backend } };
+}
+
+export function withAppBackend(spec, backend) {
+  return { ...spec, outputs: { ...spec.outputs, app_backend: backend } };
+}
+
 export const APP_OPTION_KEYS = ['modify', 'replace_edits', 'decisions'];
 export const PER_USER_OFF = ['decisions'];
 export const APP_OPTIONS = [
@@ -393,6 +427,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
       app_access: '',
       app_look: { ...APP_LOOK_DEFAULT },
       app_options: Object.fromEntries(APP_OPTION_KEYS.map((key) => [key, false])),
+      app_backend: '',
       app_vibes: '',
       merge: Object.fromEntries(MERGE_OUTPUTS.map((name) => [name, ''])),
       alert: false,
@@ -430,6 +465,7 @@ export function specFromLatest(latest, fallback, assets = {}) {
     outputs[key] = { ...fallback.outputs[key], ...(saved[key] && typeof saved[key] === 'object' && !Array.isArray(saved[key]) ? saved[key] : {}) };
   }
   if (saved.app && assets?.app && !Object.prototype.hasOwnProperty.call(saved, 'app_access')) outputs.app_access = 'sp';
+  if (saved.app && assets?.app && !Object.prototype.hasOwnProperty.call(saved, 'app_backend')) outputs.app_backend = 'delta';
   const idDefault = !assets?.app && outputs.app_name === idAppNameOf(fallback.use_case_id);
   if (!outputs.app || !outputs.app_name || idDefault) outputs.app_name = fallback.outputs.app_name;
   return {
@@ -928,6 +964,7 @@ export function sectionErrors(section, spec, extras = {}) {
     }
     const block = appMergeBlock(spec, mergeTargetOf(extras.mergeTargets, 'app', spec.outputs.merge?.app));
     if (block) errors.push(block);
+    if (extras.lakebase === null && spec.outputs.app_access === 'sp' && !spec.outputs.merge?.app) errors.push(LAKEBASE_CHECKING);
   }
   if (section === 'app_look' && spec.outputs.app && extras.appLook) {
     for (const [key, list] of Object.entries(APP_LOOK_LISTS)) {

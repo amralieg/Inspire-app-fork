@@ -323,6 +323,33 @@ test('the control tower lists the build, the job and each output Inspire built, 
     { id: 'build', label: 'Build', name: 'spec v2', removable: false, state: { label: 'Building', tone: 'busy' }, detail: 'previewing', actions: [{ asset: 'build', action: 'cancel', label: 'Stop the build', danger: true }] });
 });
 
+test('the App tile says which backend the App reads, and offers Switch to Lakebase only when a shared App wanted Lakebase and got Delta tables', async () => {
+  const v = await view();
+  const live = { targets: { app: 'churn-desk' }, assets: { app: app('ACTIVE') } };
+  const built = (backend, outputs = {}) => ({
+    ...LATEST,
+    asset_status: { app: { state: 'ready', ...(backend ? { backend } : {}) } },
+    spec_json: { ...LATEST.spec_json, outputs: { ...LATEST.spec_json.outputs, app_access: 'sp', app_backend: 'lakebase', merge: { app: '' }, ...outputs } },
+  });
+  const facts = (latest) => {
+    const r = row(v.controlRows(live, latest), 'app');
+    return [r.backend, r.lakebaseSwitch];
+  };
+  assert.deepEqual(facts(built('lakebase')), [v.APP_BACKEND_FACTS.lakebase, false]);
+  assert.deepEqual(facts(built('delta')), [v.APP_BACKEND_FACTS.delta, true], 'it wanted Lakebase and fell back');
+  assert.deepEqual(facts(built('delta', { app_backend: 'delta' })), [v.APP_BACKEND_FACTS.delta, false], 'Delta was the pick');
+  assert.deepEqual(facts(built('delta', { app_access: 'user' })), [v.APP_BACKEND_FACTS.delta, false], 'a per-user App cannot read Lakebase');
+  assert.deepEqual(facts(built('delta', { merge: { app: 'care-desk' } })), [v.APP_BACKEND_FACTS.delta, false], 'a joined App keeps its own backend');
+  assert.deepEqual(facts(built('')), [v.APP_BACKEND_FACTS.delta, true], 'an App built before Lakebase reads Delta tables, and a spec that asks for Lakebase offers the switch');
+  assert.deepEqual(facts({ ...built(''), spec_json: { outputs: { app: true, app_access: 'sp' } } }), [v.APP_BACKEND_FACTS.delta, false],
+    'and its spec, which never picked a backend, offers no switch');
+  assert.deepEqual(facts({ ...built(''), asset_status: { app: { state: 'failed', error: 'deploy 500' } } }), ['', false], 'a failed App makes no claim');
+  assert.deepEqual(facts({ ...built(''), asset_status: {} }), ['', false], 'no App, no claim');
+  assert.deepEqual(facts(built('postgres')), ['', false]);
+  assert.equal(v.APP_BACKEND_FACTS.lakebase, 'Reads Lakebase: pages load instantly');
+  assert.equal(v.APP_BACKEND_FACTS.delta, 'Reads Delta tables: pages take a few seconds to load');
+});
+
 test('the Build summary counts each use case once, by the same state the rail groups it in, and what its PoC/MVP delivered', async () => {
   const v = await view();
   const w = await import(wizardUrl);
@@ -515,4 +542,35 @@ test('times read as a local date and time, honour their offset, and fall back in
   assert.equal(when('', '—'), '—');
   assert.equal(when('not a date', 'not a date'), 'not a date');
   assert.equal(when('not a date'), '');
+});
+
+test('Lakebase is offered on a 200, explained on a 403, hidden on a 404 or when the App shell cannot read it, and unknown otherwise', () => {
+  const both = ['lakebase', 'delta'];
+  assert.deepEqual(C.lakebaseOffer(ok({ projects: [] }), both), { state: 'available', detail: '' });
+  assert.deepEqual(C.lakebaseOffer({ ok: false, status: 403, data: { message: 'PERMISSION_DENIED: no Lakebase for you' } }, both),
+    { state: 'denied', detail: 'PERMISSION_DENIED: no Lakebase for you' });
+  assert.deepEqual(C.lakebaseOffer(missing(), both), { state: 'absent', detail: '' });
+  assert.deepEqual(C.lakebaseOffer({ ok: false, status: 500, data: { error: 'boom' } }, both), { state: 'unknown', detail: 'boom' });
+  assert.deepEqual(C.lakebaseOffer({ ok: false, status: 0, data: { message: 'socket hang up' } }, both), { state: 'unknown', detail: 'socket hang up' });
+  assert.deepEqual(C.lakebaseOffer(null, both), { state: 'unknown', detail: 'no response' });
+  assert.deepEqual(C.lakebaseOffer({ ok: false, status: 0, data: {} }, both), { state: 'unknown', detail: 'no response' });
+  assert.deepEqual(C.lakebaseOffer({ ok: false, status: 502, data: {} }, both), { state: 'unknown', detail: 'HTTP 502' });
+  assert.deepEqual(C.lakebaseOffer(ok({ projects: [] }), ['delta']), { state: 'absent', detail: '' }, 'a shell that reads only Delta tables hides Lakebase');
+});
+
+test('the Lakebase route asks Databricks once, as the person, and answers with the offer', async () => {
+  const cases = [
+    [{ responses: { 'GET /api/2.0/postgres/projects': [{ projects: [] }, 200] } }, { state: 'available', detail: '' }],
+    [{ responses: { 'GET /api/2.0/postgres/projects': [{ message: 'not allowed' }, 403] } }, { state: 'denied', detail: 'not allowed' }],
+    [{ responses: { 'GET /api/2.0/postgres/projects': [{ error_code: 'ENDPOINT_NOT_FOUND' }, 404] } }, { state: 'absent', detail: '' }],
+    [{ fetchThrows: { 'GET /api/2.0/postgres/projects': 'getaddrinfo ENOTFOUND' } }, { state: 'unknown', detail: 'getaddrinfo ENOTFOUND' }],
+  ];
+  for (const [overrides, expected] of cases) {
+    await withApp(overrides, async (base, made) => {
+      const got = await call(base, '/api/inspire/implement/lakebase');
+      assert.equal(got.status, 200);
+      assert.deepEqual(got.data, expected);
+      assert.deepEqual(made.fetches.map((f) => `${f.opts.method || 'GET'} ${f.path}`), ['GET /api/2.0/postgres/projects?page_size=1']);
+    });
+  }
 });
