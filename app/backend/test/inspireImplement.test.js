@@ -417,6 +417,26 @@ test('column and swap SQL bind schema and table names', () => {
   assert.throws(() => tableSwapStatement('main.s.orders', ["o'; drop"]), /plain column/);
 });
 
+const INFO_SCHEMA_NAMES = '(catalog_name|schema_name|table_catalog|table_schema|table_name)';
+
+test('information schema filters keep the name column bare and lower the name asked for, so they stay fast and match a name typed in any case', () => {
+  for (const statement of [outputAccessStatement('Main.Sales.Out_1'), columnsStatement('Main.Sales.Out_1'), tableSwapStatement('Main.Sales.Out_1', ['order_id'])]) {
+    assert.doesNotMatch(statement.sql, new RegExp(`lower\\(${INFO_SCHEMA_NAMES}\\)`), statement.sql);
+    assert.doesNotMatch(statement.sql, new RegExp(`\\b${INFO_SCHEMA_NAMES} = :`), statement.sql);
+    assert.match(statement.sql, new RegExp(`\\b${INFO_SCHEMA_NAMES} = lower\\(:[a-z]+\\)`));
+  }
+  assert.equal((outputAccessStatement('Main.Sales.Out_1').sql.match(/ = lower\(:[cst]\)/g) || []).length, 12);
+});
+
+test('no backend statement filters the information schema on a lowered name column or an unlowered name', () => {
+  const dir = path.join(__dirname, '..', 'lib');
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+    const source = fs.readFileSync(path.join(dir, file), 'utf8');
+    assert.doesNotMatch(source, new RegExp(`lower\\(${INFO_SCHEMA_NAMES}\\) =`), file);
+    assert.doesNotMatch(source, new RegExp(`\\b${INFO_SCHEMA_NAMES} = :`), file);
+  }
+});
+
 test('a preview re-run only accepts this notebook\'s widgets', () => {
   const params = rerunParams(['top_k', 'run_profile'], { top_k: 10, run_profile: 'full' });
   assert.equal(params.run_profile, 'preview');

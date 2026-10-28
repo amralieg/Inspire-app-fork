@@ -215,7 +215,7 @@ function controlLogSelect(table, { sessionId, useCaseId, limit = 50 }) {
 
 function controlLogOwnerSql(catalog, schema) {
   return {
-    sql: `SELECT table_name, table_owner FROM \`${catalog}\`.information_schema.tables WHERE table_schema = :schema `
+    sql: `SELECT table_name, table_owner FROM \`${catalog}\`.information_schema.tables WHERE table_schema = lower(:schema) `
       + `AND table_name IN ('${I.IMPLEMENT_TABLE}', '${CONTROL_LOG_TABLE}')`,
     parameters: [{ name: 'schema', value: str(schema), type: 'STRING' }],
   };

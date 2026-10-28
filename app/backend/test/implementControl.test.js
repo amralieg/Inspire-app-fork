@@ -503,7 +503,7 @@ test('the control log is handed to the owner of the other tracking tables, so pe
   assert.equal(C.controlLogOwnerFix([], log), '');
   assert.equal(C.controlLogOwnerFix(rows('a`b', 'sp-1'), log), '', 'an owner name with a backtick is never put in SQL');
   const q = C.controlLogOwnerSql('main', 'inspire');
-  assert.equal(q.sql, "SELECT table_name, table_owner FROM `main`.information_schema.tables WHERE table_schema = :schema AND table_name IN ('__inspire_implement', '__inspire_control_log')");
+  assert.equal(q.sql, "SELECT table_name, table_owner FROM `main`.information_schema.tables WHERE table_schema = lower(:schema) AND table_name IN ('__inspire_implement', '__inspire_control_log')");
   assert.deepEqual(q.parameters, [{ name: 'schema', value: 'inspire', type: 'STRING' }]);
 });
 

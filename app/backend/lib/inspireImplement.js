@@ -1161,7 +1161,7 @@ function columnsStatement(name) {
   const t = tableParts(name);
   return {
     sql: `SELECT column_name, data_type, ordinal_position FROM \`${t.catalog}\`.information_schema.columns `
-      + 'WHERE table_schema = :s AND table_name = :t ORDER BY ordinal_position',
+      + 'WHERE table_schema = lower(:s) AND table_name = lower(:t) ORDER BY ordinal_position',
     parameters: [{ name: 's', value: t.schema, type: 'STRING' }, { name: 't', value: t.table, type: 'STRING' }],
   };
 }
@@ -1176,10 +1176,10 @@ function tableSwapStatement(name, requiredColumns = []) {
     : '';
   const cols = `\`${t.catalog}\`.information_schema.columns`;
   return {
-    sql: `WITH o AS (SELECT lower(column_name) AS c, upper(data_type) AS ty FROM ${cols} WHERE table_schema = :s AND table_name = :t), `
+    sql: `WITH o AS (SELECT lower(column_name) AS c, upper(data_type) AS ty FROM ${cols} WHERE table_schema = lower(:s) AND table_name = lower(:t)), `
       + `n AS (SELECT COUNT(*) AS total FROM o), `
       + `k AS (SELECT table_schema, table_name, lower(column_name) AS c, upper(data_type) AS ty FROM ${cols} `
-      + "WHERE table_schema <> 'information_schema' AND NOT (table_schema = :s AND table_name = :t)) "
+      + "WHERE table_schema <> 'information_schema' AND NOT (table_schema = lower(:s) AND table_name = lower(:t))) "
       + `SELECT k.table_schema, k.table_name, COUNT(*) AS matched, MAX(n.total) AS total FROM k JOIN o ON k.c = o.c AND k.ty = o.ty `
       + `CROSS JOIN n GROUP BY k.table_schema, k.table_name HAVING COUNT(*) >= GREATEST(2, CEIL(MAX(n.total) * 0.5))${requiredClause} `
       + 'ORDER BY matched DESC, k.table_schema, k.table_name LIMIT 20',
@@ -1543,9 +1543,9 @@ const IMPLEMENT_RESULT_KEY_COLUMNS = ['use_case_id', 'run_id', 'as_of_date'];
 function outputAccessStatement(name) {
   if (resultTableNameError(name)) throw badRequest(resultTableNameError(name));
   const t = tableParts(name);
-  const c = 'lower(catalog_name) = lower(:c)';
-  const s = 'lower(schema_name) = lower(:s)';
-  const tbl = 'lower(table_catalog) = lower(:c) AND lower(table_schema) = lower(:s) AND lower(table_name) = lower(:t)';
+  const c = 'catalog_name = lower(:c)';
+  const s = 'schema_name = lower(:s)';
+  const tbl = 'table_catalog = lower(:c) AND table_schema = lower(:s) AND table_name = lower(:t)';
   const isc = 'system.information_schema';
   return {
     sql: 'SELECT level, privilege, principal, '
