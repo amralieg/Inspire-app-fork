@@ -28,7 +28,7 @@ import { Counter, CounterDivider, IconChip, PANEL_CLASS, SectionTitle } from '..
 import { catalogRow } from '../lib/useCaseFacets';
 import {
   CONTROL_REFRESH_MS, CONTROL_TAB, PROGRESS_TAB, assetGroups, buildSummary, checksSummary, controlRows, deliveredOutputs, implementDefaultTab, missingAsks, removeChanges,
-  vibeCards, vibeChanges, rollbackChanges,
+  tryAgainChanges, vibeCards, vibeChanges, rollbackChanges,
 } from '../lib/implementControl';
 import { pocStages, pocProgressSummary, feedArrivals } from '../lib/pocProgress';
 import PocProgress from '../components/PocProgress';
@@ -358,19 +358,20 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
   );
 }
 
-function VersionRow({ card, version, locked, pending, confirming, onAsk, onCancel, onConfirm }) {
+function VersionRow({ card, version, locked, pending, confirming, long = false, onAsk, onCancel, onConfirm }) {
   const confirmRef = useRef(null);
   useEffect(() => {
     if (confirming) confirmRef.current?.scrollIntoView?.({ block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' });
   }, [confirming]);
+  const name = long ? `version ${version.version}` : `v${version.version}`;
   return (
-    <li data-version={version.version} className="px-3 py-2 space-y-1.5">
+    <li data-version={version.version} className={`${long ? 'py-2.5' : 'px-3 py-2'} space-y-1.5`}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="font-semibold text-text-primary">v{version.version}</span>
-        {version.at && <span className="text-text-secondary">{formatWhen(version.at, version.at)}</span>}
+        <span className="font-semibold text-text-primary">{long ? `Version ${version.version}` : name}</span>
+        {version.at && <span className="text-text-secondary">{long ? '· ' : ''}{formatWhen(version.at, version.at)}</span>}
         <span className="rounded-full border border-border px-1.5 py-px text-[10px] text-text-secondary">{statusChip(version.status).label}</span>
-        <button type="button" disabled={locked || confirming} onClick={onAsk} className={`ml-auto ${OUTLINE_BUTTON}`}>
-          <History size={12} /> Roll back to v{version.version}
+        <button type="button" disabled={locked || confirming} onClick={onAsk} aria-label={long ? `Roll back to ${name}` : undefined} className={`ml-auto ${OUTLINE_BUTTON}`}>
+          <History size={12} /> {long ? 'Roll back' : `Roll back to ${name}`}
         </button>
       </div>
       <p className="truncate text-text-secondary" title={version.vibes || undefined}>
@@ -378,9 +379,9 @@ function VersionRow({ card, version, locked, pending, confirming, onAsk, onCance
       </p>
       {version.checks?.length > 0 && <p data-version-checks="" className="text-text-secondary">{checksSummary(version.checks)}</p>}
       {confirming && (
-        <div ref={confirmRef} role="group" aria-label={`Confirm the roll back to v${version.version}`}
+        <div ref={confirmRef} role="group" aria-label={`Confirm the roll back to ${name}`}
           className="rounded-lg border border-border-strong bg-bg-subtle px-3 py-2 space-y-2 motion-safe:animate-terminal-line">
-          <p className="text-text-primary">Roll back the {card.label} to v{version.version}? This replaces the live {card.label}; Genie is not called.</p>
+          <p className="text-text-primary">Roll back the {card.label} to {name}? This replaces the live {card.label}; Genie is not called.</p>
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={locked} onClick={onConfirm} className={PRIMARY_BUTTON}>
               {pending ? <Loader2 size={12} className="animate-spin" /> : <History size={12} />} Roll back
@@ -405,7 +406,47 @@ function rebuildHint(card, changed) {
   return changed ? `Genie rebuilds only the ${card.label} with your asks and replaces the live one.` : `Genie writes the ${card.label} again from this version.`;
 }
 
-function VibeCard({ card, draft, locked, rebuildText = '', onDraft, onRebuild, onRollback }) {
+const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
+
+function checkLine(check, card) {
+  if (check.done) return `${sentence(check.evidence || 'Checked')} Version ${card.checkedOn}.`;
+  return `Not done yet. ${check.evidence ? sentence(check.evidence) : `Inspire could not find this in version ${card.checkedOn}.`} This ${card.noun} is marked ready with warnings.`;
+}
+
+function AskChecklist({ card, locked, pending, onTryAgain }) {
+  const missing = missingAsks(card.checks);
+  return (
+    <div data-checks="" className="space-y-2">
+      <p className={`text-[14px] font-bold ${missing.length ? 'text-error-fg' : 'text-success-fg'}`}>{checksSummary(card.checks)}</p>
+      <ul aria-label={`What you asked for on the ${card.label}`} className="space-y-1.5">
+        {card.checks.map((check, i) => (
+          <li key={`${i}-${check.ask}`} data-check={check.done ? 'done' : 'missing'}
+            className={`flex items-start gap-2.5 rounded-lg border bg-surface px-3 py-2 text-[12px] ${check.done ? 'border-border' : 'border-error/40'}`}>
+            <span aria-hidden className={`mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ring-1 ring-inset ${
+              check.done ? 'bg-success-bg text-success-fg ring-success/30' : 'bg-error-bg text-error-fg ring-error/30'}`}>
+              {check.done ? '✓' : '!'}
+            </span>
+            <div className="min-w-0">
+              <p className="font-semibold text-text-primary"><span className="sr-only">{check.done ? 'Done: ' : 'Not done yet: '}</span>{check.ask}</p>
+              <p className="text-text-secondary">{checkLine(check, card)}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {missing.length > 0 && card.rebuild && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <button type="button" disabled={locked || pending} onClick={() => onTryAgain(missing)} className={PRIMARY_BUTTON}>
+            {pending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+            Try again with the {missing.length === 1 ? 'missing thing' : `${missing.length} missing things`}
+          </button>
+          <span className="text-[11px] text-text-secondary">Only what is missing is rebuilt.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VibeCard({ card, draft, locked, onDraft, onRebuild, onTryAgain, onRollback }) {
   const [pending, setPending] = useState('');
   const [confirming, setConfirming] = useState(null);
   const text = draft ?? card.vibes;
@@ -413,10 +454,9 @@ function VibeCard({ card, draft, locked, rebuildText = '', onDraft, onRebuild, o
   const partLabel = card.id === card.output ? '' : card.label;
   const problem = vibesProblem(card.id, text, partLabel);
   const title = card.rebuild ? `Vibe the ${card.label}` : `The ${card.label}`;
-  const missing = card.checks.filter((check) => !check.done);
-  const rebuild = async (asks = text, kind = 'rebuild') => {
+  const send = async (kind, run) => {
     setPending(kind);
-    const ok = await onRebuild(card.id, asks);
+    const ok = await run();
     setPending('');
     if (ok) onDraft(card.id, null);
   };
@@ -441,19 +481,14 @@ function VibeCard({ card, draft, locked, rebuildText = '', onDraft, onRebuild, o
           {card.url && <a className={LINK} href={card.url} target="_blank" rel="noreferrer">Open the {card.label} <ExternalLink size={12} /></a>}
         </div>
       </header>
-      {(card.name || card.state) && (
-        <div data-asset-now="" className="flex flex-wrap items-center gap-2 text-[11px]">
-          <ImplementStatusBadge state={card.state} />
-          {card.name && <span className="min-w-0 truncate font-mono text-text-secondary" title={card.name}>{card.name}</span>}
-        </div>
-      )}
       {card.rebuild && (
         <>
           <VibesEditor id={card.id} label={partLabel} value={text} onChange={(value) => onDraft(card.id, value)} />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <button type="button" disabled={locked || Boolean(problem) || Boolean(pending)} onClick={() => rebuild()} className={changed ? PRIMARY_BUTTON : OUTLINE_BUTTON}>
+            <button type="button" disabled={locked || Boolean(problem) || Boolean(pending)} onClick={() => send('rebuild', () => onRebuild(card.id, text))}
+              className={changed ? PRIMARY_BUTTON : OUTLINE_BUTTON}>
               {pending === 'rebuild' ? <Loader2 size={12} className="animate-spin" /> : changed ? <Wand2 size={12} /> : <RotateCcw size={12} />}
-              {rebuildText || (changed ? 'Rebuild with these vibes' : `Rebuild the ${card.label}`)}
+              {changed ? 'Rebuild with these vibes' : `Rebuild the ${card.label}`}
             </button>
             {changed && (
               <button type="button" disabled={Boolean(pending)} onClick={() => onDraft(card.id, null)} className="text-[11px] font-semibold text-text-secondary underline hover:text-text-primary">
@@ -465,35 +500,7 @@ function VibeCard({ card, draft, locked, rebuildText = '', onDraft, onRebuild, o
         </>
       )}
       {card.checks.length > 0 && (
-        <div data-checks="" className="rounded-lg border border-border bg-bg-subtle px-3 py-2 space-y-1.5">
-          <p className="text-[12px] font-semibold text-text-primary">{checksSummary(card.checks)}</p>
-          <ul aria-label={`What you asked for on the ${card.label}`} className="space-y-1.5">
-            {card.checks.map((check, i) => (
-              <li key={`${i}-${check.ask}`} data-check={check.done ? 'done' : 'missing'} className="flex items-start gap-2 text-[11px]">
-                {check.done
-                  ? <CheckCircle2 size={13} className="mt-px shrink-0 text-success-fg" aria-hidden />
-                  : <XCircle size={13} className="mt-px shrink-0 text-error-fg" aria-hidden />}
-                <div className="min-w-0 space-y-0.5">
-                  <p className="text-text-primary">
-                    <span className={`mr-1.5 font-semibold ${check.done ? 'text-success-fg' : 'text-error-fg'}`}>{check.done ? 'Done' : 'Missing'}</span>
-                    {check.ask}
-                  </p>
-                  {check.evidence && <p className="text-text-secondary">{check.evidence}</p>}
-                </div>
-              </li>
-            ))}
-          </ul>
-          {missing.length > 0 && card.rebuild && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-0.5">
-              <button type="button" disabled={locked || Boolean(pending)} onClick={() => rebuild(missingAsks(card.checks), 'retry')} className={PRIMARY_BUTTON}>
-                {pending === 'retry' ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />} Try again
-              </button>
-              <span className="text-[11px] text-text-secondary">
-                Genie rebuilds the {card.label} with only the {missing.length === 1 ? 'ask' : `${missing.length} asks`} it missed.
-              </span>
-            </div>
-          )}
-        </div>
+        <AskChecklist card={card} locked={locked || Boolean(pending)} pending={pending === 'retry'} onTryAgain={(asks) => send('retry', () => onTryAgain(card.id, asks))} />
       )}
       {card.warnings.length > 0 && (
         <ul aria-label={`Vibes Genie could not do on the ${card.label}`} className="space-y-0.5">
@@ -524,7 +531,7 @@ function VibeCard({ card, draft, locked, rebuildText = '', onDraft, onRebuild, o
   );
 }
 
-function VibePanel({ card, draft, locked, active, onDraft, onRebuild, onRollback }) {
+function VibePanel({ card, draft, locked, active, onDraft, onRebuild, onTryAgain, onRollback }) {
   return (
     <section aria-label="Rebuild and roll back" className="min-w-0 space-y-2.5">
       <h3 className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Rebuild and roll back</h3>
@@ -532,30 +539,166 @@ function VibePanel({ card, draft, locked, active, onDraft, onRebuild, onRollback
         Your asks win over Inspire&apos;s defaults. Genie rebuilds only the output you vibe and replaces the live one, and every earlier version it saved can come back. Vibing the notebook reruns it and refreshes every output.
       </p>
       {active && <p className="font-medium text-text-primary">A version is building now; vibes and roll backs apply after it finishes.</p>}
-      <VibeCard card={card} draft={draft} locked={locked} onDraft={onDraft} onRebuild={onRebuild} onRollback={onRollback} />
+      <VibeCard card={card} draft={draft} locked={locked} onDraft={onDraft} onRebuild={onRebuild} onTryAgain={onTryAgain} onRollback={onRollback} />
     </section>
   );
 }
 
-const PICK_TONE = { success: 'text-success-fg', warning: 'text-warning-fg', error: 'text-error-fg' };
+const PILL_TONE = {
+  success: 'bg-success-bg text-success-fg ring-success/30',
+  warning: 'bg-warning-bg text-warning-fg ring-warning/30',
+  busy: 'bg-info-bg text-info-fg ring-info/30',
+  error: 'bg-error-bg text-error-fg ring-error/30',
+};
+const CARD = 'rounded-xl border border-border bg-surface shadow-sm';
 
-function AssetPicker({ groups, picked, active, error, onPick, children }) {
+function AssetPill({ state, children }) {
+  return (
+    <span className={`inline-flex shrink-0 whitespace-nowrap rounded-full px-2 py-px text-[11px] font-bold ring-1 ring-inset ${PILL_TONE[state?.tone] || 'bg-bg-subtle text-text-secondary ring-border'}`}>
+      {children || state?.label}
+    </span>
+  );
+}
+
+function AssetVersions({ asset, locked, onRollback }) {
+  const [pending, setPending] = useState(null);
+  const [confirming, setConfirming] = useState(null);
+  const owner = asset.id === asset.output ? asset : asset.parent;
+  const versions = owner?.versions || [];
+  if (!asset.live && !versions.length) return null;
+  const rollback = async (version) => {
+    setPending(version.version);
+    const ok = await onRollback(owner.id, version);
+    setPending(null);
+    if (ok) setConfirming(null);
+  };
+  return (
+    <section aria-label="Versions" className={CARD}>
+      <div className="px-4 pt-3.5">
+        <h4 className="text-[15px] font-semibold text-text-primary">Versions</h4>
+        <p className="text-[12px] text-text-secondary">
+          {owner === asset ? 'Roll back puts an earlier version live again' : `Roll back puts the whole ${owner?.label} of an earlier version live again`}
+        </p>
+      </div>
+      <ul aria-label={`Versions of the ${asset.label}`} className="px-4 pb-2 divide-y divide-border text-[12px]">
+        {asset.live && (
+          <li data-version={asset.live.version} data-live-version="" className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2.5">
+            <span className="font-semibold text-text-primary">Version {asset.live.version}</span>
+            {asset.live.at && <span className="text-text-secondary">· {formatWhen(asset.live.at, asset.live.at)}</span>}
+            <span className="ml-auto"><AssetPill state={{ tone: 'success' }}>Live</AssetPill></span>
+            <p className="w-full truncate text-text-secondary" title={asset.vibes || undefined}>{asset.vibes ? `“${vibesPreview(asset.vibes)}”` : 'no vibes'}</p>
+          </li>
+        )}
+        {versions.map((version) => (
+          <VersionRow
+            key={version.version}
+            long
+            card={owner}
+            version={version}
+            locked={locked || pending !== null}
+            pending={pending === version.version}
+            confirming={confirming === version.version}
+            onAsk={() => setConfirming(version.version)}
+            onCancel={() => setConfirming(null)}
+            onConfirm={() => rollback(version)}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function AssetCard({ asset, draft, locked, active, error, onDraft, onRebuild, onTryAgain, onRollback }) {
+  const [pending, setPending] = useState('');
+  const text = draft ?? asset.vibes;
+  const problem = vibesProblem(asset.id, text, asset.id === asset.output ? '' : asset.label);
+  const busy = asset.building;
+  const send = async (kind, run) => {
+    setPending(kind);
+    const ok = await run();
+    setPending('');
+    if (ok) onDraft(asset.id, null);
+  };
+  const steps = busy ? [
+    busy.asks ? `Reading what you asked: ${busy.asks} ${busy.asks === 1 ? 'thing' : 'things'}` : 'Reading what you asked',
+    `Rebuilding the ${asset.label} only. Nothing else changes.`,
+    'Checking each thing you asked for',
+  ] : [];
+  return (
+    <div className="min-w-0 space-y-4">
+      <article data-vibe-card={asset.id} aria-label={asset.title} className={CARD}>
+        <header className="flex items-start justify-between gap-3 px-4 pt-3.5">
+          <div className="min-w-0">
+            <h4 className="text-[15px] font-semibold text-text-primary">{asset.title}</h4>
+            <p className="text-[12px] text-text-secondary">{asset.group}</p>
+          </div>
+          <AssetPill state={asset.state} />
+        </header>
+        <div className="px-4 pb-4 pt-2 space-y-3 text-[12px]">
+          <p className="text-[13px] text-text-secondary">{asset.what}</p>
+          <p data-live="" className="flex items-center gap-1.5 text-text-secondary">
+            <History size={13} aria-hidden />
+            {asset.live ? `Version ${asset.live.version}, built ${formatWhen(asset.live.at, asset.live.at) || 'on an earlier run'}` : 'Its last build failed, so no version of it is live'}
+          </p>
+          {active && !busy && <p className="font-medium text-text-primary">A version is building now; vibes and roll backs apply after it finishes.</p>}
+          {asset.rebuild && (
+            <div className="space-y-2">
+              <VibesEditor id={asset.id} label={asset.id === asset.output ? '' : asset.label} heading="How should it work?" rows={4} disabled={Boolean(busy)} value={text}
+                onChange={(value) => onDraft(asset.id, value)} />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] text-text-secondary">Say each thing you want. Inspire checks every one after the rebuild.</span>
+                <button type="button" disabled={locked || !text.trim() || Boolean(problem) || Boolean(pending)} onClick={() => send('rebuild', () => onRebuild(asset.id, text))}
+                  className={PRIMARY_BUTTON}>
+                  {pending === 'rebuild' ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />} Rebuild this
+                </button>
+              </div>
+            </div>
+          )}
+          {busy?.rollback && (
+            <p data-rolling-back="" className="flex items-center gap-2 text-[13px] font-semibold text-text-primary">
+              <Loader2 size={13} className="motion-safe:animate-spin text-info-fg" aria-hidden />
+              Putting version {busy.rollback} live again. Genie is not called and nothing else changes.
+            </p>
+          )}
+          {busy && !busy.rollback && (
+            <ol aria-label={`Rebuilding the ${asset.label}`} className="space-y-2 text-[13px]">
+              {steps.map((step, k) => {
+                const state = k < busy.step ? 'done' : k === busy.step ? 'now' : 'next';
+                return (
+                  <li key={step} data-step={state} className={`flex items-center gap-2.5 ${state === 'next' ? 'text-text-secondary' : 'text-text-primary'} ${state === 'now' ? 'font-semibold' : ''}`}>
+                    <span aria-hidden className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ring-1 ring-inset ${
+                      state === 'done' ? 'bg-success-bg text-success-fg ring-success/30' : state === 'now' ? 'bg-info-bg text-info-fg ring-info/30' : 'bg-surface text-text-secondary ring-border'}`}>
+                      {state === 'done' ? '✓' : k + 1}
+                    </span>
+                    {step}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+          {!busy && asset.checks.length > 0 && (
+            <AskChecklist card={asset} locked={locked || Boolean(pending)} pending={pending === 'retry'} onTryAgain={(asks) => send('retry', () => onTryAgain(asset.id, asks))} />
+          )}
+          {error && <p role="alert" className={ERROR_BOX}>{error}</p>}
+        </div>
+      </article>
+      <AssetVersions asset={asset} locked={locked} onRollback={onRollback} />
+    </div>
+  );
+}
+
+function AssetPicker({ groups, picked, onPick, children }) {
   const baseId = useId();
   return (
-    <section aria-label="Vibe any asset" className="border-t border-border">
-      <div className="px-4 pt-3 space-y-0.5 text-[12px]">
-        <h4 className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Vibe any asset</h4>
-        <p className="text-text-secondary">Pick any part Genie built and say how it should work. Genie rebuilds only that part, exactly as you ask.</p>
-        {active && <p className="font-medium text-text-primary">A version is building now; vibes and roll backs apply after it finishes.</p>}
-      </div>
-      <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
-        <nav aria-label="Built assets" className="min-w-0 space-y-3">
+    <section aria-label="Vibe any asset" className="border-b border-border">
+      <p className="px-4 pt-3 text-[13px] text-text-secondary">Pick any part, say how it should work, and Inspire rebuilds only that part.</p>
+      <div className="grid items-start gap-4 p-4 lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)]">
+        <nav aria-label="Everything this use case built" className={`${CARD} min-w-0 px-2.5 pb-3 pt-1`}>
+          <p className="px-2 pt-2.5 text-[13px] font-semibold text-text-primary">Everything this use case built</p>
           {groups.map((group) => (
-            <div key={group.output} className="space-y-1">
-              <p id={`${baseId}-${group.output}`} className="flex items-center gap-1.5 text-[11px] font-semibold text-text-primary">
-                <IconChip icon={OUTPUT_ICONS[group.output]} size="sm" /> {group.label}
-              </p>
-              <ul aria-labelledby={`${baseId}-${group.output}`} className="space-y-0.5">
+            <div key={group.key}>
+              <p id={`${baseId}-${group.key}`} className="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-[0.1em] text-text-secondary">{group.label}</p>
+              <ul aria-labelledby={`${baseId}-${group.key}`} className="space-y-0.5">
                 {group.assets.map((asset) => {
                   const on = picked === asset.id;
                   return (
@@ -564,16 +707,16 @@ function AssetPicker({ groups, picked, active, error, onPick, children }) {
                         type="button"
                         data-asset={asset.id}
                         aria-pressed={on}
-                        aria-label={`${asset.pick}, ${asset.state.label}`}
+                        aria-label={`${asset.title}, ${asset.state.label}`}
                         onClick={() => onPick(asset.id)}
-                        className={`w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-text-primary transition-smooth ${
-                          on ? 'bg-bg-subtle font-semibold ring-1 ring-inset ring-db-red/40' : 'hover:bg-bg-subtle'
-                        }`}
+                        className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-smooth ${
+                          on ? 'border-db-red/40 bg-bg-subtle' : 'border-transparent hover:bg-bg-subtle'}`}
                       >
-                        <span className="truncate">{asset.pick}</span>
-                        <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] ${PICK_TONE[asset.state.tone] || 'text-text-secondary'}`}>
-                          {asset.state.label}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-semibold text-text-primary">{asset.title}</span>
+                          <span className="block truncate text-[11px] text-text-secondary">{asset.what}</span>
                         </span>
+                        <AssetPill state={asset.state} />
                       </button>
                     </li>
                   );
@@ -582,10 +725,7 @@ function AssetPicker({ groups, picked, active, error, onPick, children }) {
             </div>
           ))}
         </nav>
-        <div className="min-w-0 space-y-2">
-          {children || <p className="text-[12px] text-text-secondary">Pick an asset to see what it is now and tell Genie how it should work.</p>}
-          {error && <p role="alert" className={ERROR_BOX}>{error}</p>}
-        </div>
+        {children}
       </div>
     </section>
   );
@@ -776,6 +916,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const removeOutput = (name) => submitNext(removeChanges(latest, name));
   const vibeOutput = (name, text) => submitNext(vibeChanges(latest, name, text));
   const rollbackOutput = (name, version) => submitNext(rollbackChanges(latest, name, version.version, version.vibes));
+  const tryAgain = (name, asks) => submitNext(tryAgainChanges(name, asks));
 
   const runControl = async (a) => {
     setActionBusy(`${a.asset}:${a.action}`);
@@ -795,7 +936,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const notebookPath = item.uc?.notebook_path || '';
   const vibeTargets = vibeCards(status?.history, latest, stalled, workspaceNotebookUrl(databricksHost, notebookPath));
   const assetPicks = assetGroups(vibeTargets, controlRows(live, latest));
-  const pickedCard = assetPicks.flatMap((group) => group.assets).find((asset) => asset.id === pickedAsset) || null;
+  const pickable = assetPicks.flatMap((group) => group.assets);
+  const pickedCard = pickable.find((asset) => asset.id === pickedAsset) || pickable[0] || null;
   const fromPicker = (send) => async (...args) => {
     const ok = await send(...args);
     setPickerFailed(!ok);
@@ -1055,22 +1197,18 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                   notebook={notebook}
                   banner={failureBanner}
                   picker={assetPicks.length > 0 && (
-                    <AssetPicker
-                      groups={assetPicks}
-                      picked={pickedAsset}
-                      active={active}
-                      error={pickerFailed ? error : ''}
-                      onPick={(id) => { setPickedAsset(id); setPickerFailed(false); }}
-                    >
+                    <AssetPicker groups={assetPicks} picked={pickedCard?.id} onPick={(id) => { setPickedAsset(id); setPickerFailed(false); }}>
                       {pickedCard && (
-                        <VibeCard
+                        <AssetCard
                           key={pickedCard.id}
-                          card={pickedCard}
+                          asset={pickedCard}
                           draft={vibeDrafts[pickedCard.id] ?? null}
                           locked={active || submitBusy}
-                          rebuildText="Rebuild this"
+                          active={active}
+                          error={pickerFailed ? error : ''}
                           onDraft={(name, text) => setVibeDrafts((prev) => ({ ...prev, [name]: text }))}
                           onRebuild={fromPicker(vibeOutput)}
+                          onTryAgain={fromPicker(tryAgain)}
                           onRollback={fromPicker(rollbackOutput)}
                         />
                       )}
@@ -1228,6 +1366,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
               active={active}
               onDraft={(name, text) => setVibeDrafts((prev) => ({ ...prev, [name]: text }))}
               onRebuild={vibeOutput}
+              onTryAgain={tryAgain}
               onRollback={rollbackOutput}
             />
           )}

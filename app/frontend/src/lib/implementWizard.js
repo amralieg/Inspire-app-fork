@@ -135,12 +135,12 @@ const NOTEBOOK_PARTS = { ai_reasoning: 'AI reasoning', value_formula: 'money at 
 
 export function partOf(id) {
   const text = String(id ?? '');
-  if (Object.prototype.hasOwnProperty.call(NOTEBOOK_PARTS, text)) return { output: 'notebook', kind: text, noun: '', label: NOTEBOOK_PARTS[text] };
+  if (Object.prototype.hasOwnProperty.call(NOTEBOOK_PARTS, text)) return { output: 'notebook', kind: text, key: '', noun: '', label: NOTEBOOK_PARTS[text] };
   const match = /^(app:page|dashboard):([A-Za-z0-9_-]{1,64})$/.exec(text);
   if (!match) return null;
   return match[1] === 'app:page'
-    ? { output: 'app', kind: 'app_page', noun: 'page', label: `App page ${match[2]}` }
-    : { output: 'dashboard', kind: 'dashboard_chart', noun: 'chart', label: `dashboard chart ${match[2]}` };
+    ? { output: 'app', kind: 'app_page', key: match[2], noun: 'page', label: `App page ${match[2]}` }
+    : { output: 'dashboard', kind: 'dashboard_chart', key: match[2], noun: 'chart', label: `dashboard chart ${match[2]}` };
 }
 
 export function assetLabel(id) {
@@ -470,7 +470,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
   };
 }
 
-const ONE_VERSION_KEYS = ['retry_outputs', 'rollback_outputs', 'confirm_notebook_overwrite'];
+const ONE_VERSION_KEYS = ['retry_outputs', 'retry_asks', 'rollback_outputs', 'confirm_notebook_overwrite'];
 
 function withoutOneVersionKeys(spec) {
   return Object.fromEntries(Object.entries(spec || {}).filter(([key]) => !ONE_VERSION_KEYS.includes(key)));

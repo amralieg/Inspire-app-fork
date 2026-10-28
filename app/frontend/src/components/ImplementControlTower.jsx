@@ -322,6 +322,7 @@ export default function ImplementControlTower({
           {strips.map((row) => <StripRow key={row.id} row={row} controls={controls(row)} />)}
         </ul>
       )}
+      {picker}
       <ul className="grid gap-3 p-4 sm:grid-cols-2">
         {notebook && <NotebookTile notebook={notebook} onDetails={() => onDetails('notebook')} />}
         {tiles.map((tile) => (tile.kind === 'live'
@@ -340,7 +341,6 @@ export default function ImplementControlTower({
             />
           )))}
       </ul>
-      {picker}
       {actions.length > 0 && (
         <div className="px-4 py-3 border-t border-border bg-bg-subtle/50">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary">Recent actions</p>

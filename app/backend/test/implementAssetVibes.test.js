@@ -229,22 +229,31 @@ test('the control tower lists every built asset grouped by output with its parts
     ['Decisions page', 'Decisions', ASKED, true, 2, 'Ready', []]);
   assert.equal(cards.find((x) => x.id === 'app:page:detail').live.version, 1, 'a carried page names the version that built it');
   const chart = cards.find((x) => x.id === CHART);
-  assert.deepEqual([chart.label, chart.state, chart.url], ['Weekly trend chart', { label: 'Warnings', tone: 'warning' }, rows[0].dashboard_url]);
+  assert.deepEqual([chart.label, chart.state, chart.url, chart.what, chart.noun], ['Weekly trend chart', { label: 'Ready with warnings', tone: 'warning' }, rows[0].dashboard_url,
+    'A chart on the dashboard', 'chart']);
   const formula = cards.find((x) => x.id === 'value_formula');
   assert.deepEqual([formula.label, formula.live, formula.state.label, formula.url], ['money at stake formula', null, 'Failed', 'https://host/#workspace/nb']);
+  assert.equal(c.vibeCards([{ ...rows[0], asset_status: { ...rows[0].asset_status, [PAGE]: { ...PARTS[PAGE], what: 'The rows to act on today' } } }, rows[1]],
+    { ...rows[0], asset_status: { ...rows[0].asset_status, [PAGE]: { ...PARTS[PAGE], what: 'The rows to act on today' } } }).find((x) => x.id === PAGE).what,
+  'The rows to act on today', 'the build status may say what a part is');
+  assert.deepEqual(cards.map((x) => x.building), cards.map(() => null), 'nothing is rebuilding when no version builds');
   const unticked = { ...rows[0], spec_json: { ...rows[0].spec_json, outputs: { ...rows[0].spec_json.outputs, app: false } } };
   assert.equal(c.vibeCards(rows, unticked).some((x) => x.output === 'app'), false, 'an unticked App lists no pages');
 
-  const live = [{ id: 'app', name: 'churn-desk' }, { id: 'dashboard', name: 'Churn dashboard' }];
+  const live = [{ id: 'app', name: 'churn-desk' }, { id: 'dashboard', name: 'Churn dashboard' }, { id: 'alert', name: 'Churn over 25' }];
   const groups = c.assetGroups(cards, live);
-  assert.deepEqual(groups.map((g) => [g.output, g.label, g.assets.map((a) => a.pick)]), [
-    ['notebook', 'Genie Code notebook', ['Whole notebook', 'AI reasoning', 'Money at stake formula']],
-    ['dashboard', 'Dashboard', ['Whole dashboard', 'Weekly trend chart']],
-    ['genie_space', 'Genie Agent', ['Instructions']],
-    ['app', 'App', ['Whole App', 'Decisions page', 'Row detail page']],
-    ['alert', 'Alert', ['Whole alert']],
-  ]);
-  assert.deepEqual(groups[3].assets.map((a) => a.name), ['churn-desk', 'Decisions', 'Row detail page'], 'an output takes its live name, a part its built name');
+  assert.deepEqual(groups.map((g) => [g.key, g.label, g.assets.map((a) => [a.title, a.group])]), [
+    ['notebook', 'Genie Code notebook', [['Notebook', 'Genie Code notebook']]],
+    ['results', 'Results', [['AI reasoning', 'Results'], ['Money at stake', 'Results']]],
+    ['app', 'App', [['Page: Decisions', 'App'], ['Page: Row detail page', 'App']]],
+    ['dashboard', 'Dashboard', [['Chart: Weekly trend', 'Dashboard']]],
+    ['genie_space', 'Genie Agent', [['Instructions', 'Genie Agent']]],
+    ['alert', 'Alert', [['Alert: Churn over 25', 'Alert']]],
+  ], 'one row per page and per chart, and the results of the notebook in their own group');
+  assert.deepEqual(groups[2].assets.map((a) => a.parent && a.parent.id), ['app', 'app'], 'a page rolls back with its App');
+  const bare = c.assetGroups(cards.filter((x) => !x.id.includes(':')), []);
+  assert.deepEqual(bare.find((g) => g.key === 'app').assets.map((a) => [a.title, a.parent]), [['The whole App', null]], 'with no pages in the build status the App itself is listed');
+  assert.deepEqual(bare.find((g) => g.key === 'alert').assets.map((a) => a.title), ['Alert']);
   assert.deepEqual(c.assetGroups([], live), []);
 });
 
@@ -272,9 +281,9 @@ test('the build record vibes_checks read as a list of asks, each done or missing
   assert.deepEqual(c.vibeChecks([{ ask: '  ', status: 'done' }, null, 'text', { ask: 'Bigger', status: 'skipped' }, { ask: 'Blue' }]),
     [{ ask: 'Bigger', done: false, evidence: '' }, { ask: 'Blue', done: false, evidence: '' }], 'only a done status counts as done; an empty ask is dropped');
   for (const bad of [undefined, null, '', 'not json', '{"ask":"x"}', 5, {}]) assert.deepEqual(c.vibeChecks(bad), [], JSON.stringify(bad));
-  assert.equal(c.checksSummary(c.vibeChecks(raw)), 'You asked for 3 things. Done: 2 of 3');
-  assert.equal(c.checksSummary([{ ask: 'x', done: true, evidence: '' }]), 'You asked for 1 thing. Done: 1 of 1');
-  assert.equal(c.missingAsks(c.vibeChecks([...raw, { ask: 'Bigger bars', status: 'missing' }])), 'A map by region\nBigger bars');
+  assert.equal(c.checksSummary(c.vibeChecks(raw)), 'You asked for 3 things. Done: 2 of 3.');
+  assert.equal(c.checksSummary([{ ask: 'x', done: true, evidence: '' }]), 'You asked for 1 thing. Done: 1 of 1.');
+  assert.deepEqual(c.missingAsks(c.vibeChecks([...raw, { ask: 'Bigger bars', status: 'missing' }])), ['A map by region', 'Bigger bars']);
 });
 
 test('every asset shows the checklist of the version that built it, a missing ask marks it with warnings, and the old warning lines give way to it', async () => {
@@ -295,10 +304,11 @@ test('every asset shows the checklist of the version that built it, a missing as
   const cards = c.vibeCards(rows, rows[0]);
   const byId = (id) => cards.find((x) => x.id === id);
   assert.deepEqual(byId(PAGE).checks.map((x) => [x.ask, x.done]), [['Rows to act on first', true], ['A map by region', false]]);
-  assert.equal(byId(PAGE).state.label, 'Warnings');
+  assert.equal(byId(PAGE).state.label, 'Ready with warnings');
+  assert.deepEqual([byId(PAGE).checkedOn, byId('dashboard').checkedOn], [3, 2], 'each checklist says the version that built it');
   assert.deepEqual([byId('app').checks.length, byId('app').state.label, byId('app').warnings], [1, 'Ready', []], 'the checklist replaces the old warning lines');
   assert.deepEqual(byId('dashboard').checks.map((x) => x.ask), ['Weekly bars'], 'a carried dashboard shows the checklist of v2, which built it');
-  assert.deepEqual([byId('notebook').checks.length, byId('ai_reasoning').state.label], [1, 'Warnings'], 'a ready part with a missing ask reads Warnings');
+  assert.deepEqual([byId('notebook').checks.length, byId('ai_reasoning').state.label], [1, 'Ready with warnings'], 'a ready part with a missing ask reads Ready with warnings');
   assert.deepEqual(byId('genie_space').checks, []);
   assert.deepEqual(byId('genie_space').warnings, [], 'no checks and no warning lines');
   const legacy = c.vibeCards([{ ...rows[0], asset_status: { ...rows[0].asset_status, app: { state: 'ready', spec_version: 3, snapshot: true } } }, ...rows.slice(1)],
@@ -319,13 +329,71 @@ test('a rolled back output, and its parts, show the checklist of the version the
   const cards = c.vibeCards(rows, rows[0]);
   const dash = cards.find((x) => x.id === 'dashboard');
   assert.deepEqual(dash.checks.map((x) => x.ask), ['Put the trend first', 'Arabic labels'], 'v4 rolled back to v2, which rolled back to v1');
-  assert.equal(dash.state.label, 'Warnings');
+  assert.deepEqual([dash.state.label, dash.checkedOn], ['Ready with warnings', 1]);
   assert.deepEqual(cards.find((x) => x.id === CHART).checks.map((x) => x.ask), ['Weekly'], 'the chart came back with its dashboard, with the asks of v1');
   assert.deepEqual(dash.versions.map((v) => [v.version, c.checksSummary(v.checks)]),
-    [[3, 'You asked for 1 thing. Done: 1 of 1'], [2, 'You asked for 2 things. Done: 1 of 2'], [1, 'You asked for 2 things. Done: 1 of 2']]);
-  const latest = { spec_json: { outputs: { dashboard: true, dashboard_vibes: 'Put the trend first\nArabic labels', [`${CHART}_vibes`]: 'Weekly' } } };
-  assert.deepEqual(c.vibeChanges(latest, 'dashboard', c.missingAsks(dash.checks)), { outputs: { ...latest.spec_json.outputs, dashboard_vibes: 'Arabic labels' } },
-    'Try again sends only the missing asks');
-  assert.deepEqual(c.vibeChanges(latest, CHART, c.missingAsks(c.vibeChecks(checksOf(['Weekly', 'missing'])))), { retry_outputs: [CHART] },
-    'when the missing asks are all the vibes, Try again rebuilds with them as they are');
+    [[3, 'You asked for 1 thing. Done: 1 of 1.'], [2, 'You asked for 2 things. Done: 1 of 2.'], [1, 'You asked for 2 things. Done: 1 of 2.']]);
+  assert.deepEqual(c.tryAgainChanges('dashboard', c.missingAsks(dash.checks)), { retry_outputs: ['dashboard'], retry_asks: { dashboard: ['Arabic labels'] } },
+    'Try again names the missing asks and leaves the vibes as the user wrote them');
+});
+
+test('Try again sends retry_asks for an asset it rebuilds, which never carries into the next version and never changes the vibes', async () => {
+  const w = await lib('implementWizard.js');
+  const c = await lib('implementControl.js');
+  const ok = spec({ [`${CHART}_vibes`]: 'Bars by week\nA map by region' }, { retry_outputs: [CHART, 'dashboard'], retry_asks: { [CHART]: [' A map by region ', ''], dashboard: ['Arabic labels'] } });
+  assert.deepEqual(ok.errors, []);
+  assert.deepEqual(ok.spec.retry_asks, { [CHART]: ['A map by region'], dashboard: ['Arabic labels'] });
+  assert.equal(ok.spec.outputs[`${CHART}_vibes`], 'Bars by week\nA map by region', 'the vibes stay as typed');
+  assert.equal('retry_asks' in spec().spec, false, 'no asks to try again, no key');
+  assert.deepEqual(spec({}, { retry_asks: { [CHART]: ['x'] } }).errors, [`retry_asks names '${CHART}', which this version does not rebuild; list it in retry_outputs too`]);
+  assert.deepEqual(spec({}, { retry_outputs: ['app'], retry_asks: { app: [] } }).errors, ['retry_asks.app must list at least one ask to try again']);
+  assert.deepEqual(spec({}, { retry_outputs: ['app'], retry_asks: { app: 'x' } }).errors, ['retry_asks.app must be a list']);
+  assert.deepEqual(spec({}, { retry_outputs: ['app'], retry_asks: ['app'] }).errors, ['retry_asks must be an object']);
+  assert.deepEqual(spec({}, { retry_outputs: [PAGE], retry_asks: { [PAGE]: ['y'.repeat(2001)] } }).errors, ['each ask to try again on the App page decisions must be at most 2000 characters']);
+  assert.deepEqual(spec({}, { retry_outputs: ['app'], retry_asks: { app: [5] } }).errors, ['each item of retry_asks.app must be text, not 5']);
+  const fallback = w.defaultSpecFromUseCase({ id: 'N01-U01', Name: 'Predict churn' }, { warehouseId: 'wh1', inspireDatabase: 'main.inspire' });
+  const latest = { spec_version: 4, spec_json: { ...fallback, ...c.tryAgainChanges('dashboard', ['Arabic labels']) } };
+  assert.equal('retry_asks' in w.nextSpecFrom(latest, { schedule: { enabled: true } }), false);
+  assert.equal('retry_asks' in w.specFromLatest(latest, fallback), false, 'Edit never carries asks to try again');
+
+  const history = [versionRow(2, { assets: PARTS, outputs: { [`${CHART}_vibes`]: 'Bars by week\nA map by region' } }), versionRow(1)];
+  await served(history, async (url, { sqlCalls, jobs }) => {
+    const got = await call(url, '/api/inspire/implement/submit', submitBody({
+      ...BASE, based_on_version: 2, outputs: { ...BASE.outputs, [`${CHART}_vibes`]: 'Bars by week\nA map by region' }, ...c.tryAgainChanges(CHART, ['A map by region']),
+    }));
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    const stored = storedSpec(sqlCalls);
+    assert.deepEqual([stored.spec.retry_outputs, stored.spec.retry_asks, stored.spec.outputs[`${CHART}_vibes`], stored.classes],
+      [[CHART], { [CHART]: ['A map by region'] }, 'Bars by week\nA map by region', 'retry']);
+    assert.equal(jobs.length, 1);
+  });
+});
+
+test('while a version builds, the assets it rebuilds read Rebuilding with the asks it is reading, and the rest stay as they were', async () => {
+  const c = await lib('implementControl.js');
+  const built = versionRow(2, { assets: PARTS, outputs: { [`${CHART}_vibes`]: 'Bars by week' } });
+  const building = (top, outputs = {}, extra = {}) => ({
+    ...versionRow(3, { status: 'building_outputs', top, outputs: { [`${CHART}_vibes`]: 'Bars by week', ...outputs }, assets: {} }), implement_run_id: '1066', ...extra,
+  });
+  const states = (row) => {
+    const rows = [row, built, versionRow(1)].map(I.parseImplementRow);
+    return Object.fromEntries(c.vibeCards(rows, rows[0]).map((x) => [x.id, x.building ? `${x.state.label} ${x.building.step} ${x.building.asks}` : x.state.label]));
+  };
+  const page = states(building({ retry_outputs: [PAGE] }, { [`${PAGE}_vibes`]: 'Rows first, then a map by region and a filter' }));
+  assert.equal(page[PAGE], 'Rebuilding 1 3', 'the page reads its 3 asks');
+  assert.deepEqual([page.app, page['app:page:detail'], page[CHART], page.dashboard], ['Ready', 'Ready', 'Ready with warnings', 'Ready'], 'nothing else changes');
+  const queued = states(building({ retry_outputs: [CHART], retry_asks: { [CHART]: ['A map by region'] } }, {}, { status: 'queued' }));
+  assert.equal(queued[CHART], 'Rebuilding 0 1', 'Try again reads only the missing ask');
+  const wholeApp = states(building({}, { app_vibes: 'Dark header' }));
+  assert.deepEqual([wholeApp.app, wholeApp[PAGE], wholeApp['app:page:detail'], wholeApp.alert], ['Rebuilding 1 1', 'Rebuilding 1 0', 'Rebuilding 1 0', 'Ready'],
+    'new App vibes rebuild the App and its pages');
+  const edit = states({ ...building({}), change_classes: 'data,outputs' });
+  assert.ok(Object.values(edit).every((s) => s.startsWith('Rebuilding')), 'an edit of the data rebuilds every asset');
+  const rolled = states(building({ rollback_outputs: { dashboard: 1 } }));
+  assert.deepEqual([rolled.dashboard, rolled[CHART], rolled.app], ['Rebuilding 1 0', 'Rebuilding 1 0', 'Ready'], 'a roll back asks Genie nothing');
+  const rollRows = [building({ rollback_outputs: { dashboard: 1 } }), built, versionRow(1)].map(I.parseImplementRow);
+  assert.deepEqual(c.vibeCards(rollRows, rollRows[0]).filter((x) => x.building).map((x) => [x.id, x.building.rollback]), [['dashboard', 1], [CHART, 1]]);
+  const stopped = [building({ retry_outputs: [PAGE] }), built].map(I.parseImplementRow);
+  assert.deepEqual(c.vibeCards(stopped, stopped[0], { reason: 'stopped' }), [], 'a stopped version offers nothing until it is edited');
+  assert.deepEqual([c.askCount('Show the biggest first, add a filter, and hide small ones'), c.askCount('one'), c.askCount(''), c.askCount('Rows first\nA map')], [3, 0, 0, 2]);
 });

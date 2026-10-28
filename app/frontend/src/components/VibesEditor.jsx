@@ -13,21 +13,25 @@ const PLACEHOLDERS = {
   value_formula: 'For example: price each row at its open order value times the chance it is lost',
 };
 
-export default function VibesEditor({ id, value, onChange, autoFocus = false, label = '' }) {
+export default function VibesEditor({ id, value, onChange, autoFocus = false, label = '', heading = '', rows = 3, disabled = false }) {
   const hint = useId();
+  const box = useId();
   const problem = vibesProblem(id, value, label);
   return (
     <div className="space-y-1">
+      {heading && <label htmlFor={box} className="block text-[13px] font-semibold text-text-primary">{heading}</label>}
       <textarea
-        aria-label={label ? `Vibes for the ${label}` : vibesLabel(id)}
+        id={box}
+        aria-label={heading ? undefined : label ? `Vibes for the ${label}` : vibesLabel(id)}
         aria-describedby={hint}
         aria-invalid={problem ? 'true' : undefined}
         autoFocus={autoFocus}
-        rows={3}
+        disabled={disabled}
+        rows={rows}
         value={value}
         placeholder={PLACEHOLDERS[partOf(id)?.kind || id]}
         onChange={(e) => onChange(e.target.value)}
-        className={`w-full px-2.5 py-2 text-sm leading-snug border rounded-md bg-surface text-text-primary glow-focus resize-none ${problem ? 'border-error' : 'border-border'}`}
+        className={`w-full px-2.5 py-2 text-sm leading-snug border rounded-md bg-surface text-text-primary glow-focus resize-none disabled:opacity-60 ${problem ? 'border-error' : 'border-border'}`}
       />
       <div className="flex items-start justify-between gap-3 text-[11px]">
         <p id={hint} className="text-error-fg">{problem}</p>

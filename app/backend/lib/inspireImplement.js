@@ -471,6 +471,18 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
     else if (!retry.includes(name)) retry.push(name);
   }
   out.retry_outputs = retry;
+  const retryAsks = {};
+  for (const [id, list] of Object.entries(objectField(spec.retry_asks, 'retry_asks', errors))) {
+    const shapeErrors = errors.length;
+    const asks = textsField(list, `retry_asks.${id}`, errors);
+    const label = (implementPart(id) || {}).label || IMPLEMENT_OUTPUT_LABELS[id] || id;
+    if (!retry.includes(id)) errors.push(`retry_asks names ${shownValue(id)}, which this version does not rebuild; list it in retry_outputs too`);
+    else if (errors.length > shapeErrors) continue;
+    else if (!asks.length) errors.push(`retry_asks.${id} must list at least one ask to try again`);
+    else if (asks.some((ask) => vibesLength(ask) > IMPLEMENT_VIBES_MAX)) errors.push(`each ask to try again on the ${label} must be at most ${IMPLEMENT_VIBES_MAX} characters`);
+    else retryAsks[id] = asks;
+  }
+  if (Object.keys(retryAsks).length) out.retry_asks = retryAsks;
   const rollback = {};
   for (const [name, value] of Object.entries(objectField(spec.rollback_outputs, 'rollback_outputs', errors))) {
     const version = wholeNumber(value);
