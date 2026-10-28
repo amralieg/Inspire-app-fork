@@ -273,7 +273,7 @@ function NotebookTile({ notebook, onDetails }) {
 }
 
 export default function ImplementControlTower({
-  poc = true, notebook = null, banner = null, failed = [], live, liveError, latest, useCaseId, active, buildingNow, actionBusy, submitBusy,
+  poc = true, notebook = null, banner = null, picker = null, failed = [], live, liveError, latest, useCaseId, active, buildingNow, actionBusy, submitBusy,
   onAction, onRemove, onToggleSchedule, onRefresh, onAddOutput, onRetry, onDetails,
 }) {
   const [removing, setRemoving] = useState(null);
@@ -340,6 +340,7 @@ export default function ImplementControlTower({
             />
           )))}
       </ul>
+      {picker}
       {actions.length > 0 && (
         <div className="px-4 py-3 border-t border-border bg-bg-subtle/50">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary">Recent actions</p>

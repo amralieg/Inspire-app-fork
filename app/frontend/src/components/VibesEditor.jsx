@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { VIBES_MAX, vibesLabel, vibesLength, vibesProblem } from '../lib/implementWizard';
+import { VIBES_MAX, partOf, vibesLabel, vibesLength, vibesProblem } from '../lib/implementWizard';
 
 const PLACEHOLDERS = {
   notebook: 'For example: score the baseline and every model on the same held-out rows, and print each one\'s hit rate',
@@ -7,21 +7,25 @@ const PLACEHOLDERS = {
   genie_space: 'For example: answer in plain words and always say which rows you counted',
   app: 'For example: one page, with the decision list on the left and the row detail on the right',
   alert: 'For example: only email me when a row to act on is new since the last run',
+  app_page: 'For example: put the rows to act on first and add a filter by region',
+  dashboard_chart: 'For example: make it a weekly bar chart and label each bar with its count',
+  ai_reasoning: 'For example: explain each decision in one sentence that names the two columns behind it',
+  value_formula: 'For example: price each row at its open order value times the chance it is lost',
 };
 
-export default function VibesEditor({ id, value, onChange, autoFocus = false }) {
+export default function VibesEditor({ id, value, onChange, autoFocus = false, label = '' }) {
   const hint = useId();
-  const problem = vibesProblem(id, value);
+  const problem = vibesProblem(id, value, label);
   return (
     <div className="space-y-1">
       <textarea
-        aria-label={vibesLabel(id)}
+        aria-label={label ? `Vibes for the ${label}` : vibesLabel(id)}
         aria-describedby={hint}
         aria-invalid={problem ? 'true' : undefined}
         autoFocus={autoFocus}
         rows={3}
         value={value}
-        placeholder={PLACEHOLDERS[id]}
+        placeholder={PLACEHOLDERS[partOf(id)?.kind || id]}
         onChange={(e) => onChange(e.target.value)}
         className={`w-full px-2.5 py-2 text-sm leading-snug border rounded-md bg-surface text-text-primary glow-focus resize-none ${problem ? 'border-error' : 'border-border'}`}
       />

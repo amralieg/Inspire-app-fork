@@ -27,7 +27,8 @@ import VibesEditor from '../components/VibesEditor';
 import { Counter, CounterDivider, IconChip, PANEL_CLASS, SectionTitle } from '../components/BuildUi';
 import { catalogRow } from '../lib/useCaseFacets';
 import {
-  CONTROL_REFRESH_MS, CONTROL_TAB, PROGRESS_TAB, buildSummary, deliveredOutputs, implementDefaultTab, removeChanges, vibeCards, vibeChanges, rollbackChanges,
+  CONTROL_REFRESH_MS, CONTROL_TAB, PROGRESS_TAB, assetGroups, buildSummary, controlRows, deliveredOutputs, implementDefaultTab, removeChanges, vibeCards, vibeChanges,
+  rollbackChanges,
 } from '../lib/implementControl';
 import { pocStages, pocProgressSummary, feedArrivals } from '../lib/pocProgress';
 import PocProgress from '../components/PocProgress';
@@ -391,12 +392,25 @@ function VersionRow({ card, version, locked, pending, confirming, onAsk, onCance
   );
 }
 
-function VibeCard({ card, draft, locked, onDraft, onRebuild, onRollback }) {
+function rebuildHint(card, changed) {
+  if (card.id === 'notebook') {
+    return changed ? 'Genie rewrites the notebook with your asks, runs it, and refreshes every output from the new result.'
+      : 'Genie checks every cell against the current rules, runs the notebook, and refreshes every output from the new result.';
+  }
+  if (card.output === 'notebook') {
+    return changed ? `Genie rewrites only the ${card.label} in the notebook with your asks, runs it, and refreshes every output from the new result.`
+      : `Genie writes the ${card.label} again, runs the notebook, and refreshes every output from the new result.`;
+  }
+  return changed ? `Genie rebuilds only the ${card.label} with your asks and replaces the live one.` : `Genie writes the ${card.label} again from this version.`;
+}
+
+function VibeCard({ card, draft, locked, rebuildText = '', onDraft, onRebuild, onRollback }) {
   const [pending, setPending] = useState('');
   const [confirming, setConfirming] = useState(null);
   const text = draft ?? card.vibes;
-  const changed = text.trim() !== card.vibes;
-  const problem = vibesProblem(card.id, text);
+  const changed = text.trim() !== card.vibes.trim();
+  const partLabel = card.id === card.output ? '' : card.label;
+  const problem = vibesProblem(card.id, text, partLabel);
   const title = card.rebuild ? `Vibe the ${card.label}` : `The ${card.label}`;
   const rebuild = async () => {
     setPending('rebuild');
@@ -414,7 +428,7 @@ function VibeCard({ card, draft, locked, onDraft, onRebuild, onRollback }) {
     <article data-vibe-card={card.id} aria-label={title} className="rounded-lg border border-border bg-surface p-3 space-y-2.5">
       <header className="flex flex-wrap items-center justify-between gap-2">
         <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-          <IconChip icon={OUTPUT_ICONS[card.id]} size="sm" /> {title}
+          <IconChip icon={OUTPUT_ICONS[card.output]} size="sm" /> {title}
         </h4>
         <div className="flex flex-wrap items-center gap-3">
           <p data-live="" className="text-[11px] text-text-secondary">
@@ -425,25 +439,26 @@ function VibeCard({ card, draft, locked, onDraft, onRebuild, onRollback }) {
           {card.url && <a className={LINK} href={card.url} target="_blank" rel="noreferrer">Open the {card.label} <ExternalLink size={12} /></a>}
         </div>
       </header>
+      {(card.name || card.state) && (
+        <div data-asset-now="" className="flex flex-wrap items-center gap-2 text-[11px]">
+          <ImplementStatusBadge state={card.state} />
+          {card.name && <span className="min-w-0 truncate font-mono text-text-secondary" title={card.name}>{card.name}</span>}
+        </div>
+      )}
       {card.rebuild && (
         <>
-          <VibesEditor id={card.id} value={text} onChange={(value) => onDraft(card.id, value)} />
+          <VibesEditor id={card.id} label={partLabel} value={text} onChange={(value) => onDraft(card.id, value)} />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <button type="button" disabled={locked || Boolean(problem) || Boolean(pending)} onClick={rebuild} className={changed ? PRIMARY_BUTTON : OUTLINE_BUTTON}>
               {pending === 'rebuild' ? <Loader2 size={12} className="animate-spin" /> : changed ? <Wand2 size={12} /> : <RotateCcw size={12} />}
-              {changed ? 'Rebuild with these vibes' : `Rebuild the ${card.label}`}
+              {rebuildText || (changed ? 'Rebuild with these vibes' : `Rebuild the ${card.label}`)}
             </button>
             {changed && (
               <button type="button" disabled={Boolean(pending)} onClick={() => onDraft(card.id, null)} className="text-[11px] font-semibold text-text-secondary underline hover:text-text-primary">
                 Discard my edits
               </button>
             )}
-            <span className="text-[11px] text-text-secondary">
-              {card.id === 'notebook'
-                ? (changed ? 'Genie rewrites the notebook with your asks, runs it, and refreshes every output from the new result.'
-                  : 'Genie checks every cell against the current rules, runs the notebook, and refreshes every output from the new result.')
-                : (changed ? `Genie rebuilds only the ${card.label} with your asks and replaces the live one.` : `Genie writes the ${card.label} again from this version.`)}
-            </span>
+            <span className="text-[11px] text-text-secondary">{rebuildHint(card, changed)}</span>
           </div>
         </>
       )}
@@ -485,6 +500,60 @@ function VibePanel({ card, draft, locked, active, onDraft, onRebuild, onRollback
       </p>
       {active && <p className="font-medium text-text-primary">A version is building now; vibes and roll backs apply after it finishes.</p>}
       <VibeCard card={card} draft={draft} locked={locked} onDraft={onDraft} onRebuild={onRebuild} onRollback={onRollback} />
+    </section>
+  );
+}
+
+const PICK_TONE = { success: 'text-success-fg', warning: 'text-warning-fg', error: 'text-error-fg' };
+
+function AssetPicker({ groups, picked, active, error, onPick, children }) {
+  const baseId = useId();
+  return (
+    <section aria-label="Vibe any asset" className="border-t border-border">
+      <div className="px-4 pt-3 space-y-0.5 text-[12px]">
+        <h4 className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Vibe any asset</h4>
+        <p className="text-text-secondary">Pick any part Genie built and say how it should work. Genie rebuilds only that part, exactly as you ask.</p>
+        {active && <p className="font-medium text-text-primary">A version is building now; vibes and roll backs apply after it finishes.</p>}
+      </div>
+      <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
+        <nav aria-label="Built assets" className="min-w-0 space-y-3">
+          {groups.map((group) => (
+            <div key={group.output} className="space-y-1">
+              <p id={`${baseId}-${group.output}`} className="flex items-center gap-1.5 text-[11px] font-semibold text-text-primary">
+                <IconChip icon={OUTPUT_ICONS[group.output]} size="sm" /> {group.label}
+              </p>
+              <ul aria-labelledby={`${baseId}-${group.output}`} className="space-y-0.5">
+                {group.assets.map((asset) => {
+                  const on = picked === asset.id;
+                  return (
+                    <li key={asset.id}>
+                      <button
+                        type="button"
+                        data-asset={asset.id}
+                        aria-pressed={on}
+                        aria-label={`${asset.pick}, ${asset.state.label}`}
+                        onClick={() => onPick(asset.id)}
+                        className={`w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-text-primary transition-smooth ${
+                          on ? 'bg-bg-subtle font-semibold ring-1 ring-inset ring-db-red/40' : 'hover:bg-bg-subtle'
+                        }`}
+                      >
+                        <span className="truncate">{asset.pick}</span>
+                        <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] ${PICK_TONE[asset.state.tone] || 'text-text-secondary'}`}>
+                          {asset.state.label}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
+        <div className="min-w-0 space-y-2">
+          {children || <p className="text-[12px] text-text-secondary">Pick an asset to see what it is now and tell Genie how it should work.</p>}
+          {error && <p role="alert" className={ERROR_BOX}>{error}</p>}
+        </div>
+      </div>
     </section>
   );
 }
@@ -534,6 +603,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const [actionBusy, setActionBusy] = useState('');
   const [celebrations, setCelebrations] = useState(0);
   const [vibeDrafts, setVibeDrafts] = useState({});
+  const [pickedAsset, setPickedAsset] = useState(null);
+  const [pickerFailed, setPickerFailed] = useState(false);
   const lastStatus = useRef(null);
 
   const [arrivals, setArrivals] = useState(null);
@@ -690,6 +761,13 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const failedOutputs = retryableOutputs(latest);
   const notebookPath = item.uc?.notebook_path || '';
   const vibeTargets = vibeCards(status?.history, latest, stalled, workspaceNotebookUrl(databricksHost, notebookPath));
+  const assetPicks = assetGroups(vibeTargets, controlRows(live, latest));
+  const pickedCard = assetPicks.flatMap((group) => group.assets).find((asset) => asset.id === pickedAsset) || null;
+  const fromPicker = (send) => async (...args) => {
+    const ok = await send(...args);
+    setPickerFailed(!ok);
+    return ok;
+  };
   const alertAsset = latest?.asset_status?.alert || {};
   const notebookState = item.notebook || (vibeTargets.some((c) => c.id === 'notebook') ? notebookStatus({ has_genie_code: 'Y' }, null) : null);
   const notebook = notebookState && {
@@ -943,6 +1021,28 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                 <ImplementControlTower
                   notebook={notebook}
                   banner={failureBanner}
+                  picker={assetPicks.length > 0 && (
+                    <AssetPicker
+                      groups={assetPicks}
+                      picked={pickedAsset}
+                      active={active}
+                      error={pickerFailed ? error : ''}
+                      onPick={(id) => { setPickedAsset(id); setPickerFailed(false); }}
+                    >
+                      {pickedCard && (
+                        <VibeCard
+                          key={pickedCard.id}
+                          card={pickedCard}
+                          draft={vibeDrafts[pickedCard.id] ?? null}
+                          locked={active || submitBusy}
+                          rebuildText="Rebuild this"
+                          onDraft={(name, text) => setVibeDrafts((prev) => ({ ...prev, [name]: text }))}
+                          onRebuild={fromPicker(vibeOutput)}
+                          onRollback={fromPicker(rollbackOutput)}
+                        />
+                      )}
+                    </AssetPicker>
+                  )}
                   failed={failedOutputs}
                   live={live}
                   liveError={liveError}

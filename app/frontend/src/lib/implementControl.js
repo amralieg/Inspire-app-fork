@@ -1,4 +1,6 @@
-import { IMPLEMENT_OUTPUTS, rebuildableOutputs, versionActive, vibesKey } from './implementWizard.js';
+import {
+  BUILT_ASSET_STATES, IMPLEMENT_OUTPUTS, partLabel, partOf, rebuildableOutputs, statusChip, versionActive, vibesKey,
+} from './implementWizard.js';
 import { formatWhen } from './formatWhen.js';
 
 export const CONTROL_REFRESH_MS = 15000;
@@ -105,7 +107,7 @@ export const APP_BACKEND_FACTS = {
 
 export function appBackendFacts(latest) {
   const asset = latest?.asset_status?.app || {};
-  const built = asset.backend == null && asset.state === 'ready' ? 'delta' : asset.backend;
+  const built = asset.backend == null && BUILT_ASSET_STATES.includes(asset.state) ? 'delta' : asset.backend;
   if (!Object.prototype.hasOwnProperty.call(APP_BACKEND_FACTS, built)) return { backend: '', lakebaseSwitch: false };
   const outputs = latest?.spec_json?.outputs || {};
   const wanted = outputs.app_backend === 'lakebase' && outputs.app_access === 'sp' && !outputs.merge?.app;
@@ -204,6 +206,12 @@ export function vibeWarnings(row, id) {
   return [...new Set(listed.filter((w) => w.includes(lead)).map((w) => w.slice(w.indexOf(lead)).trim()))];
 }
 
+const PART_STATES = [...BUILT_ASSET_STATES, 'failed'];
+
+function assetChip(entry) {
+  return statusChip(entry?.state || 'ready');
+}
+
 export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
   const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
   const base = versionActive(latest, stalled) ? rows.find((r) => DONE.includes(r.status)) : latest;
@@ -211,34 +219,75 @@ export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
   const chosen = latest.spec_json?.outputs || {};
   const built = rebuildableOutputs(base).map((o) => o.id);
   const at = (row) => String(row?.updated_at || row?.created_at || '');
-  const notebookVersion = base.asset_status?.notebook?.spec_version ?? null;
+  const liveAt = (version) => (version == null ? null : { version, at: at(rows.find((r) => r.spec_version === version)) });
+  const urlOf = (output) => (output === 'notebook' ? String(notebookUrl || '') : String(base[OUTPUT_URLS[output]] || latest[OUTPUT_URLS[output]] || ''));
+  const parts = (output) => Object.entries(base.asset_status || {})
+    .filter(([id, entry]) => partOf(id)?.output === output && PART_STATES.includes(entry?.state))
+    .map(([id, entry]) => {
+      const name = String(entry.name ?? entry.title ?? '').trim();
+      const version = BUILT_ASSET_STATES.includes(entry.state) ? (entry.spec_version ?? base.spec_version ?? null) : null;
+      return {
+        id, output, label: partLabel(id, name), name, vibes: String(chosen[vibesKey(id)] ?? ''), rebuild: true, live: liveAt(version),
+        url: urlOf(output), versions: [], warnings: [], state: assetChip(entry),
+      };
+    });
+  const notebookEntry = base.asset_status?.notebook;
+  const notebookVersion = notebookEntry?.spec_version ?? null;
   const notebook = notebookVersion == null ? [] : [{
     id: 'notebook',
+    output: 'notebook',
     label: 'notebook',
+    name: '',
     vibes: String(latest.spec_json?.data?.notes ?? '').trim(),
     rebuild: true,
-    live: { version: notebookVersion, at: at(rows.find((r) => r.spec_version === notebookVersion)) },
-    url: String(notebookUrl || ''),
+    live: liveAt(notebookVersion),
+    url: urlOf('notebook'),
     versions: [],
     warnings: [],
+    state: assetChip(notebookEntry),
   }];
-  return [...notebook, ...IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id]).map((o) => {
+  return [...notebook, ...parts('notebook'), ...IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id]).flatMap((o) => {
     const entry = base.asset_status?.[o.id];
-    const liveVersion = entry?.state === 'ready' ? (entry.spec_version ?? base.spec_version ?? null) : null;
+    const liveVersion = BUILT_ASSET_STATES.includes(entry?.state) ? (entry.spec_version ?? base.spec_version ?? null) : null;
     const versions = rows.filter((r) => {
       const saved = r.asset_status?.[o.id];
       return saved?.snapshot === true && r.spec_version !== liveVersion && (saved.spec_version ?? r.spec_version) === r.spec_version;
     }).map((r) => ({ version: r.spec_version, at: at(r), status: String(r.status || ''), vibes: savedVibes(r, o.id) }));
-    return {
+    const card = {
       ...o,
+      output: o.id,
+      name: '',
       vibes: String(chosen[vibesKey(o.id)] ?? '').trim(),
       rebuild: built.includes(o.id),
-      live: liveVersion == null ? null : { version: liveVersion, at: at(rows.find((r) => r.spec_version === liveVersion)) },
-      url: String(base[OUTPUT_URLS[o.id]] || latest[OUTPUT_URLS[o.id]] || ''),
+      live: liveAt(liveVersion),
+      url: urlOf(o.id),
       versions,
       warnings: vibeWarnings(base, o.id),
+      state: assetChip(entry),
     };
+    return [card, ...parts(o.id)];
   }).filter((card) => card.rebuild || card.versions.length)];
+}
+
+const WHOLE_PICKS = { notebook: 'Whole notebook', dashboard: 'Whole dashboard', genie_space: 'Instructions', app: 'Whole App', alert: 'Whole alert' };
+
+export function assetGroups(cards, rows = []) {
+  const names = new Map((rows || []).map((row) => [row.id, row.name]));
+  const groups = [];
+  for (const card of cards || []) {
+    let group = groups.find((g) => g.output === card.output);
+    if (!group) {
+      group = { output: card.output, label: card.output === 'notebook' ? 'Genie Code notebook' : IMPLEMENT_OUTPUTS.find((o) => o.id === card.output)?.label, assets: [] };
+      groups.push(group);
+    }
+    const whole = card.id === card.output;
+    group.assets.push({
+      ...card,
+      pick: whole ? WHOLE_PICKS[card.output] : `${card.label.charAt(0).toUpperCase()}${card.label.slice(1)}`,
+      name: card.name || (whole ? String(names.get(card.id) || '') : ''),
+    });
+  }
+  return groups;
 }
 
 export function vibeChanges(latest, id, text) {
@@ -247,6 +296,11 @@ export function vibeChanges(latest, id, text) {
   if (id === 'notebook') {
     const data = latest?.spec_json?.data || {};
     return next === String(data.notes ?? '').trim() ? { retry_outputs: ['notebook'] } : { data: { ...data, notes: next } };
+  }
+  if (partOf(id)) {
+    return next === String(outputs[vibesKey(id)] ?? '').trim()
+      ? { retry_outputs: [id] }
+      : { outputs: { ...outputs, [vibesKey(id)]: String(text ?? '') }, retry_outputs: [id] };
   }
   return next === String(outputs[vibesKey(id)] ?? '').trim() ? { retry_outputs: [id] } : { outputs: { ...outputs, [vibesKey(id)]: next } };
 }
