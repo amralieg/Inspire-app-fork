@@ -645,10 +645,10 @@ function AssetCard({ asset, draft, locked, active, error, onDraft, onRebuild, on
             <div className="space-y-2">
               <VibesEditor id={asset.id} label={asset.id === asset.output ? '' : asset.label} heading="How should it work?" rows={4} disabled={Boolean(busy)} value={text}
                 onChange={(value) => onDraft(asset.id, value)} />
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[11px] text-text-secondary">Say each thing you want. Inspire checks every one after the rebuild.</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="min-w-0 flex-1 text-[11px] text-text-secondary">Say each thing you want. Inspire checks every one after the rebuild.</span>
                 <button type="button" disabled={locked || !text.trim() || Boolean(problem) || Boolean(pending)} onClick={() => send('rebuild', () => onRebuild(asset.id, text))}
-                  className={PRIMARY_BUTTON}>
+                  className={`shrink-0 ${PRIMARY_BUTTON}`}>
                   {pending === 'rebuild' ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />} Rebuild this
                 </button>
               </div>
