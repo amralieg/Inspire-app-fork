@@ -55,7 +55,11 @@ export default function MoneyReview({ money, error = '' }) {
       {tiers && <p data-tiers="" className="text-text-secondary">{tiers}</p>}
       {outcome && <p data-last-run="" className="text-text-secondary">{outcome}</p>}
       {lines.length > 0 && <ul aria-label="Assumption changes" className="list-disc pl-5 text-text-secondary">{lines.map((l, i) => <li key={i}>{l}</li>)}</ul>}
-      <p className="text-text-secondary">To change how it is counted, say so below and rebuild only this part. Owners of the App can change the assumption values there.</p>
+      <p data-change-how="" className="text-text-secondary">
+        {model.assumptions.length > 0
+          ? 'To change how it is counted, say so below and rebuild only this part. Owners of the App can change the assumption values there.'
+          : 'This formula uses only each row\u2019s own numbers, so the App has no assumption to change. To change how it is counted, say so below and rebuild only this part.'}
+      </p>
     </section>
   );
 }

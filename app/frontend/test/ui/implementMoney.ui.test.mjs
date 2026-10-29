@@ -58,6 +58,8 @@ test('the Money at stake part shows the formula Genie proposed, its assumptions 
     assert.equal(await review.locator('[data-last-run]').textContent(), 'The last run flagged 0 Act now and 0 Review of 40 rows.');
     assert.deepEqual(await review.getByRole('list', { name: 'Assumption changes' }).getByRole('listitem').allTextContents(),
       [`${OWNER} set Price from 25 USD to 30 USD in the App: list price`, `${OWNER} set Price to 25 USD in the App`]);
+    assert.equal(await review.locator('[data-change-how]').textContent(),
+      'To change how it is counted, say so below and rebuild only this part. Owners of the App can change the assumption values there.');
     await card.getByRole('textbox', { name: 'How should it work?', exact: true }).waitFor();
     const reads = made.sqlCalls.filter((c) => c.sql.includes('n01_u01_out_'));
     assert.ok(reads.some((c) => c.sql.includes('`n01_u01_out_summary`')) && reads.some((c) => c.sql.includes('`n01_u01_out_assumptions`')));
@@ -95,6 +97,26 @@ test('a PoC whose last run has nothing to act on says so in a plain card with th
       'No model passed this use case\u2019s acceptance check in the last run, so no row is actionable yet.');
   } finally {
     await predicted.close();
+  }
+});
+
+test('a formula of only the row\u2019s own numbers lists no assumption and never tells owners to change one in the App', async () => {
+  const own = { ...SUMMARY, value_formula: '{yhat_mean_fare:money} projected mean fare x {yhat_trips:number} projected trips', value_expression: null,
+    value_assumptions: '[]' };
+  const ui = await openMoney({ moneySummary: [own], moneyEdits: [] });
+  try {
+    const review = ui.card.getByRole('region', { name: 'Money at stake review' });
+    await review.waitFor();
+    assert.equal(await review.locator('[data-formula]').textContent(),
+      'Each row: yhat mean fare projected mean fare x yhat trips projected trips = its money at stake.');
+    assert.equal(await review.getByRole('table', { name: 'Assumptions' }).count(), 0);
+    assert.equal(await review.getByText('Owners of the App can change the assumption values there').count(), 0);
+    assert.equal(await review.locator('[data-change-how]').textContent(),
+      'This formula uses only each row\u2019s own numbers, so the App has no assumption to change. To change how it is counted, say so below and '
+      + 'rebuild only this part.');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
   }
 });
 
