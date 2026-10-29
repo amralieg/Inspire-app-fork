@@ -54,6 +54,7 @@ import {
   FAVORITES_STORAGE_KEY,
   PRIORITY_ORDER,
   beneficiaryFromUc,
+  cardTitlesOfUseCase,
   computeHighPriorityCount,
   displayCleanText,
   expandWorkspaceListCandidates,
@@ -66,7 +67,6 @@ import {
   hasGenieInstruction,
   hasShippedGenieCode,
   sponsorFromUc,
-  subtitleOfUseCase,
   trackingIdOf,
 } from '../lib/useCaseFields';
 import { fileExtension, quickAccessFiles, visibleArtifactFiles } from '../lib/artifactFiles';
@@ -511,9 +511,11 @@ export default function ResultsPage({
         if (!mvpFilterMatches(filterMvp, mvpStateOf(uc))) return false;
         if (searchQuery) {
           const q = searchQuery.toLowerCase();
+          const shown = cardTitlesOfUseCase(uc);
           return (
             String(uc.Name || '').toLowerCase().includes(q) ||
-            subtitleOfUseCase(uc, '').toLowerCase().includes(q) ||
+            shown.title.toLowerCase().includes(q) ||
+            shown.subtitle.toLowerCase().includes(q) ||
             String(uc.Statement || '').toLowerCase().includes(q) ||
             String(uc.Solution || '').toLowerCase().includes(q) ||
             beneficiaryFromUc(uc).toLowerCase().includes(q) ||

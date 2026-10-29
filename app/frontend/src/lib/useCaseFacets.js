@@ -1,7 +1,7 @@
 import {
-  displayCleanText,
   inspireScoreFromUc,
   isNumericPriorityString,
+  nameOfUseCase,
   scoreOf,
   favoriteKeyOf,
   fieldOf,
@@ -29,7 +29,7 @@ export function catalogRow(uc, index, ctx = {}) {
     index,
     uc,
     id,
-    title: displayCleanText(uc?.Name || uc?.use_case_name || uc?.name || uc?.title || '') || id || `Use case ${index + 1}`,
+    title: nameOfUseCase(uc) || id || `Use case ${index + 1}`,
     domain: String(uc?._domain || '').trim() || text('Business Domain', 'business_domain'),
     subdomain: text('Subdomain', 'subdomain'),
     technique: text('Analytics Technique', 'analytics_technique'),

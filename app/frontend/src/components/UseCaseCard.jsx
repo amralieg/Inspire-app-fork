@@ -6,16 +6,14 @@ import { FeedbackChip, StrategyChip } from './UseCaseStrategyDetail';
 import { bestOfBestLabel } from '../lib/v130UseCase';
 import {
   belowBarLabelFromUseCase,
-  displayCleanText,
+  cardTitlesOfUseCase,
   fieldOf,
   inspireScoreFromUc,
   isNumericPriorityString,
   priorityPillClass,
-  subtitleOfUseCase,
 } from '../lib/useCaseFields';
 
 const s = (v) => (v == null ? '' : String(v));
-const stripHtml = (v) => (v == null ? '' : String(v).replace(/<[^>]*>/g, ' ').replace(/\s{2,}/g, ' ').trim());
 
 export default function UseCaseCard({
   uc,
@@ -35,9 +33,7 @@ export default function UseCaseCard({
   const card = uc && typeof uc === 'object' ? uc : null;
   if (!card) return null;
   const u = card;
-  const title = s(u.Name) || s(u.use_case_name) || s(u.name) || s(u.title) || `Use Case ${index + 1}`;
-  const titlePlain = displayCleanText(stripHtml(title));
-  const subtitleText = subtitleOfUseCase(u, titlePlain);
+  const { title: titlePlain, subtitle: subtitleText } = cardTitlesOfUseCase(u, index);
   const domain = s(u._domain || u['Business Domain'] || u.domain);
   const subdomain = s(u.Subdomain);
   const ucType = s(u.type);

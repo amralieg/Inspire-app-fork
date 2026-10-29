@@ -208,11 +208,11 @@ export function displayCleanText(s) {
   if (s == null) return '';
   let t = String(s).replace(/<[^>]*>/g, ' ');
   try {
-    t = t.replace(/\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Emoji}/gu, '');
+    t = t.replace(/\p{Extended_Pictographic}|\p{Emoji_Presentation}/gu, '');
   } catch {
     t = t.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '');
   }
-  return t.replace(/\uFE0F/g, '').replace(/\u200D/g, '').replace(/\s{2,}/g, ' ').trim();
+  return t.replace(/\uFE0F/g, '').replace(/\u200D/g, '').replace(/\u20E3/g, '').replace(/\s{2,}/g, ' ').trim();
 }
 
 export function isBlankField(value) {
@@ -298,9 +298,18 @@ export function priorityPillClass(priority) {
 export function subtitleOfUseCase(uc, titlePlain) {
   const u = uc && typeof uc === 'object' ? uc : {};
   const plain = (v) => displayCleanText(String(v ?? '').replace(/<[^>]*>/g, ' '));
-  const desc = plain(u.description || u.Description || u.usecase || u.use_case || '');
-  const short = plain(u.short_name || u.shortName || '');
-  if (desc && desc !== titlePlain) return desc;
-  if (short && short !== titlePlain) return short;
-  return '';
+  const title = plain(titlePlain).toLowerCase();
+  return [u.description, u.Description, u.usecase, u.use_case, u.short_name, u.shortName]
+    .map(plain)
+    .find((t) => t && t.toLowerCase() !== title) || '';
+}
+
+export function nameOfUseCase(uc) {
+  const u = uc && typeof uc === 'object' ? uc : {};
+  return displayCleanText([u.Name, u.use_case_name, u.name, u.title].map((v) => (v == null ? '' : String(v))).find(Boolean) || '');
+}
+
+export function cardTitlesOfUseCase(uc, index = 0) {
+  const title = nameOfUseCase(uc) || `Use Case ${index + 1}`;
+  return { title, subtitle: subtitleOfUseCase(uc, title) };
 }

@@ -23,14 +23,16 @@ async function ready(page) {
 test('the search finds a use case by the business title its card shows under the name, and only that one', async () => {
   const titled = {
     ...RESULTS,
-    domains: RESULTS.domains.map((d) => ({ ...d, use_cases: d.use_cases.map((u) => (u.No === 'N02-U02' ? { ...u, description: 'Warn buyers before a supplier delivery slips' } : u)) })),
+    domains: RESULTS.domains.map((d) => ({ ...d, use_cases: d.use_cases.map((u) => (u.No === 'N02-U02'
+      ? { ...u, description: u.Name, usecase: 'Warn buyers 2 days before a supplier delivery slips', short_name: 'Warn buyers 2 days before a supplier delivery slips' }
+      : u)) })),
   };
   const ui = await openUi('results', { ...STATE, results: titled });
   const { page } = ui;
   try {
     await ready(page);
-    await card(page, 'Spot late suppliers').getByText('Warn buyers before a supplier delivery slips').waitFor();
-    await page.getByPlaceholder('Search use cases...').fill('Warn buyers before a supplier delivery slips');
+    await card(page, 'Spot late suppliers').getByText('Warn buyers 2 days before a supplier delivery slips').waitFor();
+    await page.getByPlaceholder('Search use cases...').fill('Warn buyers 2 days before a supplier delivery slips');
     assert.equal(await cards(page).count(), 1);
     assert.match(await cards(page).first().innerText(), /Spot late suppliers/);
     await page.getByPlaceholder('Search use cases...').fill('supplier delivery slips churn');

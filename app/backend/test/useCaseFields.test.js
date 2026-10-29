@@ -49,6 +49,32 @@ test('the subtitle is the description or short name, never a repeat of the title
   assert.equal(f.subtitleOfUseCase({ description: 'Predict churn', short_name: 'Churn' }, 'Predict churn'), 'Churn');
   assert.equal(f.subtitleOfUseCase({ short_name: 'Predict churn' }, 'Predict churn'), '');
   assert.equal(f.subtitleOfUseCase(null, 'x'), '');
+  assert.equal(f.subtitleOfUseCase({ description: 'Forecast pickups', usecase: 'Cut idle time' }, 'Forecast pickups'), 'Cut idle time',
+    'a description that repeats the title falls through to the business title');
+  assert.equal(f.subtitleOfUseCase({ description: 'forecast PICKUPS' }, 'Forecast pickups'), '', 'a repeat in other letter case is still a repeat');
+  assert.equal(f.subtitleOfUseCase({ description: '<i></i>', short_name: 'Cut idle time' }, 'Forecast pickups'), 'Cut idle time');
+});
+
+test('the card title and the subtitle under it come from one place, so the search reads what the card shows', async () => {
+  const f = await load();
+  const live = { Name: 'Forecast pickups', description: 'Forecast pickups', usecase: 'Cut idle time', short_name: 'Cut idle time' };
+  assert.deepEqual(f.cardTitlesOfUseCase(live), { title: 'Forecast pickups', subtitle: 'Cut idle time' });
+  assert.deepEqual(f.cardTitlesOfUseCase({ use_case_name: '<b>Spot</b>   fraud', description: 'Flag risky cards' }), { title: 'Spot fraud', subtitle: 'Flag risky cards' });
+  assert.deepEqual(f.cardTitlesOfUseCase({ Name: '' }, 2), { title: 'Use Case 3', subtitle: '' });
+  assert.deepEqual(f.cardTitlesOfUseCase(null), { title: 'Use Case 1', subtitle: '' });
+  assert.equal(f.nameOfUseCase({ name: 'Top 10 zones' }), 'Top 10 zones');
+  assert.equal(f.nameOfUseCase({}), '');
+});
+
+test('cleaning display text drops emoji and pictographs but keeps every digit, #, * and %', async () => {
+  const f = await load();
+  assert.equal(f.displayCleanText('Top 10 Zones by 2024 Revenue'), 'Top 10 Zones by 2024 Revenue');
+  assert.equal(f.displayCleanText('Reduce cost by 15% in Q3'), 'Reduce cost by 15% in Q3');
+  assert.equal(f.displayCleanText('Rank #1 * priority'), 'Rank #1 * priority');
+  assert.equal(f.displayCleanText('Taxi 🚕 audit ✅ done ©'), 'Taxi audit done');
+  assert.equal(f.displayCleanText('Step 1\uFE0F\u20E3 then <b>2</b>'), 'Step 1 then 2');
+  assert.equal(f.displayCleanText('👩\u200D💻 team'), 'team');
+  assert.equal(f.displayCleanText(null), '');
 });
 
 test('priority pills use theme tokens, brand red only for the top tiers', async () => {

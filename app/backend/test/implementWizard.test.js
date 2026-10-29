@@ -897,6 +897,9 @@ test('the Implement page groups every use case in a fixed order, keeps MVPs of u
   assert.deepEqual(search('fraud churn'), []);
   assert.deepEqual(search('Keep loyal members from leaving'), ['N01-U01'], 'the business title the card shows under the name finds it');
   assert.deepEqual(search('loyal fraud'), [], 'every word must match');
+  const live = [{ id: 'N04-U01', Name: 'Forecast pickups', _domain: 'Demand', description: 'Forecast pickups', usecase: 'Cut idle time' }];
+  assert.deepEqual(w.implementGroups(live, [], null, 'cut idle').flatMap((g) => g.items.map((i) => i.id)), ['N04-U01'],
+    'a description that repeats the name still lets the business title find it');
   assert.equal(search('').length, 5);
   assert.deepEqual(w.implementGroups(null, undefined, null).map((g) => g.items.length), [0, 0, 0, 0]);
 });
