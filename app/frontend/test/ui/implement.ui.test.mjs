@@ -194,7 +194,7 @@ test('the wizard walks Choose, Data, Results and Delivery, adds App access and A
     assert.equal(spec.outputs.app_name, 'predict-churn');
     assert.equal(spec.outputs.app_access, 'sp');
     assert.deepEqual(spec.outputs.app_look, { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' });
-    assert.deepEqual(spec.outputs.app_options, { modify: false, replace_edits: false, decisions: false });
+    assert.deepEqual(spec.outputs.app_options, { modify: false, replace_edits: false, decisions: false, alerts: false });
     assert.deepEqual(spec.outputs.merge, { app: '', dashboard: '', genie_space: '' });
     assert.deepEqual(spec.outputs.alert_recipients, [OWNER]);
     assert.deepEqual([spec.schedule.enabled, spec.schedule.cron], [true, '0 0 6 ? * MON']);
@@ -1175,7 +1175,7 @@ test('a version saved while the App offered downloads rebuilds and opens in Edit
     await until(() => ui.made.jobs.length === 1, 'the rebuild implement run');
     const spec = submittedSpec(ui.made);
     assert.deepEqual(spec.retry_outputs, ['app']);
-    assert.deepEqual(spec.outputs.app_options, { modify: true, replace_edits: false, decisions: false });
+    assert.deepEqual(spec.outputs.app_options, { modify: true, replace_edits: false, decisions: false, alerts: false });
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -1193,7 +1193,7 @@ test('a version saved while the App offered downloads rebuilds and opens in Edit
     await onStep(edit.page, 'App look');
     await implementWhenReady(edit.page);
     await edit.page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    assert.deepEqual(submittedSpec(edit.made).outputs.app_options, { modify: true, replace_edits: false, decisions: true });
+    assert.deepEqual(submittedSpec(edit.made).outputs.app_options, { modify: true, replace_edits: false, decisions: true, alerts: false });
     assert.deepEqual(edit.pageErrors, []);
   } finally {
     await edit.close();

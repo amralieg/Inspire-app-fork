@@ -36,7 +36,7 @@ test('the wizard offers exactly the App choices the backend and the App shell ac
     'Internal data: the App uses its own service principal',
   ]);
   assert.equal(w.LAKEVIEW_STYLE_NOTE, 'Only style A matches the Lakeview dashboard look.');
-  assert.deepEqual(w.APP_OPTIONS.map((o) => o.label), ['Let people edit data', 'Record decisions']);
+  assert.deepEqual(w.APP_OPTIONS.map((o) => o.label), ['Let people edit data', 'Record decisions', 'Send alerts']);
   assert.match(w.APP_OPTIONS.find((o) => o.id === 'decisions').blurb, /They own, track and dismiss each flagged record \(the action tracker\)\.$/);
   assert.doesNotMatch(w.APP_OPTIONS.find((o) => o.id === 'modify').blurb, /action tracker/);
   assert.equal(w.APP_NO_DOWNLOADS, 'The App offers no data downloads.');
@@ -55,7 +55,7 @@ test('a new spec has no App access, the default look, every option off and no me
   const fresh = w.defaultSpecFromUseCase(UC, {});
   assert.equal(fresh.outputs.app_access, '');
   assert.deepEqual(fresh.outputs.app_look, { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' });
-  assert.deepEqual(fresh.outputs.app_options, { modify: false, replace_edits: false, decisions: false });
+  assert.deepEqual(fresh.outputs.app_options, { modify: false, replace_edits: false, decisions: false, alerts: false }, 'alerts start off');
   assert.deepEqual(fresh.outputs.merge, { app: '', dashboard: '', genie_space: '' });
   assert.ok(backend.validateImplementSpec(spec).errors.some((e) => e.startsWith('choose who the App reads its data as')));
   const chosen = w.withAppAccess(spec, 'sp');
@@ -64,12 +64,12 @@ test('a new spec has no App access, the default look, every option off and no me
 });
 
 test('per-user sign-in hides and clears record decisions, and the replace question shows only while edits are on', async () => {
-  const { w, spec } = await appSpec({ app_access: 'sp', app_options: { modify: false, replace_edits: false, decisions: true } });
-  assert.deepEqual(['modify', 'decisions', 'replace_edits'].map((k) => w.appOptionShown(spec, k)), [true, true, false]);
+  const { w, spec } = await appSpec({ app_access: 'sp', app_options: { modify: false, replace_edits: false, decisions: true, alerts: true } });
+  assert.deepEqual(['modify', 'decisions', 'replace_edits', 'alerts'].map((k) => w.appOptionShown(spec, k)), [true, true, false, true]);
   const perUser = w.withAppAccess(spec, 'user');
-  assert.deepEqual(perUser.outputs.app_options, { modify: false, replace_edits: false, decisions: false });
-  assert.deepEqual(['modify', 'decisions'].map((k) => w.appOptionShown(perUser, k)), [true, false]);
-  assert.match(w.PER_USER_REASON, /: it offers no recorded decisions and no chart image export\.$/);
+  assert.deepEqual(perUser.outputs.app_options, { modify: false, replace_edits: false, decisions: false, alerts: false });
+  assert.deepEqual(['modify', 'decisions', 'alerts'].map((k) => w.appOptionShown(perUser, k)), [true, false, false]);
+  assert.match(w.PER_USER_REASON, /: it offers no recorded decisions, no alerts and no chart image export\.$/);
   assert.doesNotMatch(w.PER_USER_REASON, /download/i);
   const core = appShellPayload(bundledNotebookText()).files['shell_core.py'];
   if (/image_export/.test(core)) assert.match(core, /"image_export": s\["auth"\] == "sp"/, 'the App shell offers chart image export only to a shared App');
@@ -208,7 +208,7 @@ test('Edit of a version the old wizard saved gets every new App setting with its
     app_look: { palette: 'mono' }, app_options: { modify: true }, merge: 'bad' } } }, fallback);
   assert.equal(saved.outputs.app_access, 'user');
   assert.deepEqual(saved.outputs.app_look, { ...w.APP_LOOK_DEFAULT, palette: 'mono' });
-  assert.deepEqual(saved.outputs.app_options, { modify: true, replace_edits: false, decisions: false });
+  assert.deepEqual(saved.outputs.app_options, { modify: true, replace_edits: false, decisions: false, alerts: false });
   assert.deepEqual(saved.outputs.merge, { app: '', dashboard: '', genie_space: '' }, 'a merge that is not an object is dropped');
 });
 
@@ -230,4 +230,22 @@ test('every user-visible output label and preflight label says Genie Agent', asy
       .map((name) => path.resolve(__dirname, '..', '..', 'frontend', 'src', 'components', name)),
   ];
   for (const file of files) assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /Genie spaces?\b|Space name/, path.basename(file));
+});
+
+test('the wizard offers Send alerts, off by default, in plain words, and hides it with a reason for a per-user App', async () => {
+  const { w, spec } = await appSpec({ app_access: 'sp' });
+  const option = w.APP_OPTIONS.find((o) => o.id === 'alerts');
+  assert.equal(option.label, 'Send alerts');
+  assert.match(option.blurb, /^People set up email alerts on what the App shows, each on its own schedule, sent only to people in this workspace\./);
+  assert.match(option.blurb, /a record's owner gets an email when someone assigns it to them\.$/);
+  assert.doesNotMatch(option.blurb, /\u2014|\u2013/);
+  assert.equal(spec.outputs.app_options.alerts, false);
+  const on = w.withAppOption(spec, 'alerts', true);
+  assert.equal(on.outputs.app_options.alerts, true);
+  assert.deepEqual(backend.validateImplementSpec(on).errors, []);
+  assert.equal(backend.validateImplementSpec(on).spec.outputs.app_options.alerts, true);
+  const perUser = w.withAppAccess(on, 'user');
+  assert.equal(perUser.outputs.app_options.alerts, false);
+  assert.equal(w.appOptionShown(perUser, 'alerts'), false);
+  assert.match(w.PER_USER_REASON, /no alerts/);
 });
