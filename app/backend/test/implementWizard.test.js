@@ -1139,3 +1139,26 @@ test('Build again sends the failed version as the next one with every ask it mad
   assert.deepEqual(w.buildAgainChanges({ spec_json: null }), {});
   assert.deepEqual(w.buildAgainChanges({ spec_json: ['vibes'] }), {});
 });
+
+test('App look lists only the pages the App gets: alerts and recorded decisions only in a shared App, Ask Genie only with a Genie Agent', async () => {
+  const w = await load();
+  assert.deepEqual(w.APP_LOOK_TABS.map((t) => t.id), ['style', 'palette', 'layout', 'charts', 'pages']);
+  const spec = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
+  const ids = (s) => w.appPagesOf(s).map((p) => p.id);
+  const fixText = (s) => w.appPagesOf(s).find((p) => p.id === 'fix').blurb;
+  const withOutputs = (patch, options = {}) => ({ ...spec, outputs: { ...spec.outputs, ...patch, app_options: { ...spec.outputs.app_options, ...options } } });
+  assert.deepEqual(ids(spec), ['fix', 'runs', 'impact', 'genie'], 'the default App: no alerts page while Send alerts is off');
+  assert.doesNotMatch(fixText(spec), /edit a record|own, track and dismiss/);
+  const all = withOutputs({ app_access: 'sp' }, { modify: true, decisions: true, alerts: true });
+  assert.deepEqual(ids(all), ['fix', 'runs', 'alerts', 'impact', 'genie']);
+  assert.match(fixText(all), /People can edit a record, and Inspire keeps who changed what\. People own, track and dismiss each flagged record\.$/);
+  const perUser = withOutputs({ app_access: 'user' }, { modify: true, decisions: true, alerts: true });
+  assert.deepEqual(ids(perUser), ['fix', 'runs', 'impact', 'genie'], 'a per-user App has no alerts page');
+  assert.match(fixText(perUser), /People can edit a record/);
+  assert.doesNotMatch(fixText(perUser), /own, track and dismiss/, 'a per-user App records no decisions');
+  assert.deepEqual(ids(withOutputs({ genie_space: false })), ['fix', 'runs', 'impact'], 'no Genie Agent, no Ask Genie page');
+  for (const empty of [undefined, null, {}, { outputs: null }]) assert.deepEqual(ids(empty), ['fix', 'runs', 'impact'], JSON.stringify(empty));
+  const texts = [w.APP_SAMPLE_NOTE, w.APP_CHARTS_NOTE, ...w.APP_LOOK_TABS.map((t) => t.label), ...w.APP_CHART_KINDS.flatMap((k) => [k.label, k.blurb]),
+    ...w.appPagesOf(all).flatMap((p) => [p.label, p.blurb])];
+  for (const text of texts) assert.doesNotMatch(text, /[\u2013\u2014]/, text);
+});

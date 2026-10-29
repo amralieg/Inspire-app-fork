@@ -99,17 +99,23 @@ test('the App starts on with its Genie Agent locked on and the alert off, App ac
     assert.deepEqual(await look.locator('[data-preview^="layout-"]').evaluateAll((els) => els.map((e) => e.dataset.preview)),
       ['layout-sidebar', 'layout-tabs', 'layout-home']);
     await look.getByText('Only style A matches the Lakeview dashboard look.').waitFor();
+    const lookTab = (name) => look.getByRole('tab', { name, exact: true }).click();
     assert.equal(await look.getByRole('radio', { name: /^Style A/ }).isChecked(), true, 'style A is the default');
+    await lookTab('Layout');
     assert.equal(await look.getByRole('radio', { name: /^Sidebar/ }).isChecked(), true, 'the sidebar is the default');
+    await lookTab('Palette');
     assert.deepEqual(await look.locator('[data-swatch]').evaluateAll((els) => els.map((e) => e.dataset.swatch)), SHELL.palettes, 'the 13 shell palettes, in order');
     assert.equal(await look.getByRole('radio', { name: 'Default', exact: true }).isChecked(), true);
     const mode = look.getByRole('group', { name: 'Light or dark' });
     assert.equal(await mode.getByRole('button', { name: 'Light' }).getAttribute('aria-pressed'), 'true');
     const nordic = SHELL.palette_colors.find((p) => p.id === 'nordic');
+    await lookTab('Style');
     await look.getByText('Style C', { exact: true }).click();
-    await look.getByText('Home cards', { exact: true }).click();
+    await lookTab('Palette');
     await look.getByText('Nordic', { exact: true }).click();
     await mode.getByRole('button', { name: 'Dark' }).click();
+    await lookTab('Layout');
+    await look.getByText('Home cards', { exact: true }).click();
     assert.equal(await look.locator('[data-preview="layout-home"]').evaluate((el) => getComputedStyle(el).backgroundColor), rgb(nordic.dark.base.bg),
       'the previews draw with the palette and the mode picked');
     assert.equal(await look.locator('[data-preview="style-c"]').evaluate((el) => getComputedStyle(el).backgroundColor), rgb(nordic.dark.base.card));
@@ -118,6 +124,178 @@ test('the App starts on with its Genie Agent locked on and the alert off, App ac
     assert.deepEqual([spec.outputs.app, spec.outputs.genie_space, spec.outputs.app_access], [true, true, 'user']);
     assert.deepEqual(spec.outputs.app_look, { style: 'c', layout: 'home', palette: 'nordic', theme: 'dark' });
     assert.deepEqual(spec.outputs.app_options, { modify: true, replace_edits: false, decisions: false, alerts: false });
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('App look has Style, Palette, Layout, Charts and Pages tabs over a sample page that follows every pick, lists only the pages this App gets, and reads at 4.5 to 1 in every style, palette, mode and page', async () => {
+  const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
+  const { page } = ui;
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await toDelivery(page);
+    await next(page);
+    await onStep(page, 'App access');
+    await next(page);
+    await onStep(page, 'App look');
+    const look = page.getByRole('region', { name: 'App look' });
+    const tabs = look.getByRole('tablist', { name: 'App look sections' });
+    const tab = (name) => tabs.getByRole('tab', { name, exact: true });
+    const sample = look.locator('[data-app-sample]');
+    const shown = (attrs) => look.locator(`[data-app-sample]${Object.entries(attrs).map(([k, v]) => `[data-${k}="${v}"]`).join('')}`).waitFor();
+    await look.locator('[data-swatch="mono"]').waitFor({ state: 'attached' });
+    assert.deepEqual(await tabs.getByRole('tab').allTextContents(), ['Style', 'Palette', 'Layout', 'Charts', 'Pages']);
+    assert.equal(await tab('Style').getAttribute('aria-selected'), 'true');
+    assert.equal(await look.getByRole('tabpanel').count(), 1, 'only the chosen tab panel shows');
+    await shown({ 'app-sample': 'fix', 'sample-style': 'a', 'sample-layout': 'sidebar', 'sample-palette': 'default', 'sample-theme': 'light' });
+    assert.equal(await sample.getAttribute('role'), 'img');
+    assert.equal(await sample.getAttribute('aria-label'), 'Sample App page: Things to fix, in Style A, Sidebar, the Default palette and Light mode');
+    for (const text of ['To fix', 'Could save', 'Fixed so far', 'Saved so far', 'Why Inspire flagged it', 'Value fell 38% below its 8 week average', 'Ask Genie', 'Shared view']) {
+      await sample.getByText(text, { exact: true }).first().waitFor();
+    }
+    await look.getByText(/^Sample data\. Your App shows the records of this use case in the look you pick\.$/).waitFor();
+
+    const def = SHELL.palette_colors.find((p) => p.id === 'default');
+    const topBar = () => sample.locator(':scope > div').first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    assert.equal(await topBar(), rgb(def.light.base.card), 'style A draws a plain top bar');
+    await look.getByText('Style B', { exact: true }).click();
+    await shown({ 'sample-style': 'b' });
+    assert.equal(await topBar(), rgb(def.light.base['brand-wash']), 'style B tints the top bar');
+    await tab('Palette').click();
+    await look.getByRole('group', { name: 'Light or dark' }).getByRole('button', { name: 'Dark' }).click();
+    await shown({ 'sample-style': 'b', 'sample-theme': 'dark' });
+    assert.equal(await sample.evaluate((el) => getComputedStyle(el).backgroundColor), rgb(def.dark.base.bg), 'the sample draws in the mode picked');
+
+    await tab('Palette').focus();
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await tab('Layout').getAttribute('aria-selected'), 'true');
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Layout', 'the arrow keys move focus with the tab');
+    await page.keyboard.press('End');
+    assert.equal(await tab('Pages').getAttribute('aria-selected'), 'true');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await tab('Style').getAttribute('aria-selected'), 'true', 'the arrows wrap');
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await tab('Pages').getAttribute('aria-selected'), 'true');
+    await page.keyboard.press('Home');
+    assert.equal(await tab('Style').getAttribute('aria-selected'), 'true');
+
+    await tab('Layout').click();
+    await look.getByText('Top tabs', { exact: true }).click();
+    await shown({ 'sample-layout': 'tabs', 'app-sample': 'fix' });
+    assert.equal(await sample.getByText('Use case', { exact: true }).count(), 0, 'top tabs drop the side menu');
+    await look.getByText('Home cards', { exact: true }).click();
+    await shown({ 'sample-layout': 'home' });
+    await sample.getByText('128 to fix · $412K at stake', { exact: true }).waitFor();
+
+    await tab('Charts').click();
+    await shown({ 'app-sample': 'charts' });
+    await look.getByText('Genie picks at least 3 charts that fit your results. Each chart has an Explain button that asks Genie what the chart shows.', { exact: true }).waitFor();
+    assert.deepEqual(await look.getByRole('tabpanel').locator('li p:first-child').allTextContents(),
+      ['Trend over time', 'Bars by segment', 'Split by tier', 'Biggest first', 'Two measures']);
+    assert.equal(await sample.getByText('Explain', { exact: true }).count(), 4, 'every sample chart has its Explain button');
+
+    await tab('Pages').click();
+    const pages = look.getByRole('group', { name: 'Pages of the App' });
+    const pageNames = () => pages.getByRole('button').allTextContents();
+    const blurb = look.locator('[data-page-blurb]');
+    assert.deepEqual(await pageNames(), ['Things to fix', 'Runs', 'Impact', 'Ask Genie'], 'no Alerts page while Send alerts is off');
+    assert.equal(await pages.getByRole('button', { name: /^Things to fix/ }).getAttribute('aria-pressed'), 'true');
+    assert.match(await blurb.textContent(), /^What needs action: the totals, at least 3 charts, and every flagged record with the reason Inspire flagged it\.$/,
+      'no edits and no decisions while those App options are off');
+    await pages.getByRole('button', { name: /^Runs/ }).click();
+    await shown({ 'app-sample': 'runs' });
+    assert.equal(await blurb.textContent(), 'Every run of the notebook: when it ran, the data it read and the records it flagged.');
+    await sample.getByText('What it covered', { exact: true }).waitFor();
+    await pages.getByRole('button', { name: /^Ask Genie/ }).click();
+    await shown({ 'app-sample': 'genie' });
+    await sample.getByText('Why is R-1042 flagged?', { exact: true }).waitFor();
+    await tab('Style').click();
+    await shown({ 'app-sample': 'fix' });
+    await tab('Pages').click();
+    await shown({ 'app-sample': 'genie' });
+
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await onStep(page, 'App access');
+    const access = page.getByRole('region', { name: 'App access' });
+    await access.getByRole('checkbox', { name: /^Record decisions/ }).check();
+    await access.getByRole('checkbox', { name: /^Send alerts/ }).check();
+    await next(page);
+    await onStep(page, 'App look');
+    await tab('Pages').click();
+    assert.deepEqual(await pageNames(), ['Things to fix', 'Runs', 'Alerts', 'Impact', 'Ask Genie']);
+    assert.equal(await pages.getByRole('button', { name: /^Things to fix/ }).getAttribute('aria-pressed'), 'true');
+    assert.match(await blurb.textContent(), /People own, track and dismiss each flagged record\.$/);
+    for (const name of ['Style', 'Palette', 'Layout', 'Charts', 'Pages']) {
+      await tab(name).click();
+      const box = await measure(page, `app-look-all-options-${name.toLowerCase()}`);
+      assert.ok(box.scroll <= box.client + 1, `${name} with every App option on: the step needs no scroll (${box.scroll} > ${box.client})`);
+    }
+
+    const clipped = () => sample.evaluate((root) => {
+      const out = new Set();
+      for (const el of root.querySelectorAll('*')) {
+        if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+        const bottom = el.getBoundingClientRect().bottom;
+        for (let a = el.parentElement; a; a = a.parentElement) {
+          const edge = a.getBoundingClientRect().bottom;
+          if ((a === root || getComputedStyle(a).overflowY !== 'visible') && bottom > edge + 1) out.add(`${el.textContent.trim().slice(0, 40)} +${Math.round(bottom - edge)}px`);
+          if (a === root) break;
+        }
+      }
+      return [...out];
+    });
+    const cut = [];
+    for (const layout of ['Sidebar', 'Top tabs', 'Home cards']) {
+      for (const style of ['A', 'B', 'C']) {
+        await tab('Style').click();
+        await look.getByText(`Style ${style}`, { exact: true }).click();
+        await tab('Layout').click();
+        await look.getByText(layout, { exact: true }).click();
+        await shown({ 'app-sample': 'fix', 'sample-style': style.toLowerCase() });
+        for (const line of await clipped()) cut.push(`${layout}/${style}/fix ${line}`);
+        await tab('Charts').click();
+        await shown({ 'app-sample': 'charts' });
+        for (const line of await clipped()) cut.push(`${layout}/${style}/charts ${line}`);
+        await tab('Pages').click();
+        for (const control of ['Runs', 'Alerts', 'Impact', 'Ask Genie', 'Things to fix']) {
+          await pages.getByRole('button', { name: new RegExp(`^${control}`) }).click();
+          await shown({ 'app-sample': { Runs: 'runs', Alerts: 'alerts', Impact: 'impact', 'Ask Genie': 'genie', 'Things to fix': 'fix' }[control] });
+          for (const line of await clipped()) cut.push(`${layout}/${style}/${control} ${line}`);
+        }
+      }
+    }
+    assert.deepEqual(cut, [], 'no sample text is cut off at the bottom, in any layout, style or page');
+
+    const views = [['fix', 'Palette'], ['charts', 'Charts'], ['runs', 'Runs'], ['alerts', 'Alerts'], ['impact', 'Impact'], ['genie', 'Ask Genie']];
+    const low = [];
+    let measured = 0;
+    for (const style of ['a', 'b', 'c']) {
+      for (const theme of ['light', 'dark']) {
+        for (const palette of SHELL.palettes) {
+          await tab('Style').click();
+          await look.getByText(`Style ${style.toUpperCase()}`, { exact: true }).click();
+          await tab('Palette').click();
+          await look.getByRole('group', { name: 'Light or dark' }).getByRole('button', { name: theme === 'dark' ? 'Dark' : 'Light' }).click();
+          await look.locator(`[data-swatch="${palette}"]`).click();
+          for (const [view, control] of views) {
+            if (view === 'charts') await tab('Charts').click();
+            else if (view !== 'fix') {
+              if (await tab('Pages').getAttribute('aria-selected') !== 'true') await tab('Pages').click();
+              await pages.getByRole('button', { name: new RegExp(`^${control}`) }).click();
+            }
+            await shown({ 'app-sample': view, 'sample-style': style, 'sample-theme': theme, 'sample-palette': palette });
+            const result = await lowContrast(page, ['[data-app-sample]']);
+            measured += result.checked;
+            assert.ok(result.checked >= 15, `${style}/${theme}/${palette}/${view}: measured ${result.checked} elements`);
+            for (const line of result.low) low.push(`${style}/${theme}/${palette}/${view} ${line}`);
+          }
+        }
+      }
+    }
+    console.log(`App look sample: ${3 * 2 * SHELL.palettes.length * views.length} pages, ${measured} text elements measured, ${low.length} below 4.5:1`);
+    assert.deepEqual(low, [], 'every sample text reads at 4.5:1 or better');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -462,9 +640,17 @@ test('every wizard step fits a 1440x900 screen with nothing to scroll, the App s
     await readable('app access');
     await next(page);
     await onStep(page, 'App look');
-    await page.locator('[data-swatch="mono"]').waitFor();
+    await page.locator('[data-swatch="mono"]').waitFor({ state: 'attached' });
     await fits('6-app-look');
     await readable('app look');
+    const lookTabs = page.getByRole('tablist', { name: 'App look sections' });
+    for (const name of ['Palette', 'Layout', 'Charts', 'Pages']) {
+      await lookTabs.getByRole('tab', { name, exact: true }).click();
+      await fits(`6-app-look-${name.toLowerCase()}`);
+    }
+    await page.getByRole('group', { name: 'Pages of the App' }).getByRole('button', { name: /^Things to fix/ }).waitFor();
+    await readable('app look pages');
+    await lookTabs.getByRole('tab', { name: 'Palette', exact: true }).click();
     await page.getByRole('group', { name: 'Light or dark' }).getByRole('button', { name: 'Dark' }).click();
     await fits('6-app-look-dark-palette');
     console.log(`wizard step heights at 1440x900: ${JSON.stringify(heights)}`);

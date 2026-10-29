@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, NotebookPen, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check, Lock, UserRound, KeyRound, MessageSquareText } from 'lucide-react';
 import BodyPortal from '../components/BodyPortal';
 import VibesEditor from '../components/VibesEditor';
+import AppSample, { paletteVars, pv } from '../components/AppSample';
 import { generationFolder, sharedFolderWarning } from '../lib/workspaceLinks';
 import { catalogRow } from '../lib/useCaseFacets';
 import {
@@ -75,6 +76,11 @@ import {
   APP_STYLES,
   APP_LAYOUTS,
   APP_THEMES,
+  APP_LOOK_TABS,
+  APP_SAMPLE_NOTE,
+  APP_CHARTS_NOTE,
+  APP_CHART_KINDS,
+  appPagesOf,
   LAKEVIEW_STYLE_NOTE,
   GENIE_FOR_APP_NOTE,
   RESULT_TABLE_MOVE_NOTE,
@@ -1354,6 +1360,7 @@ export default function ImplementWizard({
             lookError={lookError}
             palette={palette}
             target={appTarget}
+            title={title}
             onLook={(key, value) => setSpec((prev) => withAppLook(prev, key, value))}
           />
         )}
@@ -1752,18 +1759,6 @@ function AppAccessStep({ spec, target, lakebase, onAccess, onOption, onBackend }
   );
 }
 
-function paletteVars(palette, theme) {
-  const p = palette ? palette[theme === 'dark' ? 'dark' : 'light'] : null;
-  if (!p || !p.base || !p.hues) return null;
-  const vars = {};
-  for (const [key, value] of Object.entries(p.base)) vars[`--pv-${key}`] = value;
-  Object.values(p.hues).forEach((hue, i) => {
-    for (const [key, value] of Object.entries(hue)) vars[`--pv-h${i}-${key}`] = value;
-  });
-  return vars;
-}
-
-const pv = (name) => `var(--pv-${name})`;
 const BARS = [45, 70, 55, 90, 65, 80];
 
 function PreviewBars({ hue = 0 }) {
@@ -1876,11 +1871,29 @@ function LookCard({ name, value, checked, onChange, label, badge = '', blurb = '
 
 const paletteLabel = (id) => id.charAt(0).toUpperCase() + id.slice(1);
 
-function AppLookStep({ spec, look, lookError, palette, target, onLook }) {
+function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) {
   const chosen = spec.outputs.app_look;
   const palettes = look?.palette_colors || [];
+  const [tab, setTab] = useState('style');
+  const [pageId, setPageId] = useState('fix');
+  const pages = appPagesOf(spec);
+  const shownPage = pages.some((p) => p.id === pageId) ? pageId : 'fix';
+  const view = tab === 'charts' ? 'charts' : tab === 'pages' ? shownPage : 'fix';
+  const named = (list, id) => list.find((x) => x.id === id)?.label || id;
+  const viewLabel = view === 'charts' ? 'Charts' : named(pages, view);
+  const sampleLabel = `Sample App page: ${viewLabel}, in ${named(APP_STYLES, chosen.style)}, ${named(APP_LAYOUTS, chosen.layout)}, the ${paletteLabel(chosen.palette)} palette and ${named(APP_THEMES, chosen.theme)} mode`;
+  const tabKeys = (e) => {
+    const i = APP_LOOK_TABS.findIndex((t) => t.id === tab);
+    const step = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: APP_LOOK_TABS.length - 1 }[e.key];
+    if (step === undefined) return;
+    e.preventDefault();
+    const id = APP_LOOK_TABS[(step + APP_LOOK_TABS.length) % APP_LOOK_TABS.length].id;
+    setTab(id);
+    document.getElementById(`app-look-tab-${id}`)?.focus();
+  };
+  const panel = (id) => ({ role: 'tabpanel', id: `app-look-panel-${id}`, 'aria-labelledby': `app-look-tab-${id}`, hidden: tab !== id });
   return (
-    <section className="space-y-4" aria-label="App look">
+    <section className="space-y-2" aria-label="App look">
       <div>
         <h3 className="text-sm font-semibold text-text-primary">How should the App look?</h3>
         <p className="text-[11px] text-text-tertiary">
@@ -1888,67 +1901,125 @@ function AppLookStep({ spec, look, lookError, palette, target, onLook }) {
         </p>
         {lookError && <p className="text-[11px] text-error-fg">Inspire could not read the App looks from its agent notebook: {lookError}</p>}
       </div>
-      <fieldset className="space-y-2">
-        <legend className={LEGEND}>Style</legend>
-        <div className="grid grid-cols-3 gap-3 pt-1">
-          {APP_STYLES.map((s) => (
-            <LookCard key={s.id} name="app-style" value={s.id} checked={chosen.style === s.id} onChange={() => onLook('style', s.id)}
-              label={s.label} badge={s.id === 'a' ? 'Lakeview look' : ''} blurb={s.blurb}>
-              <StylePreview style={s.id} palette={palette} theme={chosen.theme} />
-            </LookCard>
-          ))}
-        </div>
-        <p className="text-[11px] text-text-secondary">{LAKEVIEW_STYLE_NOTE}</p>
-      </fieldset>
-      <fieldset className="space-y-2">
-        <legend className={LEGEND}>Layout</legend>
-        <div className="grid grid-cols-3 gap-3 pt-1">
-          {APP_LAYOUTS.map((l) => (
-            <LookCard key={l.id} name="app-layout" value={l.id} checked={chosen.layout === l.id} onChange={() => onLook('layout', l.id)} label={l.label} blurb={l.blurb}>
-              <LayoutPreview layout={l.id} palette={palette} theme={chosen.theme} />
-            </LookCard>
-          ))}
-        </div>
-      </fieldset>
-      <div className="grid grid-cols-[1fr_auto] items-start gap-5">
+      <div role="tablist" aria-label="App look sections" onKeyDown={tabKeys} className="flex gap-5 border-b border-border">
+        {APP_LOOK_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            id={`app-look-tab-${t.id}`}
+            aria-selected={tab === t.id}
+            aria-controls={`app-look-panel-${t.id}`}
+            tabIndex={tab === t.id ? 0 : -1}
+            onClick={() => setTab(t.id)}
+            className={`-mb-px border-b-2 px-0.5 pb-1.5 text-xs font-semibold glow-focus ${tab === t.id ? 'border-db-red text-text-primary' : 'border-transparent text-text-secondary hover:text-text-primary'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div {...panel('style')}>
         <fieldset className="space-y-2">
-          <legend className={LEGEND}>Palette</legend>
-          <div className="grid grid-cols-7 gap-1.5 pt-1">
-            {(palettes.length ? palettes : (look?.palettes || [])).map((p) => {
-              const id = typeof p === 'string' ? p : p.id;
-              const colors = typeof p === 'string' ? null : p[chosen.theme === 'dark' ? 'dark' : 'light'];
-              const checked = chosen.palette === id;
-              return (
-                <label key={id} className={`block cursor-pointer rounded-md p-1 glow-focus ${checked ? 'bg-db-red-50 ring-2 ring-db-red' : 'hover:bg-bg-subtle'}`}>
-                  <input type="radio" name="app-palette" value={id} className="sr-only" checked={checked} onChange={() => onLook('palette', id)} />
-                  <span aria-hidden="true" data-swatch={id} className="flex h-6 gap-px overflow-hidden rounded p-[3px]"
-                    style={colors ? { background: colors.base.bg, border: `1px solid ${colors.base['line-strong'] || colors.base.line}` } : undefined}>
-                    {colors && Object.values(colors.hues).map((hue, i) => <span key={i} className="block flex-1 rounded-[1px]" style={{ background: hue.line }} />)}
-                  </span>
-                  <span className="mt-1 block text-center text-[10px] text-text-secondary">{paletteLabel(id)}</span>
-                </label>
-              );
-            })}
-            {!look && !lookError && Array.from({ length: 13 }, (_, i) => <span key={i} aria-hidden="true" className="block h-[46px] rounded-md bg-bg-subtle animate-pulse" />)}
+          <legend className={LEGEND}>Style</legend>
+          <div className="grid grid-cols-3 gap-3 pt-1">
+            {APP_STYLES.map((s) => (
+              <LookCard key={s.id} name="app-style" value={s.id} checked={chosen.style === s.id} onChange={() => onLook('style', s.id)}
+                label={s.label} badge={s.id === 'a' ? 'Lakeview look' : ''} blurb={s.blurb}>
+                <StylePreview style={s.id} palette={palette} theme={chosen.theme} />
+              </LookCard>
+            ))}
           </div>
+          <p className="text-[11px] text-text-secondary">{LAKEVIEW_STYLE_NOTE}</p>
         </fieldset>
+      </div>
+      <div {...panel('palette')}>
+        <div className="grid grid-cols-[1fr_auto] items-start gap-5">
+          <fieldset className="space-y-2">
+            <legend className={LEGEND}>Palette</legend>
+            <div className="grid grid-cols-7 gap-1.5 pt-1">
+              {(palettes.length ? palettes : (look?.palettes || [])).map((p) => {
+                const id = typeof p === 'string' ? p : p.id;
+                const colors = typeof p === 'string' ? null : p[chosen.theme === 'dark' ? 'dark' : 'light'];
+                const checked = chosen.palette === id;
+                return (
+                  <label key={id} className={`block cursor-pointer rounded-md p-1 glow-focus ${checked ? 'bg-db-red-50 ring-2 ring-db-red' : 'hover:bg-bg-subtle'}`}>
+                    <input type="radio" name="app-palette" value={id} className="sr-only" checked={checked} onChange={() => onLook('palette', id)} />
+                    <span aria-hidden="true" data-swatch={id} className="flex h-6 gap-px overflow-hidden rounded p-[3px]"
+                      style={colors ? { background: colors.base.bg, border: `1px solid ${colors.base['line-strong'] || colors.base.line}` } : undefined}>
+                      {colors && Object.values(colors.hues).map((hue, i) => <span key={i} className="block flex-1 rounded-[1px]" style={{ background: hue.line }} />)}
+                    </span>
+                    <span className="mt-1 block text-center text-[10px] text-text-secondary">{paletteLabel(id)}</span>
+                  </label>
+                );
+              })}
+              {!look && !lookError && Array.from({ length: 13 }, (_, i) => <span key={i} aria-hidden="true" className="block h-[46px] rounded-md bg-bg-subtle animate-pulse" />)}
+            </div>
+          </fieldset>
+          <fieldset className="space-y-2">
+            <legend className={LEGEND}>Mode</legend>
+            <div role="group" aria-label="Light or dark" className="inline-flex rounded-lg border border-border overflow-hidden mt-1">
+              {APP_THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  aria-pressed={chosen.theme === t.id}
+                  onClick={() => onLook('theme', t.id)}
+                  className={`px-4 py-1.5 text-xs font-medium border-r border-border last:border-r-0 ${chosen.theme === t.id ? 'bg-db-red-solid text-white' : 'bg-surface text-text-secondary hover:text-text-primary'}`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+      </div>
+      <div {...panel('layout')}>
         <fieldset className="space-y-2">
-          <legend className={LEGEND}>Mode</legend>
-          <div role="group" aria-label="Light or dark" className="inline-flex rounded-lg border border-border overflow-hidden mt-1">
-            {APP_THEMES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                aria-pressed={chosen.theme === t.id}
-                onClick={() => onLook('theme', t.id)}
-                className={`px-4 py-1.5 text-xs font-medium border-r border-border last:border-r-0 ${chosen.theme === t.id ? 'bg-db-red-solid text-white' : 'bg-surface text-text-secondary hover:text-text-primary'}`}
-              >
-                {t.label}
-              </button>
+          <legend className={LEGEND}>Layout</legend>
+          <div className="grid grid-cols-3 gap-3 pt-1">
+            {APP_LAYOUTS.map((l) => (
+              <LookCard key={l.id} name="app-layout" value={l.id} checked={chosen.layout === l.id} onChange={() => onLook('layout', l.id)} label={l.label} blurb={l.blurb}>
+                <LayoutPreview layout={l.id} palette={palette} theme={chosen.theme} />
+              </LookCard>
             ))}
           </div>
         </fieldset>
       </div>
+      <div {...panel('charts')}>
+        <div className="space-y-2">
+          <p className="text-[11px] text-text-secondary">{APP_CHARTS_NOTE}</p>
+          <ul className="grid grid-cols-5 gap-2">
+            {APP_CHART_KINDS.map((k) => (
+              <li key={k.id} className="rounded-lg border border-border p-2">
+                <p className="text-[12px] font-semibold text-text-primary">{k.label}</p>
+                <p className="text-[11px] leading-snug text-text-secondary">{k.blurb}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      <div {...panel('pages')}>
+        <div className="space-y-2">
+          <p className="text-[11px] text-text-secondary">Pick a page to see it in the sample below.</p>
+          <div role="group" aria-label="Pages of the App" className="flex flex-wrap gap-1.5">
+            {pages.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                aria-pressed={shownPage === p.id}
+                onClick={() => setPageId(p.id)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium glow-focus ${shownPage === p.id ? 'border-db-red bg-db-red-50 text-text-primary' : 'border-border text-text-secondary hover:border-border-strong hover:text-text-primary'}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <p data-page-blurb="" className="text-[11px] leading-snug text-text-secondary">{pages.find((p) => p.id === shownPage).blurb}</p>
+        </div>
+      </div>
+      <AppSample palette={palette} look={chosen} appName={target?.name || spec.outputs.app_name || 'Your App'} title={title}
+        view={view} shared={spec.outputs.app_access !== 'user'} label={sampleLabel} />
+      <p className="text-[11px] text-text-tertiary">{APP_SAMPLE_NOTE}</p>
     </section>
   );
 }

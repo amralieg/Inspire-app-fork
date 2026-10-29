@@ -1527,6 +1527,7 @@ test('Edit after notebook edits asks on Delivery whether to overwrite them, and 
     assert.equal(await fresh.page.getByRole('button', { name: 'Start MVP', exact: true }).isDisabled(), true, 'an edit with no change cannot submit');
     assert.equal(await fresh.page.getByRole('alert').count(), 0, 'an unchanged edit is a note, never an error');
     assert.equal(await fresh.page.getByText(/^\d{3}:/).count(), 0, 'no HTTP status code reaches the screen');
+    await fresh.page.getByRole('region', { name: 'App look' }).getByRole('tab', { name: 'Palette', exact: true }).click();
     const mode = fresh.page.getByRole('region', { name: 'App look' }).getByRole('group', { name: 'Light or dark' });
     await mode.getByRole('button', { name: 'Dark' }).click();
     await note.waitFor({ state: 'detached' });

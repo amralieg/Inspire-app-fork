@@ -121,6 +121,34 @@ export const APP_LAYOUTS = [
   { id: 'home', label: 'Home cards', blurb: 'A home page of cards' },
 ];
 export const APP_THEMES = [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }];
+export const APP_LOOK_TABS = [
+  { id: 'style', label: 'Style' }, { id: 'palette', label: 'Palette' }, { id: 'layout', label: 'Layout' }, { id: 'charts', label: 'Charts' }, { id: 'pages', label: 'Pages' },
+];
+export const APP_SAMPLE_NOTE = 'Sample data. Your App shows the records of this use case in the look you pick.';
+export const APP_CHARTS_NOTE = 'Genie picks at least 3 charts that fit your results. Each chart has an Explain button that asks Genie what the chart shows.';
+export const APP_CHART_KINDS = [
+  { id: 'trend', label: 'Trend over time', blurb: 'Lines or areas by day or week' },
+  { id: 'bars', label: 'Bars by segment', blurb: 'Plain, stacked or sideways bars' },
+  { id: 'split', label: 'Split by tier', blurb: 'A donut of Act now, Review and Monitor' },
+  { id: 'pareto', label: 'Biggest first', blurb: 'A pareto of where most of the money sits' },
+  { id: 'scatter', label: 'Two measures', blurb: 'A scatter or a heatmap' },
+];
+
+export function appPagesOf(spec) {
+  const outputs = spec?.outputs || {};
+  const options = outputs.app_options || {};
+  const shared = outputs.app_access !== 'user';
+  const fix = ['What needs action: the totals, at least 3 charts, and every flagged record with the reason Inspire flagged it.'];
+  if (options.modify) fix.push('People can edit a record, and Inspire keeps who changed what.');
+  if (options.decisions && shared) fix.push('People own, track and dismiss each flagged record.');
+  return [
+    { id: 'fix', label: 'Things to fix', blurb: fix.join(' ') },
+    { id: 'runs', label: 'Runs', blurb: 'Every run of the notebook: when it ran, the data it read and the records it flagged.' },
+    ...(options.alerts && shared ? [{ id: 'alerts', label: 'Alerts', blurb: 'Email alerts people set up on what the App shows, each on its own schedule.' }] : []),
+    { id: 'impact', label: 'Impact', blurb: 'What the use case delivered: estimated, reported and measured money, never added together.' },
+    ...(outputs.genie_space ? [{ id: 'genie', label: 'Ask Genie', blurb: 'A Genie panel next to every page, which also answers about one record or one chart.' }] : []),
+  ];
+}
 export const GENIE_FOR_APP_NOTE = 'Ask Genie in the App needs a Genie Agent.';
 export const RESULT_TABLE_MOVE_NOTE = 'Moving the table later copies its history to the new table and keeps the old one.';
 export const MERGE_OUTPUTS = ['dashboard', 'genie_space', 'app'];
