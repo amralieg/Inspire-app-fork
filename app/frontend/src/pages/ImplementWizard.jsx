@@ -1625,9 +1625,8 @@ function AppAccessStep({ spec, target, lakebase, onAccess, onOption, onBackend }
             <div key={o.id}>
               <label className="flex items-start gap-2.5 cursor-pointer">
                 <input type="checkbox" className="mt-0.5" checked={Boolean(options[o.id])} onChange={(e) => onOption(o.id, e.target.checked)} />
-                <span>
-                  <span className="block text-[12px] font-medium text-text-primary">{o.label}</span>
-                  <span className="block text-[11px] text-text-secondary">{o.blurb}</span>
+                <span className="text-[11px] text-text-secondary">
+                  <span className="text-[12px] font-medium text-text-primary">{o.label}</span>. {o.blurb}
                 </span>
               </label>
               {o.id === 'modify' && appOptionShown(spec, 'replace_edits') && (

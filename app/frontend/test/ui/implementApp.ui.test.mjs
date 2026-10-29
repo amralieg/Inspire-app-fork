@@ -71,7 +71,7 @@ test('ticking the App locks the Genie Agent on, App access must be chosen, per-u
     const internal = access.getByRole('radio', { name: /^Internal data: the App uses its own service principal/ });
     assert.deepEqual([await perUser.isChecked(), await internal.isChecked()], [false, false], 'no access is chosen for the person');
     assert.deepEqual(await access.getByRole('checkbox').evaluateAll((boxes) => boxes.map((b) => [b.closest('label').querySelector('span span').textContent, b.checked])),
-      [['Let people edit data', false], ['Record decisions', false]], 'every option starts off, and none is a download');
+      [['Let people edit data', false], ['Record decisions', false], ['Send alerts', false]], 'every option starts off, and none is a download');
     await access.locator('label', { hasText: 'Record decisions' })
       .getByText('They own, track and dismiss each flagged record (the action tracker).', { exact: false }).waitFor();
     assert.equal(await access.locator('label', { hasText: 'Let people edit data' }).getByText('action tracker', { exact: false }).count(), 0);
@@ -86,8 +86,9 @@ test('ticking the App locks the Genie Agent on, App access must be chosen, per-u
     await access.getByRole('checkbox', { name: /^Record decisions/ }).check();
     await perUser.check();
     assert.equal(await access.getByRole('checkbox', { name: /^Record decisions/ }).count(), 0, 'per-user hides record decisions');
+    assert.equal(await access.getByRole('checkbox', { name: /^Send alerts/ }).count(), 0, 'per-user hides alerts');
     const hidden = access.getByRole('note', { name: 'Why some options are hidden' });
-    await hidden.getByText(/: it offers no recorded decisions and no chart image export\.$/).waitFor();
+    await hidden.getByText(/: it offers no recorded decisions, no alerts and no chart image export\.$/).waitFor();
     assert.doesNotMatch(await hidden.textContent(), /download/i);
     await offers.getByText('The App offers no data downloads.', { exact: true }).waitFor();
     const replace = access.getByRole('radiogroup', { name: 'Should a new run replace edited records?' });
@@ -121,7 +122,7 @@ test('ticking the App locks the Genie Agent on, App access must be chosen, per-u
     const spec = submittedSpec(made);
     assert.deepEqual([spec.outputs.app, spec.outputs.genie_space, spec.outputs.app_access], [true, true, 'user']);
     assert.deepEqual(spec.outputs.app_look, { style: 'c', layout: 'home', palette: 'nordic', theme: 'dark' });
-    assert.deepEqual(spec.outputs.app_options, { modify: true, replace_edits: false, decisions: false });
+    assert.deepEqual(spec.outputs.app_options, { modify: true, replace_edits: false, decisions: false, alerts: false });
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -417,6 +418,32 @@ test('every wizard step fits a 1440x900 screen with nothing to scroll, the App s
     await page.getByRole('group', { name: 'Light or dark' }).getByRole('button', { name: 'Dark' }).click();
     await fits('6-app-look-dark-palette');
     console.log(`wizard step heights at 1440x900: ${JSON.stringify(heights)}`);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('Send alerts is a build setting of a shared App: off until ticked, then sent with the build', async () => {
+  const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' }, responses: { 'GET /api/2.0/postgres/projects': [{ projects: [] }, 200] } });
+  const { page, made } = ui;
+  try {
+    await toDelivery(page);
+    await page.getByRole('checkbox', { name: /^App / }).check();
+    await next(page);
+    await onStep(page, 'App access');
+    const access = page.getByRole('region', { name: 'App access' });
+    await access.getByRole('radio', { name: /^Internal data/ }).check();
+    const alerts = access.getByRole('checkbox', { name: /^Send alerts/ });
+    assert.equal(await alerts.isChecked(), false, 'alerts start off');
+    await access.locator('label', { hasText: 'Send alerts' })
+      .getByText('People set up email alerts on what the App shows, each on its own schedule, sent only to people in this workspace.', { exact: false }).waitFor();
+    assert.doesNotMatch(await access.locator('label', { hasText: 'Send alerts' }).textContent(), /\u2014|\u2013/);
+    await alerts.check();
+    await next(page);
+    await onStep(page, 'App look');
+    await startWhenReady(page);
+    assert.equal(submittedSpec(made).outputs.app_options.alerts, true);
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();

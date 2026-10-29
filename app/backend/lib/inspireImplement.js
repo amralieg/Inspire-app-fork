@@ -32,8 +32,8 @@ const IMPLEMENT_OUTPUT_OPTIONS = {
 };
 const IMPLEMENT_APP_LOOK_DEFAULT = { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' };
 const IMPLEMENT_APP_LOOK_LISTS = { style: 'styles', layout: 'layouts', palette: 'palettes', theme: 'themes' };
-const IMPLEMENT_APP_OPTION_KEYS = ['modify', 'replace_edits', 'decisions'];
-const IMPLEMENT_PER_USER_OFF = ['decisions'];
+const IMPLEMENT_APP_OPTION_KEYS = ['modify', 'replace_edits', 'decisions', 'alerts'];
+const IMPLEMENT_PER_USER_OFF = ['decisions', 'alerts'];
 const IMPLEMENT_MERGE_OUTPUTS = ['dashboard', 'genie_space', 'app'];
 const IMPLEMENT_MERGE_NOUNS = { app: 'an App', dashboard: 'a dashboard', genie_space: 'a Genie Agent' };
 const IMPLEMENT_MERGE_LABELS = { app: 'App', dashboard: 'dashboard', genie_space: 'Genie Agent' };

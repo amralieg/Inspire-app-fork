@@ -74,12 +74,14 @@ export function withAppBackend(spec, backend) {
   return { ...spec, outputs: { ...spec.outputs, app_backend: backend } };
 }
 
-export const APP_OPTION_KEYS = ['modify', 'replace_edits', 'decisions'];
-export const PER_USER_OFF = ['decisions'];
+export const APP_OPTION_KEYS = ['modify', 'replace_edits', 'decisions', 'alerts'];
+export const PER_USER_OFF = ['decisions', 'alerts'];
 export const APP_OPTIONS = [
   { id: 'modify', label: 'Let people edit data', blurb: 'People can change records in the App, and Inspire keeps who changed what.' },
   { id: 'decisions', label: 'Record decisions',
     blurb: 'People can record what they decided on each record, with who decided and when. They own, track and dismiss each flagged record (the action tracker).' },
+  { id: 'alerts', label: 'Send alerts',
+    blurb: 'People set up email alerts on what the App shows, each on its own schedule, sent only to people in this workspace. When decisions are on, a record\'s owner gets an email when someone assigns it to them.' },
 ];
 export const APP_NO_DOWNLOADS = 'The App offers no data downloads.';
 export const APP_REFRESH_NOTE = 'Refresh now: in a shared App anyone who can open it can refresh it; in an App where each person sees only their own data, only you can. '
@@ -90,7 +92,7 @@ export const REPLACE_EDITS_CHOICES = [
   { id: true, label: 'Yes', blurb: 'A new run writes its own results over edited records.' },
 ];
 export const PER_USER_REASON = 'Each person signs in as themselves, so the App keeps every row inside their own access: '
-  + 'it offers no recorded decisions and no chart image export.';
+  + 'it offers no recorded decisions, no alerts and no chart image export.';
 
 export const APP_LOOK_DEFAULT = { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' };
 export const APP_STYLES = [
