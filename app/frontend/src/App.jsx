@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Component } from 'react';
+import { useState, useEffect, useCallback, useMemo, Component } from 'react';
 import { ThemeProvider } from './ThemeContext';
 import Header from './components/Header';
 import LandingPage from './pages/LandingPage';
@@ -11,7 +11,11 @@ import ChoosePage from './pages/ChoosePage';
 import ImplementPage from './pages/ImplementPage';
 import ScrollProgressRing from './components/ScrollProgressRing';
 import ParticleField from './components/ParticleField';
+import ShowcaseBar from './components/ShowcaseBar';
 import { RESULTS_FRAME } from './lib/layout';
+import { showcaseSettings, showcasesFrom, staysInShowcase } from './lib/showcase';
+
+const noop = () => {};
 
 /** Legacy Configure default pointed at a user folder that often does not exist; use shared publish path. */
 const WORKSPACE_NOTEBOOK_SHARED = '/Shared/inspire-ai/dbx_inspire_ai_agent';
@@ -87,6 +91,21 @@ export default function App() {
   const [sessionId, setSessionId] = useState(null);
   const [runId, setRunId] = useState(null);
   const [implement, setImplement] = useState({ sessionId: null, focus: null });
+  const [showcases, setShowcases] = useState([]);
+  const [demo, setDemo] = useState({ showcase: null, focus: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/showcase')
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((data) => { if (!cancelled) setShowcases(showcasesFrom(data)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const onDemoFocus = useCallback((id) => {
+    setDemo((prev) => ({ ...prev, focus: id }));
+  }, []);
 
   const onResultsSession = useCallback((sid) => {
     setImplement((prev) => (prev.sessionId === sid ? prev : { sessionId: sid, focus: null }));
@@ -248,19 +267,34 @@ export default function App() {
   }, [settings.authMode, settings.spClientId, settings.spClientSecret, settings.spTenantId, settings.databricksHost]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [transitioning, setTransitioning] = useState(false);
+  const inDemo = !!demo.showcase;
   const nav = useCallback((p) => {
-    if (p === page) return;
+    const leaving = inDemo && !staysInShowcase(p);
+    if (p === page && !leaving) return;
     setTransitioning(true);
     setTimeout(() => {
+      if (leaving) setDemo({ showcase: null, focus: null });
       setPage(p);
       setTransitioning(false);
     }, 200);
-  }, [page]);
+  }, [page, inDemo]);
 
   const openImplement = useCallback((sid, useCaseId) => {
-    setImplement({ sessionId: String(sid), focus: useCaseId || null });
+    if (inDemo) setDemo((prev) => ({ ...prev, focus: useCaseId || null }));
+    else setImplement({ sessionId: String(sid), focus: useCaseId || null });
     nav('implement');
-  }, [nav]);
+  }, [nav, inDemo]);
+
+  const openDemo = useCallback((showcase) => {
+    setDemo({ showcase, focus: null });
+    setTransitioning(true);
+    setTimeout(() => {
+      setPage('results');
+      setTransitioning(false);
+    }, 200);
+  }, []);
+
+  const pageSettings = useMemo(() => showcaseSettings(settings, demo.showcase), [settings, demo.showcase]);
 
   const finishSetup = useCallback(() => {
     try {
@@ -270,9 +304,10 @@ export default function App() {
   }, [nav]);
 
   const canLaunch = true;
-  const canMonitor = Boolean(sessionId || runId);
+  const canMonitor = !inDemo && Boolean(sessionId || runId);
   const canResults = true;
-  const implementSessionId = implement.sessionId || (sessionId ? String(sessionId) : null);
+  const implementSessionId = inDemo ? demo.showcase.session_id : implement.sessionId || (sessionId ? String(sessionId) : null);
+  const implementFocus = inDemo ? demo.focus : implement.focus;
 
   return (
     <ThemeProvider>
@@ -288,6 +323,9 @@ export default function App() {
           canResults={canResults}
           canImplement={Boolean(implementSessionId)}
         />
+      )}
+      {inDemo && page !== 'landing' && (
+        <ShowcaseBar showcase={demo.showcase} onGetStarted={() => nav('choose')} onLeave={() => nav('landing')} />
       )}
 
       <main className={transitioning ? 'page-exit' : 'page-enter'} key={page}>
@@ -305,7 +343,11 @@ export default function App() {
         )}
 
         {page === 'landing' && (
-          <LandingPage onStart={() => nav('choose')} onOpenSetup={() => nav('setup')} />
+          <LandingPage
+            onStart={() => nav('choose')}
+            onOpenSetup={() => nav('setup')}
+            onDemo={showcases.length ? () => openDemo(showcases[0]) : undefined}
+          />
         )}
 
         {page === 'choose' && (
@@ -367,10 +409,11 @@ export default function App() {
           <ErrorBoundary key="results">
             <div className={RESULTS_FRAME}>
               <ResultsPage
-                settings={settings}
-                update={update}
-                sessionId={sessionId}
-                onSessionChange={onResultsSession}
+                key={inDemo ? `demo-${demo.showcase.id}` : 'workspace'}
+                settings={pageSettings}
+                update={inDemo ? noop : update}
+                sessionId={inDemo ? demo.showcase.session_id : sessionId}
+                onSessionChange={inDemo ? noop : onResultsSession}
                 onOpenImplement={openImplement}
               />
             </div>
@@ -380,11 +423,11 @@ export default function App() {
         {page === 'implement' && implementSessionId && (
           <ErrorBoundary key="implement">
             <ImplementPage
-              key={implementSessionId}
-              settings={settings}
+              key={inDemo ? `demo-${implementSessionId}` : implementSessionId}
+              settings={pageSettings}
               sessionId={implementSessionId}
-              focusId={implement.focus}
-              onFocus={onImplementFocus}
+              focusId={implementFocus}
+              onFocus={inDemo ? onDemoFocus : onImplementFocus}
             />
           </ErrorBoundary>
         )}

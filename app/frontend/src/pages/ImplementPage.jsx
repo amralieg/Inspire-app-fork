@@ -36,6 +36,7 @@ import { mvpStages, mvpProgressSummary, mvpRepairOf, feedArrivals } from '../lib
 import MvpProgress from '../components/MvpProgress';
 import GenieFeed from '../components/GenieFeed';
 import MoneyReview, { NothingToActCard } from '../components/MoneyReview';
+import { SHOWCASE_DASHBOARD_NOTE, SHOWCASE_GENIE_NOTE, SHOWCASE_NO_MVP, SHOWCASE_NOTE, SHOWCASE_OPEN_APP } from '../lib/showcase';
 
 const TABS = [[PROGRESS_TAB, Activity], [CONTROL_TAB, Radar]];
 const OUTPUT_ICONS = { notebook: NotebookPen, dashboard: LayoutDashboard, genie_space: GenieLogo, app: AppWindow, alert: BellRing };
@@ -254,9 +255,10 @@ function Rail({ groups, listLoading, query, asset, assetLabel, shownId, onSelect
 }
 
 export default function ImplementPage({ settings, sessionId, focusId = null, onFocus }) {
-  const { token, databricksHost } = settings;
-  const apiFetch = useMemo(() => makeApiFetch({ token, databricksHost }), [token, databricksHost]);
-  const apiPostJson = useMemo(() => makeApiPostJson({ token, databricksHost }), [token, databricksHost]);
+  const { token, databricksHost, showcase = '' } = settings;
+  const readOnly = Boolean(showcase);
+  const apiFetch = useMemo(() => makeApiFetch({ token, databricksHost, showcase }), [token, databricksHost, showcase]);
+  const apiPostJson = useMemo(() => makeApiPostJson({ token, databricksHost, showcase }), [token, databricksHost, showcase]);
   const [useCases, setUseCases] = useState([]);
   const [discoveryType, setDiscoveryType] = useState('');
   const [listLoading, setListLoading] = useState(true);
@@ -372,14 +374,15 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
               refreshKey={refreshKey}
               savedView={views[selected.id] || null}
               onView={(view) => rememberView(selected.id, view)}
-              onEdit={(focus) => setWizard({ uc: selected.uc, focus })}
+              onEdit={readOnly ? undefined : (focus) => setWizard({ uc: selected.uc, focus })}
+              readOnly={readOnly}
             />
           ) : (
             !listLoading && !listError && <p className={`${PANEL_CLASS} p-6 text-[12px] text-text-secondary`}>This session has no use cases yet.</p>
           )}
         </section>
       </div>
-      {wizard && (
+      {wizard && !readOnly && (
         <ImplementWizard
           uc={wizard.uc}
           sessionId={sessionId}
@@ -681,7 +684,7 @@ function DetailsDrawer({ id, useCaseId, onClose, children }) {
 }
 
 function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson, databricksHost, notebookRunError, refreshKey, savedView,
-  onView, onEdit }) {
+  onView, onEdit, readOnly = false }) {
   const useCaseId = item.id;
   const hasMvp = Boolean(item.latest);
   const viewId = useId();
@@ -939,15 +942,24 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
       );
     }
     if (id === 'dashboard') {
-      return latest?.dashboard_url
-        ? <a className={LINK} href={latest.dashboard_url} target="_blank" rel="noreferrer">Open dashboard <ExternalLink size={12} /></a>
-        : <p className="text-text-secondary">No dashboard on this version.</p>;
+      if (!latest?.dashboard_url) return <p className="text-text-secondary">No dashboard on this version.</p>;
+      return (
+        <>
+          {readOnly && <p className="text-text-secondary">{SHOWCASE_DASHBOARD_NOTE}</p>}
+          <a className={LINK} href={latest.dashboard_url} target="_blank" rel="noreferrer">
+            {readOnly ? SHOWCASE_OPEN_APP : 'Open dashboard'} <ExternalLink size={12} />
+          </a>
+        </>
+      );
     }
     if (id === 'genie_space') {
       if (!latest?.genie_space_url) return <p className="text-text-secondary">No Genie Agent on this version.</p>;
       return (
         <>
-          <a className={LINK} href={latest.genie_space_url} target="_blank" rel="noreferrer">Open Genie Agent <ExternalLink size={12} /></a>
+          {readOnly && <p className="text-text-secondary">{SHOWCASE_GENIE_NOTE}</p>}
+          <a className={LINK} href={latest.genie_space_url} target="_blank" rel="noreferrer">
+            {readOnly ? SHOWCASE_OPEN_APP : 'Open Genie Agent'} <ExternalLink size={12} />
+          </a>
           {genie.questions.length > 0 && (
             <div>
               <p className="font-medium text-text-primary">{genie.source === 'space' ? 'Sample questions in the Genie Agent' : 'Questions you asked for'}</p>
@@ -1016,9 +1028,11 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
         <button type="button" onClick={seeBuild} className={OUTLINE_BUTTON}>
           <Activity size={12} /> See the build
         </button>
-        <button type="button" onClick={() => onEdit(null)} className={buildAgain ? OUTLINE_BUTTON : PRIMARY_BUTTON}>
-          <Pencil size={12} /> Edit the MVP
-        </button>
+        {onEdit && (
+          <button type="button" onClick={() => onEdit(null)} className={buildAgain ? OUTLINE_BUTTON : PRIMARY_BUTTON}>
+            <Pencil size={12} /> Edit the MVP
+          </button>
+        )}
       </div>
     </section>
   );
@@ -1047,7 +1061,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                   <FileText size={13} /> Use case details
                 </button>
               )}
-              {built ? (
+              {readOnly ? null : built ? (
                 <>
                   <button
                     type="button"
@@ -1079,7 +1093,9 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
         </div>
         {!hasMvp && (
           <p className="px-5 pb-5 text-[12px] text-text-secondary">
-            No MVP yet. {START_MVP_LABEL} builds one, or writes only the Genie Code notebook when you choose Notebook only.
+            {readOnly
+              ? SHOWCASE_NO_MVP
+              : `No MVP yet. ${START_MVP_LABEL} builds one, or writes only the Genie Code notebook when you choose Notebook only.`}
           </p>
         )}
         {uninstalled && (
@@ -1090,7 +1106,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
       </div>
       {detailsOpen && row && (
         <UseCaseDrawer row={row} onClose={() => setDetailsOpen(false)}>
-          <UseCaseDetailBody uc={item.uc} v130={item.uc._v130 || null} token={settings.token} databricksHost={databricksHost} />
+          <UseCaseDetailBody uc={item.uc} v130={item.uc._v130 || null} token={settings.token} databricksHost={databricksHost} showcase={settings.showcase || ''} />
         </UseCaseDrawer>
       )}
       {!built && notebook && <ImplementControlTower mvp={false} notebook={notebook} onDetails={openDetails} />}
@@ -1118,9 +1134,11 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
           {missing.length > 0 && (
             <div className="border border-error/30 bg-error-bg rounded-lg px-3 py-2 text-[12px] space-y-2">
               <p className="text-error-fg">{lostTablesText(missing)}</p>
-              <button type="button" disabled={active} onClick={() => onEdit({ step: 'data', missingTables: missing })} className={PRIMARY_BUTTON}>
-                <Pencil size={12} /> Edit the Data step
-              </button>
+              {onEdit && (
+                <button type="button" disabled={active} onClick={() => onEdit({ step: 'data', missingTables: missing })} className={PRIMARY_BUTTON}>
+                  <Pencil size={12} /> Edit the Data step
+                </button>
+              )}
             </div>
           )}
           {edited && (
@@ -1185,7 +1203,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                       outputs={vibeAssets}
                       live={liveVersion(history)}
                       next={Math.max(0, ...history.map((r) => r.spec_version || 0)) + 1}
-                      locked={active || submitBusy}
+                      locked={readOnly || active || submitBusy}
+                      lockedReason={readOnly ? SHOWCASE_NOTE : ''}
                       active={active}
                       last={lastVibeRun}
                       onSend={vibeAll}
@@ -1206,7 +1225,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                   onRemove={removeOutput}
                   onToggleSchedule={toggleSchedule}
                   onRefresh={loadLive}
-                  onAddOutput={() => onEdit({ step: 'delivery' })}
+                  onAddOutput={onEdit ? () => onEdit({ step: 'delivery' }) : undefined}
                   onRetry={retryOutput}
                   onDetails={openDetails}
                 />
@@ -1214,14 +1233,16 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                   <SectionTitle icon={RefreshCw} title="Run and schedule" hint="Edit, schedule and retry build a new version; a preview re-run does not" />
                   <div className="p-4 grid gap-5 md:grid-cols-2 text-[12px]">
                     <div className="space-y-4">
-                      <button
-                        type="button"
-                        disabled={active}
-                        onClick={() => onEdit(null)}
-                        className={`w-full justify-center ${OUTLINE_BUTTON}`}
-                      >
-                        <Pencil size={12} /> {active ? 'Edit applies after this run' : 'Edit the MVP'}
-                      </button>
+                      {onEdit && (
+                        <button
+                          type="button"
+                          disabled={active}
+                          onClick={() => onEdit(null)}
+                          className={`w-full justify-center ${OUTLINE_BUTTON}`}
+                        >
+                          <Pencil size={12} /> {active ? 'Edit applies after this run' : 'Edit the MVP'}
+                        </button>
+                      )}
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary mb-1">Quick re-run</div>
                         {widgets.map((w) => (

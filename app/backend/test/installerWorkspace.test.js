@@ -21,9 +21,9 @@ pages = {
 }
 in_use = ns["_app_service_principal_ids"](lambda p: pages[p])
 assert in_use == {"MEHDI", "LIVE", "OTHER"}, in_use
-sps = [{"displayName": "app-p50o0f inspire-ai-v130", "applicationId": "LIVE", "id": "1"},
-       {"displayName": "app-p50o0f inspire-ai-v130", "applicationId": "STALE", "id": "2"},
-       {"displayName": "app-p50o0f inspire-ai", "applicationId": "MEHDI", "id": "3"},
+sps = [{"displayName": "app-q7k2m9 inspire-ai-v130", "applicationId": "LIVE", "id": "1"},
+       {"displayName": "app-q7k2m9 inspire-ai-v130", "applicationId": "STALE", "id": "2"},
+       {"displayName": "app-q7k2m9 inspire-ai", "applicationId": "MEHDI", "id": "3"},
        {"displayName": "inspire-ai-v130-sp", "applicationId": "OLD", "id": "4"},
        {"displayName": "inspire-ai-cicd", "applicationId": "CICD", "id": "5"}]
 deletable = ns["_deletable_service_principals"](sps, "inspire-ai-v130", "inspire-ai-v130-sp", in_use)

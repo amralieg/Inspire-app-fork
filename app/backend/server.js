@@ -28,6 +28,7 @@ const { notebookParamsFromSessionForGenerateRun } = require('./lib/inspireSessio
 const { splitInspireDatabase, isTimestampText, stepsStatement } = require('./lib/sqlInputs');
 const { createExecuteSql, runWithRequestDeadline } = require('./lib/sqlStatements');
 const { registerImplementRoutes } = require('./implementRoutes');
+const { registerShowcaseRoutes } = require('./lib/showcase');
 const {
   FEEDBACK_NOT_AVAILABLE,
   isMissingTableError,
@@ -155,6 +156,8 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+registerShowcaseRoutes(app);
 
 // Multer for file uploads (store in memory)
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });

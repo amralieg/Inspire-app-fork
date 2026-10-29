@@ -307,6 +307,21 @@ const REST = {
   responses: { 'GET /api/2.0/genie/spaces/g1': [{ space_id: 'g1', title: 'Demand agent' }] },
 };
 
+test('a merge target App shows the look of the use case that built it, never a joiner\'s look', () => {
+  const look = (style, palette) => ({ app_access: 'sp', app_look: { style, layout: 'tabs', palette, theme: 'light' } });
+  const rows = [
+    row('77', 'N04-U01', 1, { app_name: 'churn-desk', spec_json: named('Route trucks', look('b', 'ocean')) }),
+    row('42', 'N01-U02', 1, { app_name: 'churn-desk', spec_json: named('Forecast demand', look('a', 'forest')) }),
+    row('42', 'N01-U05', 1, { app_name: 'churn-desk', spec_json: named('Plan shifts') }),
+  ].map(I.parseImplementRow);
+  const [entry] = I.mergeRegistry(rows, { sessionId: '42', useCaseId: 'N01-U01' }).app;
+  assert.deepEqual(entry.holders.map((h) => h.use_case_id), ['N04-U01', 'N01-U02', 'N01-U05'], 'the joiner is listed first');
+  const owned = (description) => I.mergeTarget('app', entry, { ok: true, data: { name: 'churn-desk', description } });
+  assert.deepEqual(owned('Inspire use case N01-U02 (session 42): Forecast demand').look, look('a', 'forest').app_look);
+  assert.deepEqual(owned('Inspire use case N04-U01 (session 77): Route trucks').look, look('b', 'ocean').app_look);
+  assert.equal(owned('Inspire use case N01-U05 (session 42): Plan shifts').look, null, 'an owner with no recorded look shows none');
+});
+
 test('the App lists the merge targets Inspire built and confirms each one live', async () => {
   const { app, fetches } = makeApp({ registry: REGISTRY, ...REST });
   const srv = await listen(app);

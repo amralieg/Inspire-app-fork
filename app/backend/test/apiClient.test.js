@@ -33,6 +33,18 @@ test('both helpers send the token and workspace host headers, and POST sends JSO
   });
 });
 
+test('a demo request names the demo and sends no token or workspace host', async () => {
+  const { makeApiFetch, makeApiPostJson, requestHeaders, SHOWCASE_HEADER } = await load();
+  await withFetch(() => ({ text: '{}' }), async (calls) => {
+    await makeApiFetch({ token: 'tok', databricksHost: 'https://h', showcase: 'nyctaxi' })('/api/a');
+    await makeApiPostJson({ token: 'tok', databricksHost: 'https://h', showcase: 'nyctaxi' })('/api/b', {});
+    assert.deepEqual(calls[0].opts.headers, { [SHOWCASE_HEADER]: 'nyctaxi' });
+    assert.deepEqual(calls[1].opts.headers, { 'Content-Type': 'application/json', [SHOWCASE_HEADER]: 'nyctaxi' });
+  });
+  assert.equal(SHOWCASE_HEADER.toLowerCase(), require('../lib/showcase').SHOWCASE_HEADER);
+  assert.deepEqual(requestHeaders('tok', '', { Accept: 'x' }), { Accept: 'x', Authorization: 'Bearer tok', 'X-DB-PAT-Token': 'tok' });
+});
+
 test('without a token or host no auth headers are sent', async () => {
   const { makeApiFetch, makeApiPostJson } = await load();
   await withFetch(() => ({ text: '{}' }), async (calls) => {

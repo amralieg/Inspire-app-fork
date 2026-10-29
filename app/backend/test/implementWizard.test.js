@@ -1162,3 +1162,21 @@ test('App look lists only the pages the App gets: alerts and recorded decisions 
     ...w.appPagesOf(all).flatMap((p) => [p.label, p.blurb])];
   for (const text of texts) assert.doesNotMatch(text, /[\u2013\u2014]/, text);
 });
+
+test('a joined App\'s look reads in plain words and says how to get a look of its own', async () => {
+  const w = await load();
+  const look = { style: 'a', layout: 'tabs', palette: 'ocean', theme: 'dark' };
+  assert.equal(w.lookText(look), 'Style A, Top tabs, the Ocean palette and Dark mode');
+  assert.deepEqual([w.lookLabel('palette', ''), w.lookLabel('style', 'z'), w.lookLabel('layout', undefined), w.lookLabel('other', 'x')], ['', 'z', '', 'x'],
+    'an unknown value shows as it is');
+  const tail = 'The use case that built inspire-hub-acme sets its look. For a look of its own, choose Create new for the App in the Delivery step.';
+  const text = w.joinedLookText({ name: 'inspire-hub-acme', look });
+  assert.equal(text, `This use case joins inspire-hub-acme, so it shows in that App's look: Style A, Top tabs, the Ocean palette and Dark mode. ${tail}`);
+  assert.equal(w.joinedLookText({ name: 'inspire-hub-acme', look: { palette: 'earth' } }),
+    `This use case joins inspire-hub-acme, so it shows in that App's look: Style A, Sidebar, the Earth palette and Light mode. ${tail}`,
+    'a partly recorded look fills in the defaults the agent fills in');
+  assert.equal(w.joinedLookText({ name: 'inspire-hub-acme', look: null }),
+    `This use case joins inspire-hub-acme, so it shows in that App's look, which Inspire has no record of. ${tail}`, 'never a guessed look');
+  assert.doesNotMatch(text, /[\u2013\u2014]/);
+  assert.match(text, new RegExp(w.IMPLEMENT_STEPS.find((s) => s.id === 'delivery').label), 'it names the step where Create new is');
+});

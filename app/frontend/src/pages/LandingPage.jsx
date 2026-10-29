@@ -10,10 +10,12 @@ import {
   Terminal,
   ChevronDown,
   MessageSquareText,
+  Eye,
 } from 'lucide-react';
 import DatabricksLogo from '../components/DatabricksLogo';
 import { useTheme } from '../ThemeContext';
 import { Sun, Moon } from 'lucide-react';
+import { SHOWCASE_BUTTON } from '../lib/showcase';
 
 /* ═══════════════════════════════════════════════════
    DATA
@@ -582,7 +584,23 @@ const C = {
   cardBorder: 'var(--t-border)',
 };
 
-export default function LandingPage({ onStart, onOpenSetup }) {
+function DemoButton({ onDemo, large = false, className = '' }) {
+  if (!onDemo) return null;
+  return (
+    <button
+      type="button"
+      onClick={onDemo}
+      aria-label={SHOWCASE_BUTTON}
+      className={`group inline-flex items-center gap-2.5 font-semibold rounded-xl transition-all duration-300 hover:-translate-y-0.5 ${large ? 'px-10 py-5 text-base' : 'px-8 py-4 text-sm'} ${className}`}
+      style={{ color: C.text, backgroundColor: C.btnBg, border: `1px solid ${C.btnBorder}` }}
+    >
+      <Eye size={large ? 18 : 16} aria-hidden="true" />
+      {SHOWCASE_BUTTON}
+    </button>
+  );
+}
+
+export default function LandingPage({ onStart, onOpenSetup, onDemo }) {
   const typedText = useTypingEffect(HERO_WORDS);
   const scrollContainerRef = useRef(null);
   const { progress, section } = useScrollProgress(scrollContainerRef);
@@ -685,15 +703,18 @@ export default function LandingPage({ onStart, onOpenSetup }) {
                   AI-powered analytics use case discovery from your Unity Catalog metadata. Scored, prioritized, and implementation-ready.
                 </p>
 
-                <button
-                  onClick={onStart}
-                  aria-label="Get Started"
-                  className="group inline-flex items-center gap-2.5 px-8 py-4 bg-gradient-to-r from-db-red-solid to-db-red-solid-hover text-white text-sm font-bold rounded-xl transition-all duration-300 hover:-translate-y-0.5"
-                  style={{ boxShadow: '0 0 0 1px rgba(255,54,33,0.3), 0 4px 12px rgba(255,54,33,0.2), 0 8px 30px rgba(255,54,33,0.15), 0 20px 60px rgba(255,54,33,0.1)' }}
-                >
-                  Get Started
-                  <ArrowRight size={16} className="group-hover:translate-x-0.5 transition-transform duration-300" />
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={onStart}
+                    aria-label="Get Started"
+                    className="group inline-flex items-center gap-2.5 px-8 py-4 bg-gradient-to-r from-db-red-solid to-db-red-solid-hover text-white text-sm font-bold rounded-xl transition-all duration-300 hover:-translate-y-0.5"
+                    style={{ boxShadow: '0 0 0 1px rgba(255,54,33,0.3), 0 4px 12px rgba(255,54,33,0.2), 0 8px 30px rgba(255,54,33,0.15), 0 20px 60px rgba(255,54,33,0.1)' }}
+                  >
+                    Get Started
+                    <ArrowRight size={16} className="group-hover:translate-x-0.5 transition-transform duration-300" />
+                  </button>
+                  <DemoButton onDemo={onDemo} />
+                </div>
 
                 <aside className="mt-5 max-w-lg space-y-3" aria-label="Setup and legal disclaimer">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" style={{ color: C.textFaint }}>
@@ -928,6 +949,7 @@ export default function LandingPage({ onStart, onOpenSetup }) {
               Get Started
               <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform duration-300" />
             </button>
+            <DemoButton onDemo={onDemo} large className={`ml-3 ${section >= 5 ? 'opacity-100' : 'opacity-0'}`} />
 
             <div className="flex items-center justify-center gap-3 mt-12">
               {['Unity Catalog', 'Foundation Models', 'Genie'].map((tag) => (

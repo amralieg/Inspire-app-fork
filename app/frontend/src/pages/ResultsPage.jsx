@@ -73,7 +73,7 @@ import { generationFolder, workspaceNotebookUrl, workspaceWebUiHashPath } from '
 import ImplementWizard from './ImplementWizard';
 import { MVP_FILTERS, implementState, mvpCounts, mvpFilterMatches, notebookRunEnded, notebookStatus, versionActive } from '../lib/implementWizard';
 import { buildUseCaseList } from '../lib/useCaseList';
-import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
+import { makeApiFetch, makeApiPostJson, requestHeaders } from '../lib/apiClient';
 
 /** Coerce `results_json` summary fields (VARIANT / object / array) to a display string. */
 function inspireResultsTextField(v) {
@@ -147,6 +147,7 @@ export default function ResultsPage({
     inspireDatabase: settingsInspireDb,
     notebookPath: settingsNotebookPath,
     serverEnvHasPat,
+    showcase = '',
   } = settings;
 
   // Track settings — update when they arrive from bootstrap
@@ -239,8 +240,8 @@ export default function ResultsPage({
   const [implementRefresh, setImplementRefresh] = useState(0);
   const lastNotebookRun = useRef(null);
 
-  const apiFetch = useMemo(() => makeApiFetch({ token, databricksHost }), [token, databricksHost]);
-  const apiPostJson = useMemo(() => makeApiPostJson({ token, databricksHost }), [token, databricksHost]);
+  const apiFetch = useMemo(() => makeApiFetch({ token, databricksHost, showcase }), [token, databricksHost, showcase]);
+  const apiPostJson = useMemo(() => makeApiPostJson({ token, databricksHost, showcase }), [token, databricksHost, showcase]);
 
   const resultsDiscoveryType = results?.discovery_type || '';
   const feedbackBusiness = useMemo(() => {
@@ -698,12 +699,7 @@ export default function ResultsPage({
   };
 
   // Load generation artifacts — tries multiple path variations
-  const artifactHeaders = useCallback(() => {
-    const h = {};
-    if (token) { h['Authorization'] = `Bearer ${token}`; h['X-DB-PAT-Token'] = token; }
-    if (databricksHost) h['X-Databricks-Host'] = databricksHost;
-    return h;
-  }, [token, databricksHost]);
+  const artifactHeaders = useCallback(() => requestHeaders(token, databricksHost, {}, showcase), [token, databricksHost, showcase]);
 
   // Recursively scan a folder to discover all file paths (notebooks, PDFs, CSVs, etc.)
   const deepScanFolder = useCallback(async (folderPath) => {
@@ -927,7 +923,7 @@ export default function ResultsPage({
 
   // Auto-load artifacts to discover notebook paths and document previews (server PAT counts as auth)
   useEffect(() => {
-    if (!generationPath) return;
+    if (!generationPath || showcase) return;
     if (!token && !serverEnvHasPat) return;
     const k = `${selectedSessionId}|${generationPath}`;
     if (lastArtifactsLoadKeyRef.current === k) return;
@@ -936,10 +932,10 @@ export default function ResultsPage({
     setAllNotebookFiles([]);
     console.log('[Inspire] Auto-loading artifacts from:', generationPath);
     loadArtifacts(generationPath);
-  }, [generationPath, selectedSessionId, token, serverEnvHasPat, loadArtifacts]);
+  }, [generationPath, selectedSessionId, token, serverEnvHasPat, loadArtifacts, showcase]);
 
   const highPriorityCount = computeHighPriorityCount(allUseCases);
-  const canImplement = !!(selectedSessionId && inspireDb && warehouseId);
+  const canImplement = !showcase && !!(selectedSessionId && inspireDb && warehouseId);
   const startImplement = (uc) => { setImplementFocus(null); setImplementUc(uc); };
   const feedbackCurrentFor = (uc) => (uc?._v130?.useCaseKey ? feedbackLatest[uc._v130.useCaseKey] : undefined);
   const detailPropsFor = (uc) => {
@@ -948,6 +944,7 @@ export default function ResultsPage({
       resolveTable,
       token,
       databricksHost,
+      showcase,
       allNotebookFiles,
       knownPriorities: bizPriorities,
       foundationsById,
@@ -1327,7 +1324,7 @@ export default function ResultsPage({
           )}
 
           {/* Artifacts Panel (feature 7) */}
-          {!isProgressive && generationPath && (() => {
+          {!isProgressive && generationPath && !showcase && (() => {
             // Recursive file tree renderer
             const renderFileTree = (files, depth = 0) => (
               <div className={depth > 0 ? 'ml-4 border-l border-border/50 pl-2' : ''}>

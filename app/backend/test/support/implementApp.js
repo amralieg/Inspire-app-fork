@@ -6,7 +6,7 @@ function sqlResultToObjects(result) {
   return result.rows || [];
 }
 
-function makeApp(overrides = {}) {
+function makeApp(overrides = {}, { mount } = {}) {
   const sqlCalls = [];
   const fetches = [];
   const jobs = [];
@@ -39,6 +39,7 @@ function makeApp(overrides = {}) {
   };
   const app = express();
   app.use(express.json());
+  if (mount) mount(app);
   app.use('/api/inspire/implement', async (req, _res, next) => { await (state.hold || {})[req.path]; next(); });
   registerImplementRoutes(app, {
     requireToken: (req, _res, next) => { req.dbHost = 'https://workspace.example.com'; req.dbToken = 'tok'; next(); },

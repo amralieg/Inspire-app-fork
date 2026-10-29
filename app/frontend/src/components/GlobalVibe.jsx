@@ -74,7 +74,7 @@ function LastVibe({ last }) {
   );
 }
 
-export default function GlobalVibe({ outputs, live, next, locked, active, last, onSend }) {
+export default function GlobalVibe({ outputs, live, next, locked, lockedReason = '', active, last, onSend }) {
   const [text, setText] = useState('');
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -99,7 +99,8 @@ export default function GlobalVibe({ outputs, live, next, locked, active, last, 
         <button type="button" disabled={locked || !text.trim() || Boolean(problem)} onClick={() => setAsking(true)} className={PRIMARY_BUTTON}>
           <Wand2 size={12} /> Vibe it
         </button>
-        {active && <span className="text-[11px] text-text-secondary">A version is building now; vibe it after it finishes.</span>}
+        {lockedReason ? <span className="text-[11px] text-text-secondary">{lockedReason}</span>
+          : active && <span className="text-[11px] text-text-secondary">A version is building now; vibe it after it finishes.</span>}
       </div>
       {last && <LastVibe last={last} />}
       {asking && (

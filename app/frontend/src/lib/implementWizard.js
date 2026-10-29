@@ -121,6 +121,24 @@ export const APP_LAYOUTS = [
   { id: 'home', label: 'Home cards', blurb: 'A home page of cards' },
 ];
 export const APP_THEMES = [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }];
+const LOOK_LISTS = { style: APP_STYLES, layout: APP_LAYOUTS, theme: APP_THEMES };
+
+export function lookLabel(key, id) {
+  const value = String(id || '');
+  if (key === 'palette') return value.charAt(0).toUpperCase() + value.slice(1);
+  return (LOOK_LISTS[key] || []).find((x) => x.id === value)?.label || value;
+}
+
+export function lookText(look) {
+  return `${lookLabel('style', look.style)}, ${lookLabel('layout', look.layout)}, the ${lookLabel('palette', look.palette)} palette and `
+    + `${lookLabel('theme', look.theme)} mode`;
+}
+
+export function joinedLookText(target) {
+  const look = target.look ? `: ${lookText({ ...APP_LOOK_DEFAULT, ...target.look })}` : ', which Inspire has no record of';
+  return `This use case joins ${target.name}, so it shows in that App's look${look}. The use case that built ${target.name} `
+    + 'sets its look. For a look of its own, choose Create new for the App in the Delivery step.';
+}
 export const APP_LOOK_TABS = [
   { id: 'style', label: 'Style' }, { id: 'palette', label: 'Palette' }, { id: 'layout', label: 'Layout' }, { id: 'charts', label: 'Charts' }, { id: 'pages', label: 'Pages' },
 ];

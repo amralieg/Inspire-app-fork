@@ -76,6 +76,9 @@ import {
   APP_STYLES,
   APP_LAYOUTS,
   APP_THEMES,
+  joinedLookText,
+  lookLabel,
+  lookText,
   APP_LOOK_TABS,
   APP_SAMPLE_NOTE,
   APP_CHARTS_NOTE,
@@ -1855,12 +1858,12 @@ function LayoutPreview({ layout, palette, theme }) {
   );
 }
 
-function LookCard({ name, value, checked, onChange, label, badge = '', blurb = '', children }) {
+function LookCard({ name, value, checked, onChange, label, badge = '', blurb = '', disabled = false, children }) {
   return (
-    <label className={`block border rounded-lg p-2 space-y-1.5 cursor-pointer glow-focus ${checked ? 'border-db-red bg-db-red-50' : 'border-border hover:border-border-strong'}`}>
+    <label className={`block border rounded-lg p-2 space-y-1.5 glow-focus ${disabled ? 'cursor-default' : 'cursor-pointer'} ${checked ? 'border-db-red bg-db-red-50' : `border-border ${disabled ? '' : 'hover:border-border-strong'}`}`}>
       {children}
       <span className="flex items-center gap-2">
-        <input type="radio" name={name} value={value} checked={checked} onChange={onChange} />
+        <input type="radio" name={name} value={value} checked={checked} disabled={disabled} onChange={onChange} />
         <span className="text-[12px] font-semibold text-text-primary">{label}</span>
         {badge && <span className="ml-auto rounded-full border border-border bg-surface px-1.5 py-px text-[10px] text-text-secondary">{badge}</span>}
       </span>
@@ -1869,10 +1872,9 @@ function LookCard({ name, value, checked, onChange, label, badge = '', blurb = '
   );
 }
 
-const paletteLabel = (id) => id.charAt(0).toUpperCase() + id.slice(1);
-
 function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) {
   const chosen = spec.outputs.app_look;
+  const locked = Boolean(target);
   const palettes = look?.palette_colors || [];
   const [tab, setTab] = useState('style');
   const [pageId, setPageId] = useState('fix');
@@ -1881,7 +1883,7 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
   const view = tab === 'charts' ? 'charts' : tab === 'pages' ? shownPage : 'fix';
   const named = (list, id) => list.find((x) => x.id === id)?.label || id;
   const viewLabel = view === 'charts' ? 'Charts' : named(pages, view);
-  const sampleLabel = `Sample App page: ${viewLabel}, in ${named(APP_STYLES, chosen.style)}, ${named(APP_LAYOUTS, chosen.layout)}, the ${paletteLabel(chosen.palette)} palette and ${named(APP_THEMES, chosen.theme)} mode`;
+  const sampleLabel = `Sample App page: ${viewLabel}, in ${lookText(chosen)}`;
   const tabKeys = (e) => {
     const i = APP_LOOK_TABS.findIndex((t) => t.id === tab);
     const step = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: APP_LOOK_TABS.length - 1 }[e.key];
@@ -1896,9 +1898,11 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
     <section className="space-y-2" aria-label="App look">
       <div>
         <h3 className="text-sm font-semibold text-text-primary">How should the App look?</h3>
-        <p className="text-[11px] text-text-tertiary">
-          Each preview draws with the palette and the mode you pick.{target ? ` The look applies to every use case in ${target.name}.` : ''}
-        </p>
+        {locked ? (
+          <p role="note" aria-label="Look of the App this use case joins" className="text-[11px] text-text-secondary">{joinedLookText(target)}</p>
+        ) : (
+          <p className="text-[11px] text-text-tertiary">Each preview draws with the palette and the mode you pick.</p>
+        )}
         {lookError && <p className="text-[11px] text-error-fg">Inspire could not read the App looks from its agent notebook: {lookError}</p>}
       </div>
       <div role="tablist" aria-label="App look sections" onKeyDown={tabKeys} className="flex gap-5 border-b border-border">
@@ -1924,7 +1928,7 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
           <div className="grid grid-cols-3 gap-3 pt-1">
             {APP_STYLES.map((s) => (
               <LookCard key={s.id} name="app-style" value={s.id} checked={chosen.style === s.id} onChange={() => onLook('style', s.id)}
-                label={s.label} badge={s.id === 'a' ? 'Lakeview look' : ''} blurb={s.blurb}>
+                label={s.label} badge={s.id === 'a' ? 'Lakeview look' : ''} blurb={s.blurb} disabled={locked}>
                 <StylePreview style={s.id} palette={palette} theme={chosen.theme} />
               </LookCard>
             ))}
@@ -1942,13 +1946,13 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
                 const colors = typeof p === 'string' ? null : p[chosen.theme === 'dark' ? 'dark' : 'light'];
                 const checked = chosen.palette === id;
                 return (
-                  <label key={id} className={`block cursor-pointer rounded-md p-1 glow-focus ${checked ? 'bg-db-red-50 ring-2 ring-db-red' : 'hover:bg-bg-subtle'}`}>
-                    <input type="radio" name="app-palette" value={id} className="sr-only" checked={checked} onChange={() => onLook('palette', id)} />
+                  <label key={id} className={`block rounded-md p-1 glow-focus ${locked ? 'cursor-default' : 'cursor-pointer'} ${checked ? 'bg-db-red-50 ring-2 ring-db-red' : locked ? '' : 'hover:bg-bg-subtle'}`}>
+                    <input type="radio" name="app-palette" value={id} className="sr-only" checked={checked} disabled={locked} onChange={() => onLook('palette', id)} />
                     <span aria-hidden="true" data-swatch={id} className="flex h-6 gap-px overflow-hidden rounded p-[3px]"
                       style={colors ? { background: colors.base.bg, border: `1px solid ${colors.base['line-strong'] || colors.base.line}` } : undefined}>
                       {colors && Object.values(colors.hues).map((hue, i) => <span key={i} className="block flex-1 rounded-[1px]" style={{ background: hue.line }} />)}
                     </span>
-                    <span className="mt-1 block text-center text-[10px] text-text-secondary">{paletteLabel(id)}</span>
+                    <span className="mt-1 block text-center text-[10px] text-text-secondary">{lookLabel('palette', id)}</span>
                   </label>
                 );
               })}
@@ -1963,8 +1967,9 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
                   key={t.id}
                   type="button"
                   aria-pressed={chosen.theme === t.id}
+                  disabled={locked}
                   onClick={() => onLook('theme', t.id)}
-                  className={`px-4 py-1.5 text-xs font-medium border-r border-border last:border-r-0 ${chosen.theme === t.id ? 'bg-db-red-solid text-white' : 'bg-surface text-text-secondary hover:text-text-primary'}`}
+                  className={`px-4 py-1.5 text-xs font-medium border-r border-border last:border-r-0 ${chosen.theme === t.id ? 'bg-db-red-solid text-white' : `bg-surface text-text-secondary ${locked ? '' : 'hover:text-text-primary'}`}`}
                 >
                   {t.label}
                 </button>
@@ -1978,7 +1983,7 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
           <legend className={LEGEND}>Layout</legend>
           <div className="grid grid-cols-3 gap-3 pt-1">
             {APP_LAYOUTS.map((l) => (
-              <LookCard key={l.id} name="app-layout" value={l.id} checked={chosen.layout === l.id} onChange={() => onLook('layout', l.id)} label={l.label} blurb={l.blurb}>
+              <LookCard key={l.id} name="app-layout" value={l.id} checked={chosen.layout === l.id} onChange={() => onLook('layout', l.id)} label={l.label} blurb={l.blurb} disabled={locked}>
                 <LayoutPreview layout={l.id} palette={palette} theme={chosen.theme} />
               </LookCard>
             ))}

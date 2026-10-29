@@ -2,43 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { closeBrowser, lowContrast, lowContrastThroughAnimations, openUi } from './uiSupport.mjs';
+import { RESULTS } from './implementFixtures.js';
 
 const { SLOW_WAREHOUSE_MESSAGE } = createRequire(import.meta.url)('../../../backend/lib/sqlStatements.js');
 
 test.after(closeBrowser);
-
-const uc = (no, name, extra) => ({
-  No: no, Name: name, Statement: `${name} for the business`, Solution: `Build ${name.toLowerCase()}`, 'Business Value': `${name} pays back`,
-  'Tables Involved': 'main.s.orders', ...extra,
-});
-
-const RESULTS = {
-  discovery_type: 'Deep',
-  domains: [
-    { domain_name: 'Customer', use_cases: [
-      uc('N01-U01', 'Predict churn', { Subdomain: 'Retention', Priority: 'Very High', Quality: 'High', 'Analytics Technique': 'Classification',
-        priority_score: '4.6', value_score: '4.8', feasibility_score: '4.4', Sponsor: 'Head of Retention', has_genie_code: 'Y',
-        best_of_best: 'Y', best_of_best_rank: '1', strategy_alignment: JSON.stringify([{ id: 'S1', path: 'Grow > Keep customers', evidence: 'churn' }]),
-        kpis: JSON.stringify([{ name: 'Churn rate', direction: 'decrease' }]), channels: JSON.stringify(['Email', 'SMS']),
-        data_evidence: JSON.stringify({ tables: { 'main.s.orders': { rows: 1200, sampled: false } }, signal: { status: 'no_signal', check: 'outcome',
-          table: 'main.s.orders', reason: 'The data shows no signal: no signal column separates the outcome. Inspire kept it because the instructions ask for it.' } }) }),
-      uc('N01-U02', 'Score upsell', { Subdomain: 'Growth', Priority: 'High', Quality: 'Medium', 'Analytics Technique': 'Regression',
-        priority_score: '3.9', Sponsor: 'Head of Sales', strategy_alignment: JSON.stringify([{ id: 'S2', path: 'Grow > Sell more', evidence: 'upsell' }]),
-        channels: JSON.stringify(['Email']), data_evidence: JSON.stringify({ signal: { status: 'passed', check: 'outcome', table: 'main.s.orders',
-          reason: 'basket_size moves with the outcome, with a correlation of 0.210.' } }) }),
-      uc('N01-U03', 'Segment shoppers', { Subdomain: 'Growth', Priority: 'Medium', Quality: 'Medium', 'Analytics Technique': 'Clustering',
-        priority_score: '3.1', channels: JSON.stringify(['App']) }),
-      uc('N01-U04', 'Price elasticity', { Subdomain: 'Pricing', Priority: 'Low', Quality: 'Low', 'Analytics Technique': 'Regression',
-        priority_score: '2.2', strategy_alignment: '[]' }),
-    ] },
-    { domain_name: 'Supply', use_cases: [
-      uc('N02-U01', 'Forecast stock', { Subdomain: 'Inventory', Priority: 'High', Quality: 'High', 'Analytics Technique': 'Forecasting',
-        priority_score: '4.1', best_of_best: 'Y', best_of_best_rank: '2', channels: JSON.stringify(['SMS']), 'Tables Involved': 'main.s.stock' }),
-      uc('N02-U02', 'Spot late suppliers', { Subdomain: 'Procurement', Priority: 'Medium', Quality: 'High', 'Analytics Technique': 'Anomaly detection',
-        priority_score: '3.4' }),
-    ] },
-  ],
-};
 
 const STATE = { results: RESULTS, useCases: [] };
 

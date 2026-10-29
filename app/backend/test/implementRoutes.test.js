@@ -76,7 +76,7 @@ test('submit writes the spec then launches an implement job', async () => {
 });
 
 test('behind the Apps proxy the wizard and the spec row name the signed-in person, and the checks name the identity that ran them', async () => {
-  const sp = { userName: 'c008a947-727f-4779-bd49-3aeb8fd1a2da', displayName: 'app-p50o0f inspire-ai-implement' };
+  const sp = { userName: '5d1e7c3a-9b2f-4e6a-8c4d-1f2e3a4b5c6d', displayName: 'app-q7k2m9 inspire-ai-implement' };
   const { app, sqlCalls } = makeApp({ me: sp });
   const srv = await listen(app);
   const headers = { 'x-forwarded-email': 'person@x.com' };

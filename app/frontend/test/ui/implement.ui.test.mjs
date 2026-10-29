@@ -2,64 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildAgainHint, defaultSpecFromUseCase, lostTablesText } from '../../src/lib/implementWizard.js';
-import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
+import { buildAgainHint, lostTablesText } from '../../src/lib/implementWizard.js';
+import {
+  HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID, OWNER, RESULT_TABLE, STUDIO_STATE, built, builtSpec,
+} from './implementFixtures.js';
 import { closeBrowser, lowContrast, openUi, startMvp, until } from './uiSupport.mjs';
 
-const OWNER = 'owner@example.com';
-const RESULT_TABLE = 'main.inspire.n01_u01_s42_out';
 const GONE = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`s`.`returns` cannot be found. Verify the spelling. SQLSTATE: 42P01';
-
-const builtSpec = () => {
-  const spec = defaultSpecFromUseCase(HARNESS_USE_CASE, { warehouseId: HARNESS_SETTINGS.warehouseId, inspireDatabase: HARNESS_SETTINGS.inspireDatabase, sessionId: HARNESS_SESSION_ID, owner: OWNER });
-  const { app_access: _access, app_look: _look, app_options: _options, merge: _merge, ...beforeAppSettings } = spec.outputs;
-  return {
-    ...spec,
-    outputs: { ...beforeAppSettings, genie_space: true, app: true, app_name: 'churn-desk', alert: true, alert_recipients: [OWNER],
-      genie_questions: ['Which customers should we call first?'] },
-  };
-};
-
-const built = (extra = {}) => ({
-  session_id: '42', use_case_id: 'N01-U01', spec_version: 1, status: 'ready', change_classes: 'initial', created_by: OWNER,
-  updated_at: '2026-10-25T04:00:00Z', spec_json: JSON.stringify(builtSpec()), job_id: '77', last_preview_run_id: '9001', result_rows: '3',
-  dashboard_id: 'd1', dashboard_url: 'https://workspace.example.com/dashboardsv3/d1/published',
-  genie_space_id: 'g1', genie_space_url: 'https://workspace.example.com/genie/rooms/g1',
-  app_name: 'churn-desk', app_url: 'https://churn-desk-1.aws.databricksapps.com',
-  alert_id: 'a1', alert_url: 'https://workspace.example.com/sql/alerts-v2/a1',
-  genie_widgets: JSON.stringify([
-    { name: 'top_k', type: 'text', default: '25', allowed: 'whole number, at least 1', label: 'Top K' },
-    { name: 'result_table', type: 'text', default: RESULT_TABLE },
-    { name: 'run_profile', type: 'dropdown', default: 'full', choices: ['preview', 'full'] },
-  ]),
-  asset_status: JSON.stringify({
-    genie_space: {
-      state: 'ready', sample_questions: ['Which customers should we call first?', 'How many customers are in Act now?'],
-      question_notes: [{ question: 'how many customers are in act now?', note: 'The rows are accounts, so it counts accounts in Act now.' }],
-      check_question: 'Which customers should we call first?', check_sql: `SELECT entity_id FROM ${RESULT_TABLE} ORDER BY rank LIMIT 10`,
-    },
-    app: { state: 'ready', health: 'running', spec_version: 1 },
-    alert: { state: 'ready', trigger: 'Act now rows in the latest run >= 1', check_state: 'OK', subscribers: 1 },
-  }),
-  ...extra,
-});
-
-const STUDIO_STATE = {
-  history: [built()],
-  appExists: true,
-  app: {
-    name: 'churn-desk', url: 'https://churn-desk-1.aws.databricksapps.com', description: 'Inspire use case N01-U01 (session 42): Predict churn',
-    app_status: { state: 'RUNNING', message: 'App is running' }, compute_status: { state: 'ACTIVE' },
-    active_deployment: { status: { state: 'SUCCEEDED', message: 'App started successfully' }, update_time: '2026-10-25T04:10:00Z' },
-  },
-  runs: { runs: [
-    { run_id: 9001, start_time: Date.UTC(2026, 9, 25, 4, 0, 0), run_duration: 95000, trigger: 'ONE_TIME',
-      state: { life_cycle_state: 'TERMINATED', result_state: 'SUCCESS', state_message: '' },
-      overriding_parameters: { notebook_params: { run_profile: 'preview' } }, run_page_url: 'https://workspace.example.com/#job/77/run/9001' },
-    { run_id: 9002, start_time: Date.UTC(2026, 9, 25, 6, 0, 0), run_duration: 30000, trigger: 'PERIODIC',
-      state: { life_cycle_state: 'TERMINATED', result_state: 'FAILED', state_message: 'Workload failed' } },
-  ] },
-};
 
 test.after(closeBrowser);
 

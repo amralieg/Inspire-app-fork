@@ -5,6 +5,7 @@ import ResultsPage from '../../src/pages/ResultsPage';
 import ImplementCardActions from '../../src/components/ImplementCardActions';
 import Header from '../../src/components/Header';
 import LandingPage from '../../src/pages/LandingPage';
+import App from '../../src/App';
 import { RESULTS_FRAME } from '../../src/lib/layout';
 import { ThemeProvider } from '../../src/ThemeContext';
 import { makeApiFetch, makeApiPostJson } from '../../src/lib/apiClient';
@@ -31,6 +32,7 @@ export default function HarnessApp({ open, nest, discoveryType }) {
 }
 
 function HarnessContent({ open, discoveryType }) {
+  if (open === 'app') return <App />;
   if (open === 'card') return <CardHarness />;
   if (open === 'results') return <ResultsHarness />;
   if (open === 'landing') {

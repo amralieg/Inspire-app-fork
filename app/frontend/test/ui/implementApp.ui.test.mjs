@@ -496,7 +496,9 @@ test('each asset can be built new or added to one Inspire built, the list shows 
     await onStep(page, 'App access');
     await next(page);
     await onStep(page, 'App look');
-    await page.getByRole('region', { name: 'App look' }).getByText('The look applies to every use case in care-desk.', { exact: false }).waitFor();
+    assert.equal(await page.getByRole('region', { name: 'App look' }).getByRole('note', { name: 'Look of the App this use case joins' }).textContent(),
+      'This use case joins care-desk, so it shows in that App\'s look, which Inspire has no record of. The use case that built care-desk sets its look. '
+      + 'For a look of its own, choose Create new for the App in the Delivery step.');
     await startWhenReady(page);
     const spec = submittedSpec(made);
     assert.deepEqual([spec.outputs.app_access, spec.outputs.app_name, spec.outputs.merge], ['user', 'care-desk', { app: 'care-desk', dashboard: '', genie_space: '' }]);
@@ -507,9 +509,15 @@ test('each asset can be built new or added to one Inspire built, the list shows 
 });
 
 test('a ticked App goes into the business Hub by default, Create new stays put once chosen, and with no Hub the new App takes the Hub name', async () => {
+  const hubLook = { style: 'c', layout: 'home', palette: 'earth', theme: 'dark' };
   const hubState = {
     ...MERGE_STATE,
-    registry: [...MERGE_STATE.registry, { ...target('42', 'N01-U05', 'Price promos', { app: true, app_access: 'sp' }), app_name: 'inspire-hub-acme' }],
+    registry: [
+      { ...target('77', 'N04-U01', 'Route trucks', { app: true, app_access: 'sp', app_look: { style: 'b', layout: 'tabs', palette: 'ocean', theme: 'light' } }),
+        app_name: 'inspire-hub-acme' },
+      ...MERGE_STATE.registry,
+      { ...target('42', 'N01-U05', 'Price promos', { app: true, app_access: 'sp', app_look: hubLook }), app_name: 'inspire-hub-acme' },
+    ],
     appsByName: { ...MERGE_STATE.appsByName, 'inspire-hub-acme': { name: 'inspire-hub-acme', description: 'Inspire use case N01-U05 (session 42): Price promos' } },
   };
   const ui = await openUi('wizard', hubState);
@@ -518,7 +526,7 @@ test('a ticked App goes into the business Hub by default, Create new stays put o
     await toDelivery(page);
     await page.getByRole('checkbox', { name: /^App / }).check();
     const app = page.locator('[data-merge="app"]');
-    await app.getByText('Adds this use case to inspire-hub-acme, which holds Price promos; it signs in with its own service principal.').waitFor();
+    await app.getByText('Adds this use case to inspire-hub-acme, which holds Route trucks, Price promos; it signs in with its own service principal.').waitFor();
     assert.equal(await app.getByRole('button', { name: 'Add to an existing one' }).getAttribute('aria-pressed'), 'true');
     assert.equal(await app.getByLabel('App to add this use case to').inputValue(), 'inspire-hub-acme');
     await app.getByRole('button', { name: 'Create new' }).click();
@@ -532,9 +540,28 @@ test('a ticked App goes into the business Hub by default, Create new stays put o
     await page.getByRole('region', { name: 'App access' }).getByRole('radio', { name: /^Internal data/ }).check();
     await next(page);
     await onStep(page, 'App look');
+    const look = page.getByRole('region', { name: 'App look' });
+    assert.equal(await look.getByRole('note', { name: 'Look of the App this use case joins' }).textContent(),
+      'This use case joins inspire-hub-acme, so it shows in that App\'s look: Style C, Home cards, the Earth palette and Dark mode. '
+      + 'The use case that built inspire-hub-acme sets its look. For a look of its own, choose Create new for the App in the Delivery step.');
+    assert.equal(await look.getByText('Each preview draws with the palette and the mode you pick.').count(), 0, 'no promise of a pick it cannot make');
+    const styles = look.getByRole('radio', { name: /^Style [ABC]/ });
+    assert.deepEqual(await styles.evaluateAll((rs) => rs.map((r) => [r.value, r.checked, r.disabled])), [['a', false, true], ['b', false, true], ['c', true, true]]);
+    await look.getByRole('tab', { name: 'Palette' }).click();
+    assert.deepEqual(await look.locator('input[name="app-palette"]').evaluateAll((rs) => [rs.length, rs.every((r) => r.disabled), rs.filter((r) => r.checked).map((r) => r.value)]),
+      [13, true, ['earth']]);
+    assert.deepEqual(await look.getByRole('group', { name: 'Light or dark' }).getByRole('button').evaluateAll((bs) => bs.map((b) => [b.textContent, b.disabled])),
+      [['Light', true], ['Dark', true]]);
+    await look.getByText('Ocean', { exact: true }).click({ force: true });
+    await look.getByRole('tab', { name: 'Layout' }).click();
+    assert.deepEqual(await look.locator('input[name="app-layout"]').evaluateAll((rs) => rs.map((r) => [r.value, r.checked, r.disabled])),
+      [['sidebar', false, true], ['tabs', false, true], ['home', true, true]]);
+    await look.getByRole('tab', { name: 'Pages' }).click();
+    assert.equal(await look.getByRole('group', { name: 'Pages of the App' }).getByRole('button').first().isDisabled(), false, 'the sample can still be explored');
     await startWhenReady(page);
     const spec = submittedSpec(made);
     assert.deepEqual([spec.outputs.app_name, spec.outputs.merge.app], ['inspire-hub-acme', 'inspire-hub-acme']);
+    assert.deepEqual(spec.outputs.app_look, hubLook, 'the look of the use case that built the Hub, not the joiner listed first, and a click on a locked swatch changes nothing');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();

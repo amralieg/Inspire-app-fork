@@ -1,7 +1,13 @@
 import { apiErrorDetail, parseApiErrorMessage } from './ucPermissionErrors.js';
 
-function requestHeaders(token, databricksHost, extra = {}) {
+export const SHOWCASE_HEADER = 'X-Inspire-Showcase';
+
+export function requestHeaders(token, databricksHost, extra = {}, showcase = '') {
   const headers = { ...extra };
+  if (showcase) {
+    headers[SHOWCASE_HEADER] = showcase;
+    return headers;
+  }
   if (token) {
     headers.Authorization = `Bearer ${token}`;
     headers['X-DB-PAT-Token'] = token;
@@ -25,19 +31,19 @@ export async function responseError(resp) {
   return err;
 }
 
-export function makeApiFetch({ token, databricksHost } = {}) {
+export function makeApiFetch({ token, databricksHost, showcase = '' } = {}) {
   return async (url) => {
-    const resp = await fetch(url, { headers: requestHeaders(token, databricksHost) });
+    const resp = await fetch(url, { headers: requestHeaders(token, databricksHost, {}, showcase) });
     if (!resp.ok) throw await responseError(resp);
     return resp.json();
   };
 }
 
-export function makeApiPostJson({ token, databricksHost } = {}) {
+export function makeApiPostJson({ token, databricksHost, showcase = '' } = {}) {
   return async (url, body) => {
     const resp = await fetch(url, {
       method: 'POST',
-      headers: requestHeaders(token, databricksHost, { 'Content-Type': 'application/json' }),
+      headers: requestHeaders(token, databricksHost, { 'Content-Type': 'application/json' }, showcase),
       body: JSON.stringify(body),
     });
     if (!resp.ok) throw await responseError(resp);

@@ -15,25 +15,27 @@ export async function closeBrowser() {
   browser = null;
 }
 
-export async function openUi(open, overrides = {}, query = '') {
+export async function openUi(open, overrides = {}, query = '', { mount, init } = {}) {
   if (!browser) browser = await chromium.launch();
-  const made = makeApp({ useCase: HARNESS_USE_CASE, ...overrides });
+  const made = makeApp({ useCase: HARNESS_USE_CASE, ...overrides }, { mount });
   const backend = await listen(made.app);
   const vite = await createServer({
     root: frontend,
     configFile: path.join(frontend, 'vite.config.js'),
     logLevel: 'error',
     clearScreen: false,
-    server: { host: '127.0.0.1', port: 0, proxy: { '/api': backend.url }, hmr: false },
+    server: { host: '127.0.0.1', port: 0, proxy: { '/api': backend.url, '/showcase': backend.url }, hmr: false },
   });
   await vite.listen();
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') pageErrors.push(m.text()); });
-  await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/test/ui/implement.html?open=${open}${query}`);
+  const origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
+  if (init) await init(page, origin);
+  await page.goto(`${origin}/test/ui/implement.html?open=${open}${query}`);
   return {
-    made, page, pageErrors,
+    made, page, pageErrors, origin,
     close: async () => { await page.close(); await vite.close(); await backend.close(); },
   };
 }

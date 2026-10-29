@@ -947,11 +947,12 @@ function mergeTarget(name, entry, got, host = '') {
   const d = isPlainObject(got.data) ? got.data : {};
   const useCases = entry.holders.map((h) => ({ session_id: h.session_id, use_case_id: h.use_case_id, name: h.use_case_name }));
   if (name === 'app') {
-    if (!entry.holders.some((h) => str(d.description).startsWith(appOwnerTag(h.use_case_id, h.session_id)))) return null;
+    const owner = entry.holders.find((h) => str(d.description).startsWith(appOwnerTag(h.use_case_id, h.session_id)));
+    if (!owner) return null;
     const target = {
       id: entry.id, name: str(d.name) || entry.id, url: str(d.url), use_cases: useCases,
       access: entry.holders.some((h) => h.app_access === 'user') ? 'user' : 'sp',
-      look: (entry.holders.find((h) => h.app_look) || {}).app_look || null,
+      look: owner.app_look,
     };
     return { ...target, per_user_block: appMergeBlock(target, 'user') };
   }

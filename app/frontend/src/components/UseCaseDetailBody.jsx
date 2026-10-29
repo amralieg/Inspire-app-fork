@@ -3,6 +3,7 @@ import { Check, Copy, Loader2 } from 'lucide-react';
 import GenieMarkdownPreview from './GenieMarkdownPreview';
 import { BestOfBestDetail, FeedbackControls, UseCaseStrategyDetail } from './UseCaseStrategyDetail';
 import { workspaceNotebookUrl } from '../lib/workspaceLinks';
+import { requestHeaders } from '../lib/apiClient';
 import { START_MVP_LABEL } from '../lib/implementWizard';
 import { beneficiaryFromUc, expandWorkspaceListCandidates, fieldOf, hasShippedGenieCode, notebookPathOf, sponsorFromUc } from '../lib/useCaseFields';
 
@@ -56,6 +57,7 @@ export default function UseCaseDetailBody({
   resolveTable = (t) => t,
   token,
   databricksHost,
+  showcase = '',
   allNotebookFiles = [],
   v130 = null,
   knownPriorities: priorityList = [],
@@ -69,7 +71,7 @@ export default function UseCaseDetailBody({
   const u = uc && typeof uc === 'object' ? uc : {};
   const notebookPath = notebookPathOf(u, allNotebookFiles);
   const genieInstruction = s(u.genie_instruction);
-  const cacheKey = notebookPath ? `${databricksHost || ''}|${notebookPath}` : '';
+  const cacheKey = notebookPath ? `${showcase ? `showcase:${showcase}` : databricksHost || ''}|${notebookPath}` : '';
   const [notebookContent, setNotebookContent] = useState(() => (cacheKey && notebookCache.get(cacheKey)) || null);
   const [notebookLoading, setNotebookLoading] = useState(false);
   const [notebookError, setNotebookError] = useState('');
@@ -105,19 +107,16 @@ export default function UseCaseDetailBody({
     setNotebookLoading(true);
     setNotebookError('');
     try {
-      const headers = {};
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-        headers['X-DB-PAT-Token'] = token;
-      }
-      if (databricksHost) headers['X-Databricks-Host'] = databricksHost;
+      const headers = requestHeaders(token, databricksHost, {}, showcase);
       let resp = null;
+      let refused = '';
       for (const pth of expandWorkspaceListCandidates(notebookPath)) {
         const r = await fetch(`/api/workspace/export?path=${encodeURIComponent(pth)}`, { headers });
         if (r.ok) {
           resp = r;
           break;
         }
+        if (showcase && !refused) refused = (await r.json().catch(() => ({}))).error || '';
       }
       if (resp && resp.ok) {
         const ct = resp.headers.get('content-type') || '';
@@ -141,7 +140,7 @@ export default function UseCaseDetailBody({
       } else {
         pathPreviewStartedRef.current = false;
         setNotebookError(
-          'Could not load notebook (export failed — check workspace path, PAT scope, and that the file exists under /Workspace).',
+          refused || 'Could not load notebook (export failed — check workspace path, PAT scope, and that the file exists under /Workspace).',
         );
       }
     } catch (err) {
@@ -149,7 +148,7 @@ export default function UseCaseDetailBody({
       setNotebookError(err.message || 'Failed to fetch');
     }
     setNotebookLoading(false);
-  }, [notebookContent, genieInstruction, notebookPath, token, databricksHost, cacheKey]);
+  }, [notebookContent, genieInstruction, notebookPath, token, databricksHost, showcase, cacheKey]);
 
   useEffect(() => {
     if (!active) {
