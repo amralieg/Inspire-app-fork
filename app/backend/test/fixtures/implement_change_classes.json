@@ -2770,6 +2770,2221 @@
       "classes": [
         "outputs"
       ]
+    },
+    {
+      "name": "schedule changed with an alert",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "alert": true,
+          "alert_recipients": [
+            "owner@example.com"
+          ]
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 7 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": "",
+          "alert": true,
+          "alert_recipients": [
+            "owner@example.com"
+          ]
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "schedule"
+      ]
+    },
+    {
+      "name": "dashboard unticked and deleted",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": false,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {
+          "dashboard": "delete"
+        },
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "deselect"
+      ]
+    },
+    {
+      "name": "dashboard ticked again and rolled back",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": false,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "rollback_outputs": {
+          "dashboard": 1
+        }
+      },
+      "classes": [
+        "outputs",
+        "rollback"
+      ]
+    }
+  ],
+  "plans": [
+    {
+      "name": "a schedule edit refreshes the alert it already built",
+      "case": "schedule changed with an alert",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "schedule"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "alert"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "a schedule edit builds an alert that is gone",
+      "case": "schedule changed with an alert",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk"
+      },
+      "summary": {
+        "classes": [
+          "schedule"
+        ],
+        "refill": false,
+        "build": [
+          "alert"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "a schedule edit without an alert refreshes no output",
+      "case": "schedule enabled",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "schedule"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "a dashboard that is gone is built, not rolled back",
+      "case": "dashboard rollback",
+      "assets": {
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "rollback"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "a dashboard that still exists is rolled back",
+      "case": "dashboard rollback",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "rollback"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [
+          "dashboard"
+        ],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "a rolled back dashboard that was not ticked before is built",
+      "case": "dashboard ticked again and rolled back",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs",
+          "rollback"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "an unticked dashboard that still exists is kept unmanaged",
+      "case": "dashboard unticked",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "deselect"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [
+          "dashboard"
+        ],
+        "schedule": false
+      }
+    },
+    {
+      "name": "an unticked dashboard that is gone is neither kept nor deleted",
+      "case": "dashboard unticked",
+      "assets": {
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "deselect"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "an unticked dashboard that still exists is deleted when asked",
+      "case": "dashboard unticked and deleted",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "deselect"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [
+          "dashboard"
+        ],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "an unticked dashboard that is gone is not deleted again",
+      "case": "dashboard unticked and deleted",
+      "assets": {
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "deselect"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "first submission, with every output built",
+      "case": "first submission",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "initial"
+        ],
+        "refill": true,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "unchanged resubmission, with every output built",
+      "case": "unchanged resubmission",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "table swap, with every output built",
+      "case": "table swap",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "data"
+        ],
+        "refill": true,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "new filter, with every output built",
+      "case": "new filter",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "data"
+        ],
+        "refill": true,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "widget value, with every output built",
+      "case": "widget value",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "config"
+        ],
+        "refill": true,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "schedule enabled, with every output built",
+      "case": "schedule enabled",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "schedule"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "genie space added, with every output built",
+      "case": "genie space added",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "genie_space"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard unticked, with every output built",
+      "case": "dashboard unticked",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "deselect"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [
+          "dashboard"
+        ],
+        "schedule": false
+      }
+    },
+    {
+      "name": "app renamed, with every output built",
+      "case": "app renamed",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "app"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "app look and access changed, with every output built",
+      "case": "app look and access changed",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "app"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "share with a group, with every output built",
+      "case": "share with a group",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "sharing"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "swap dashboard for app and change data, with every output built",
+      "case": "swap dashboard for app and change data",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "data",
+          "outputs",
+          "deselect"
+        ],
+        "refill": true,
+        "build": [
+          "app",
+          "genie_space"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [
+          "dashboard"
+        ],
+        "schedule": true
+      }
+    },
+    {
+      "name": "dashboard renamed, with every output built",
+      "case": "dashboard renamed",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "goal reworded, with every output built",
+      "case": "goal reworded",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "config"
+        ],
+        "refill": true,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "failure email added, with every output built",
+      "case": "failure email added",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "schedule"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "column role mapped, with every output built",
+      "case": "column role mapped",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "data"
+        ],
+        "refill": true,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "alert added, with every output built",
+      "case": "alert added",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "alert"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "alert threshold raised, with every output built",
+      "case": "alert threshold raised",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "alert"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "alert unticked, with every output built",
+      "case": "alert unticked",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "deselect"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [
+          "alert"
+        ],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard retried, with every output built",
+      "case": "dashboard retried",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "retry"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "table removed, with every output built",
+      "case": "table removed",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "data"
+        ],
+        "refill": true,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "dashboard vibes change, with every output built",
+      "case": "dashboard vibes change",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard rollback, with every output built",
+      "case": "dashboard rollback",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "rollback"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [
+          "dashboard"
+        ],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard rollback with the vibes of that version, with every output built",
+      "case": "dashboard rollback with the vibes of that version",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs",
+          "rollback"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [
+          "dashboard"
+        ],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "app access chosen, with every output built",
+      "case": "app access chosen",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "app"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "app look changed, with every output built",
+      "case": "app look changed",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "app"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard joins an existing dashboard, with every output built",
+      "case": "dashboard joins an existing dashboard",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard vibed, with every output built",
+      "case": "dashboard vibed",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "vibes for an unticked output, with every output built",
+      "case": "vibes for an unticked output",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard rolled back, with every output built",
+      "case": "dashboard rolled back",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "rollback"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [
+          "dashboard"
+        ],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "notebook rebuilt, with every output built",
+      "case": "notebook rebuilt",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "retry"
+        ],
+        "refill": true,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "notebook vibed, with every output built",
+      "case": "notebook vibed",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "data"
+        ],
+        "refill": true,
+        "build": [],
+        "refresh": [
+          "dashboard"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "alert switched to a baseline threshold, with every output built",
+      "case": "alert switched to a baseline threshold",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "alert"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "holdout turned on, with every output built",
+      "case": "holdout turned on",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "holdout"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "holdout sent but off is no change, with every output built",
+      "case": "holdout sent but off is no change",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "holdout share raised, with every output built",
+      "case": "holdout share raised",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "holdout"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "holdout turned off, with every output built",
+      "case": "holdout turned off",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "holdout"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "app owners added, with every output built",
+      "case": "app owners added",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "app"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "schedule changed with an alert, with every output built",
+      "case": "schedule changed with an alert",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "schedule"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [
+          "alert"
+        ],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "dashboard unticked and deleted, with every output built",
+      "case": "dashboard unticked and deleted",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "deselect"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [
+          "dashboard"
+        ],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard ticked again and rolled back, with every output built",
+      "case": "dashboard ticked again and rolled back",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "outputs",
+          "rollback"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "first submission, with no output built",
+      "case": "first submission",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "initial"
+        ],
+        "refill": true,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "unchanged resubmission, with no output built",
+      "case": "unchanged resubmission",
+      "assets": {},
+      "summary": {
+        "classes": [],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "table swap, with no output built",
+      "case": "table swap",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "data"
+        ],
+        "refill": true,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "new filter, with no output built",
+      "case": "new filter",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "data"
+        ],
+        "refill": true,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "widget value, with no output built",
+      "case": "widget value",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "config"
+        ],
+        "refill": true,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "schedule enabled, with no output built",
+      "case": "schedule enabled",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "schedule"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "genie space added, with no output built",
+      "case": "genie space added",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard",
+          "genie_space"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard unticked, with no output built",
+      "case": "dashboard unticked",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "deselect"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "app renamed, with no output built",
+      "case": "app renamed",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "app",
+          "dashboard",
+          "genie_space"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "app look and access changed, with no output built",
+      "case": "app look and access changed",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "app",
+          "dashboard",
+          "genie_space"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "share with a group, with no output built",
+      "case": "share with a group",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "sharing"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "swap dashboard for app and change data, with no output built",
+      "case": "swap dashboard for app and change data",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "data",
+          "outputs",
+          "deselect"
+        ],
+        "refill": true,
+        "build": [
+          "app",
+          "genie_space"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "dashboard renamed, with no output built",
+      "case": "dashboard renamed",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "goal reworded, with no output built",
+      "case": "goal reworded",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "config"
+        ],
+        "refill": true,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "failure email added, with no output built",
+      "case": "failure email added",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "schedule"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "column role mapped, with no output built",
+      "case": "column role mapped",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "data"
+        ],
+        "refill": true,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "alert added, with no output built",
+      "case": "alert added",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "alert",
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "alert threshold raised, with no output built",
+      "case": "alert threshold raised",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "alert",
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "alert unticked, with no output built",
+      "case": "alert unticked",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "deselect"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard retried, with no output built",
+      "case": "dashboard retried",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "retry"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "table removed, with no output built",
+      "case": "table removed",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "data"
+        ],
+        "refill": true,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "dashboard vibes change, with no output built",
+      "case": "dashboard vibes change",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard rollback, with no output built",
+      "case": "dashboard rollback",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "rollback"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard rollback with the vibes of that version, with no output built",
+      "case": "dashboard rollback with the vibes of that version",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs",
+          "rollback"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "app access chosen, with no output built",
+      "case": "app access chosen",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "app",
+          "dashboard",
+          "genie_space"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "app look changed, with no output built",
+      "case": "app look changed",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "app",
+          "dashboard",
+          "genie_space"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard joins an existing dashboard, with no output built",
+      "case": "dashboard joins an existing dashboard",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "app",
+          "dashboard",
+          "genie_space"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard vibed, with no output built",
+      "case": "dashboard vibed",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "vibes for an unticked output, with no output built",
+      "case": "vibes for an unticked output",
+      "assets": {},
+      "summary": {
+        "classes": [],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard rolled back, with no output built",
+      "case": "dashboard rolled back",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "rollback"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "notebook rebuilt, with no output built",
+      "case": "notebook rebuilt",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "retry"
+        ],
+        "refill": true,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "notebook vibed, with no output built",
+      "case": "notebook vibed",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "data"
+        ],
+        "refill": true,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "alert switched to a baseline threshold, with no output built",
+      "case": "alert switched to a baseline threshold",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "alert",
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "holdout turned on, with no output built",
+      "case": "holdout turned on",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "holdout"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "holdout sent but off is no change, with no output built",
+      "case": "holdout sent but off is no change",
+      "assets": {},
+      "summary": {
+        "classes": [],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "holdout share raised, with no output built",
+      "case": "holdout share raised",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "holdout"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "holdout turned off, with no output built",
+      "case": "holdout turned off",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "holdout"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "app owners added, with no output built",
+      "case": "app owners added",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs"
+        ],
+        "refill": false,
+        "build": [
+          "app",
+          "dashboard",
+          "genie_space"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "schedule changed with an alert, with no output built",
+      "case": "schedule changed with an alert",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "schedule"
+        ],
+        "refill": false,
+        "build": [
+          "alert",
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": true
+      }
+    },
+    {
+      "name": "dashboard unticked and deleted, with no output built",
+      "case": "dashboard unticked and deleted",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "deselect"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "dashboard ticked again and rolled back, with no output built",
+      "case": "dashboard ticked again and rolled back",
+      "assets": {},
+      "summary": {
+        "classes": [
+          "outputs",
+          "rollback"
+        ],
+        "refill": false,
+        "build": [
+          "dashboard"
+        ],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
     }
   ],
   "columns": [

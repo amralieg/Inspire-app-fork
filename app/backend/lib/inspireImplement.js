@@ -809,7 +809,8 @@ function implementChangeSummary(previous, current, assets = {}) {
     const renamed = (name === 'app' && before.app && before.app_name !== after.app_name) || (before[name] && mergeMoved(before, after, name));
     if (!assets[name] || !before[name] || renamed) build.push(name);
     else if (rollingBack.includes(name)) rollback.push(name);
-    else if (refill || changedOptions.includes(name) || retry.includes(name)) refresh.push(name);
+    else if (refill || changedOptions.includes(name) || retry.includes(name)
+      || (name === 'alert' && classes.includes('schedule'))) refresh.push(name);
   }
   const deselected = IMPLEMENT_OUTPUTS.filter((n) => before[n] && !after[n]);
   const removed = current.removed_outputs || {};
