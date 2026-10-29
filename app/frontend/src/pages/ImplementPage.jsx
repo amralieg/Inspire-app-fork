@@ -6,7 +6,7 @@ import {
 import {
   statusChip, statusReason, nextSpecFrom, retryableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
   runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded, notebookStatus, START_MVP_LABEL, IMPLEMENT_ACTIVE_STATUSES, IMPLEMENT_UNINSTALLED,
-  vibesPreview, vibesProblem,
+  vibesPreview, vibesProblem, canBuildAgain, buildAgainChanges, buildAgainHint,
 } from '../lib/implementWizard';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
 import { buildUseCaseList } from '../lib/useCaseList';
@@ -995,6 +995,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     );
   };
 
+  const buildAgain = canBuildAgain(latest, { edited, missing });
   const failureBanner = hasMvp && chip.tone === 'error' && (
     <section aria-label="Build failed" className="rounded-lg border border-error/30 bg-error-bg px-3.5 py-3 text-[12px] space-y-2.5">
       <div className="flex items-start gap-2.5">
@@ -1005,11 +1006,17 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
           {reason && <p>{reason}</p>}
         </div>
       </div>
+      {buildAgain && <p className="text-error-fg">{buildAgainHint(latest)}</p>}
       <div className="flex flex-wrap gap-2">
+        {buildAgain && (
+          <button type="button" disabled={submitBusy} onClick={() => submitNext(buildAgainChanges(latest))} className={PRIMARY_BUTTON}>
+            {submitBusy ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />} Build again
+          </button>
+        )}
         <button type="button" onClick={seeBuild} className={OUTLINE_BUTTON}>
           <Activity size={12} /> See the build
         </button>
-        <button type="button" onClick={() => onEdit(null)} className={PRIMARY_BUTTON}>
+        <button type="button" onClick={() => onEdit(null)} className={buildAgain ? OUTLINE_BUTTON : PRIMARY_BUTTON}>
           <Pencil size={12} /> Edit the MVP
         </button>
       </div>

@@ -1322,6 +1322,24 @@ export function versionActive(latest, stalled = null) {
   return IMPLEMENT_ACTIVE_STATUSES.includes(String(latest?.status || '')) && !stalled;
 }
 
+const versionOf = (latest) => (latest?.spec_version == null || latest.spec_version === '' ? NaN : Number(latest.spec_version));
+
+const specOf = (latest) => (latest?.spec_json && typeof latest.spec_json === 'object' && !Array.isArray(latest.spec_json) ? latest.spec_json : {});
+
+export function canBuildAgain(latest, { edited = null, missing = [] } = {}) {
+  return Number.isInteger(versionOf(latest)) && latest.status !== IMPLEMENT_UNINSTALLED && !specOf(latest).uninstall && !edited && !(missing || []).length;
+}
+
+export function buildAgainChanges(latest) {
+  const spec = specOf(latest);
+  return Object.fromEntries(ONE_VERSION_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(spec, key)).map((key) => [key, spec[key]]));
+}
+
+export function buildAgainHint(latest) {
+  const version = versionOf(latest);
+  return `Build again asks for v${version} again as v${version + 1}, with the same choices, and Inspire repairs what it can on the way.`;
+}
+
 export const IMPLEMENT_UNINSTALLED = 'uninstalled';
 
 export function statusChip(status, stalled = null) {

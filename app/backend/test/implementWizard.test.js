@@ -1084,3 +1084,58 @@ test('the MVP counts add up: started is live plus building plus failed, and star
   assert.deepEqual(w.mvpCounts([]), { useCases: 0, has: 0, none: 0, live: 0, building: 0, failed: 0 });
   assert.deepEqual(w.mvpCounts(undefined), { useCases: 0, has: 0, none: 0, live: 0, building: 0, failed: 0 });
 });
+
+test('Build again is offered on a failed or stopped version, never on an uninstall, a hand-edited notebook or missing source tables', async () => {
+  const w = await load();
+  const failed = (top = {}) => ({ spec_version: 2, status: 'failed', spec_json: {}, ...top });
+  assert.equal(w.canBuildAgain(failed()), true);
+  assert.equal(w.canBuildAgain(failed({ status: 'filling' })), true, 'a stopped version');
+  assert.equal(w.canBuildAgain(failed({ spec_version: '3' })), true, 'a version number read as text');
+  for (const version of [null, undefined, '', 'v2', 2.5]) assert.equal(w.canBuildAgain(failed({ spec_version: version })), false, String(version));
+  assert.equal(w.canBuildAgain(null), false);
+  assert.equal(w.canBuildAgain(failed({ status: w.IMPLEMENT_UNINSTALLED })), false);
+  assert.equal(w.canBuildAgain(failed({ spec_json: { uninstall: true } })), false, 'Uninstall all tries an uninstall again');
+  assert.equal(w.canBuildAgain(failed(), { edited: { edited_at: null } }), false);
+  assert.equal(w.canBuildAgain(failed(), { missing: ['main.s.orders'] }), false);
+  assert.equal(w.canBuildAgain(failed(), { missing: null }), true);
+  assert.equal(w.buildAgainHint(failed({ spec_version: '2' })),
+    'Build again asks for v2 again as v3, with the same choices, and Inspire repairs what it can on the way.');
+});
+
+test('Build again sends the failed version as the next one with every ask it made, and the backend builds it instead of refusing it', async () => {
+  const w = await load();
+  const choices = backend.validateImplementSpec({
+    use_case_id: 'N01-U01', use_case_name: 'Predict churn', config: { warehouse_id: 'wh1', result_table: 'main.inspire.churn_out' },
+    outputs: { dashboard: true, genie_space: true, app: true, app_name: 'churn-desk', app_access: 'sp', alert: false },
+  }).spec;
+  const row = (version, status, spec, built = false) => ({
+    session_id: '42', use_case_id: 'N01-U01', spec_version: version, status, spec_json: spec,
+    notebook_path: built ? '/W/impl/N01-U01' : null, job_id: built ? '77' : null, dashboard_id: built ? 'd1' : null,
+    genie_space_id: built ? 'g1' : null, app_name: built ? 'churn-desk' : null,
+    asset_status: built ? Object.fromEntries(['dashboard', 'genie_space', 'app', 'notebook'].map((n) => [n, { state: 'ready', spec_version: version }])) : null,
+  });
+  const submit = (history, sent) => {
+    const { spec, errors } = backend.validateImplementSpec(sent);
+    assert.deepEqual(errors, []);
+    const plan = backend.planSubmission(history, spec);
+    backend.refuseUnchanged(plan);
+    return { spec, plan };
+  };
+
+  const never = [row(2, 'failed', { ...choices, based_on_version: 1 }), row(1, 'failed', choices)];
+  const first = submit(never, w.nextSpecFrom(never[0], w.buildAgainChanges(never[0])));
+  assert.deepEqual([first.spec.based_on_version, first.plan.nextVersion, first.plan.built, first.plan.unchanged], [2, 3, null, false]);
+  assert.ok(first.plan.summary.classes.includes('initial'), 'nothing was ever built, so it builds everything');
+
+  const asked = { ...choices, based_on_version: 2, vibes: 'Put the riskiest first', vibe_previous: 'keep' };
+  const vibed = [row(3, 'failed', asked), row(2, 'ready', choices, true)];
+  assert.deepEqual(w.buildAgainChanges(vibed[0]),
+    { vibes: 'Put the riskiest first', vibe_previous: 'keep', retry_outputs: [], rollback_outputs: {}, confirm_notebook_overwrite: false });
+  const again = submit(vibed, w.nextSpecFrom(vibed[0], w.buildAgainChanges(vibed[0])));
+  assert.deepEqual([again.spec.based_on_version, again.plan.nextVersion, again.spec.vibes], [3, 4, 'Put the riskiest first']);
+  assert.deepEqual(again.plan.summary.classes, ['vibe'], 'the failed vibe is asked again');
+  const dropped = submit(vibed, w.nextSpecFrom(vibed[0], {}));
+  assert.equal(dropped.plan.summary.nothing_to_do, true, 'without the asks of the failed version there is nothing to build');
+  assert.deepEqual(w.buildAgainChanges({ spec_json: null }), {});
+  assert.deepEqual(w.buildAgainChanges({ spec_json: ['vibes'] }), {});
+});

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { defaultSpecFromUseCase, lostTablesText } from '../../src/lib/implementWizard.js';
+import { buildAgainHint, defaultSpecFromUseCase, lostTablesText } from '../../src/lib/implementWizard.js';
 import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
 import { closeBrowser, lowContrast, openUi, startMvp, until } from './uiSupport.mjs';
 
@@ -916,7 +916,9 @@ test('a failed build opens on the Control Tower under a red banner with the fail
     const banner = tower.getByRole('region', { name: 'Build failed' });
     await banner.getByText('Step: Genie builds the notebook', { exact: true }).waitFor();
     assert.equal(await selectedTab(page), 'Control Tower', 'a failed build opens on the Control Tower');
-    assert.deepEqual(await banner.locator('p').allInnerTexts(), ['The build failed', 'Step: Genie builds the notebook', FAILED_REASON]);
+    assert.deepEqual(await banner.locator('p').allInnerTexts(),
+      ['The build failed', 'Step: Genie builds the notebook', FAILED_REASON, buildAgainHint({ spec_version: 1 })]);
+    assert.deepEqual((await banner.getByRole('button').allInnerTexts()).map((t) => t.trim()), ['Build again', 'See the build', 'Edit the MVP']);
     const top = async (locator) => (await locator.boundingBox()).y;
     assert.ok(await top(banner) < await top(tower.locator('[data-tile]').first()), 'the banner sits at the top of the Control Tower, above the tiles');
     assert.match(await banner.evaluate((el) => el.className), /bg-error-bg/);
@@ -936,6 +938,52 @@ test('a failed build opens on the Control Tower under a red banner with the fail
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
+  }
+});
+
+test('Build again on a failed build sends the version that failed again as the next one, with its asks, and a notebook edit keeps its own rebuild', async () => {
+  const spec = builtSpec();
+  const vibe = 'Put the riskiest customers first';
+  const failed = built({ spec_version: 2, status: 'failed', status_message: FAILED_REASON, change_classes: 'vibe',
+    spec_json: JSON.stringify({ ...spec, based_on_version: 1, vibes: vibe, vibe_previous: 'keep' }) });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [failed, built()] });
+  const { page, made } = ui;
+  try {
+    const banner = towerOf(page).getByRole('region', { name: 'Build failed' });
+    await banner.getByText(buildAgainHint({ spec_version: 2 }), { exact: true }).waitFor();
+    const again = banner.getByRole('button', { name: 'Build again' });
+    assert.match(await again.evaluate((el) => el.className), /bg-db-red-solid/, 'Build again is the main way forward');
+    assert.doesNotMatch(await banner.getByRole('button', { name: 'Edit the MVP' }).evaluate((el) => el.className), /bg-db-red-solid/);
+    for (const dark of [false, true]) {
+      await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
+      await page.waitForTimeout(300);
+      const seen = await lowContrast(page, ['section[aria-label="Build failed"]']);
+      assert.ok(seen.checked >= 5, `measured ${seen.checked} banner elements`);
+      assert.deepEqual(seen.low, [], dark ? 'dark banner' : 'light banner');
+    }
+    assert.equal(made.jobs.length, 0);
+    await again.click();
+    await until(() => made.jobs.length === 1, 'the Build again run');
+    const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO'));
+    assert.equal(inserts.length, 1);
+    const value = (name) => inserts[0].parameters.find((p) => p.name === name).value;
+    assert.deepEqual([value('v'), value('based'), value('classes')], ['3', '2', 'vibe']);
+    const sent = JSON.parse(value('spec'));
+    assert.deepEqual([sent.vibes, sent.vibe_previous, sent.based_on_version], [vibe, 'keep', 2], 'the ask of the failed version goes again');
+    assert.equal(made.jobs[0].params.inspire_implement_spec_version, '3');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+  const edited = await openUi('implement', { ...STUDIO_STATE, history: [editedVersion(), built()] });
+  try {
+    const banner = towerOf(edited.page).getByRole('region', { name: 'Build failed' });
+    await banner.getByRole('button', { name: 'Edit the MVP' }).waitFor();
+    assert.equal(await banner.getByRole('button', { name: 'Build again' }).count(), 0, 'a hand-edited notebook keeps its own rebuild');
+    assert.match(await banner.getByRole('button', { name: 'Edit the MVP' }).evaluate((el) => el.className), /bg-db-red-solid/);
+    assert.deepEqual(edited.pageErrors, []);
+  } finally {
+    await edited.close();
   }
 });
 
