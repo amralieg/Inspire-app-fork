@@ -145,7 +145,7 @@ test('a version whose run could not start is failed with the reason, so it never
     const writes = made.sqlCalls.filter((c) => /^(INSERT|UPDATE)/.test(String(c.sql)));
     assert.deepEqual(writes.map((c) => String(c.sql).split(' ')[0]), ['INSERT', 'UPDATE']);
     assert.match(writes[1].sql, /SET status = 'failed', status_message = :message, updated_at = current_timestamp\(\) .* AND status = 'queued'$/);
-    assert.deepEqual(writes[1].parameters.map((p) => [p.name, p.value]), [['message', 'the PoC/MVP run could not start: RESOURCE_EXHAUSTED: too many concurrent runs'],
+    assert.deepEqual(writes[1].parameters.map((p) => [p.name, p.value]), [['message', 'the MVP run could not start: RESOURCE_EXHAUSTED: too many concurrent runs'],
       ['sid', '42'], ['uc', 'N01-U01'], ['v', '1']]);
   });
 });
@@ -221,24 +221,24 @@ test('the Genie feed reads the log of the run building the latest version, so an
 });
 
 test('a version whose run ended while it was still active shows as stalled, and a new version may replace it', async () => {
-  const history = [{ spec_version: 1, status: 'filling', spec_json: SPEC, use_case_id: 'N01-U01', implement_run_id: '1066484287074577',
+  const history = [{ spec_version: 1, status: 'filling', spec_json: SPEC, use_case_id: 'N01-U01', implement_run_id: '5555555555555555',
     updated_at: new Date().toISOString() }];
-  const ended = { run_id: 1066484287074577, run_page_url: 'https://x/run/1066484287074577',
+  const ended = { run_id: 5555555555555555, run_page_url: 'https://x/run/5555555555555555',
     state: { life_cycle_state: 'TERMINATED', result_state: 'CANCELED', state_message: 'Run cancelled by amr@x' } };
-  const stalled = { run_id: '1066484287074577', run_url: 'https://x/run/1066484287074577',
+  const stalled = { run_id: '5555555555555555', run_url: 'https://x/run/5555555555555555',
     reason: 'the run building v1 ended (CANCELED: Run cancelled by amr@x) while v1 was still filling' };
   await withApp({ history, implementRun: ended }, async (url, made) => {
     const status = await call(url, `/api/inspire/implement/status?${Q}`);
     assert.equal(status.status, 200, JSON.stringify(status.data));
     assert.deepEqual(status.data.stalled, stalled);
-    assert.ok(made.fetches.some((f) => f.path === '/api/2.1/jobs/runs/get?run_id=1066484287074577'));
+    assert.ok(made.fetches.some((f) => f.path === '/api/2.1/jobs/runs/get?run_id=5555555555555555'));
     const rail = await call(url, `/api/inspire/implement/history?${RAIL}`);
     assert.deepEqual(rail.data.latest.map((r) => r.stalled), [stalled]);
     const got = await call(url, '/api/inspire/implement/submit', { method: 'POST', body: SUBMIT });
     assert.equal(got.status, 200, JSON.stringify(got.data));
     assert.equal(got.data.spec_version, 2);
   });
-  await withApp({ history, implementRun: { run_id: 1066484287074577, state: { life_cycle_state: 'RUNNING' } } }, async (url) => {
+  await withApp({ history, implementRun: { run_id: 5555555555555555, state: { life_cycle_state: 'RUNNING' } } }, async (url) => {
     const status = await call(url, `/api/inspire/implement/status?${Q}`);
     assert.equal(status.data.stalled, null);
     const got = await call(url, '/api/inspire/implement/submit', { method: 'POST', body: SUBMIT });
@@ -602,6 +602,63 @@ test('the output check refuses an existing table that is not an Inspire result t
     assert.equal(got.data.ok, true);
     assert.match(got.data.safety.detail, /its columns could not be read, so Inspire could not check whose rows it holds/);
   });
+});
+
+test('a result table another Discover session\'s use case with the same id already uses is refused, at the check and at submit', async () => {
+  const taken = 'main.inspire.churn_out already holds the results of use case N01-U01 of session 2222222222222222222; give each use '
+    + 'case its own result table so its outputs show only its rows';
+  await withApp({ access: EXISTING, columns: KEY_COLUMNS, others: 0, resultTableHolders: [{ session_id: '2222222222222222222', use_case_id: 'N01-U01' }] },
+    async (url, made) => {
+      const got = await call(url, CHECK);
+      assert.equal(got.data.ok, false);
+      assert.deepEqual(got.data.safety, { ok: false, detail: taken }, 'the same use case id in another session is another use case');
+      const asked = made.sqlCalls.find((c) => String(c.sql).includes('held AS'));
+      assert.deepEqual(asked.parameters, [{ name: 't', value: 'main.inspire.churn_out', type: 'STRING' }]);
+      assert.match(asked.sql, /FROM `main`\.`inspire`\.`__inspire_implement`/);
+      assert.ok(!made.sqlCalls.some((c) => String(c.sql).includes('COUNT_IF')), 'a held table is refused before its rows are counted');
+      const pre = await call(url, `/api/inspire/implement/preflight?${Q}&result_table=main.inspire.churn_out`);
+      assert.equal(pre.data.checks.output.ok, false);
+      assert.match(pre.data.checks.output.detail, /already holds the results of use case N01-U01 of session 2222222222222222222/);
+      const sent = await call(url, '/api/inspire/implement/submit', {
+        method: 'POST',
+        body: { inspire_database: 'main.inspire', warehouse_id: 'wh1', session_id: '42', spec: SPEC },
+      });
+      assert.deepEqual([sent.status, sent.data.error], [403, taken]);
+      assert.equal(made.jobs.length, 0, 'no job starts');
+      assert.ok(!made.sqlCalls.some((c) => String(c.sql).includes('INSERT INTO')), 'no version is written');
+    });
+  await withApp({ access: EXISTING, columns: KEY_COLUMNS, resultTableHolders: [{ session_id: '42', use_case_id: 'N01-U01' }] }, async (url) => {
+    const got = await call(url, CHECK);
+    assert.deepEqual([got.data.ok, got.data.safety.detail], [true, "main.inspire.churn_out holds only this use case's rows"],
+      'the use case that named the table first keeps it');
+  });
+  await withApp({ resultTableHolders: [{ session_id: '42', use_case_id: 'N02-U01' }] }, async (url) => {
+    const got = await call(url, CHECK);
+    assert.equal(got.data.safety.ok, false);
+    assert.match(got.data.safety.detail, /holds the results of use case N02-U01 of session 42/, 'another use case of the same session is refused too');
+  });
+  await withApp({ holderError: '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`inspire`.`__inspire_implement` cannot be found.' }, async (url) => {
+    const got = await call(url, CHECK);
+    assert.deepEqual([got.status, got.data.ok], [200, true], 'before the first MVP there is no implement table, so nothing holds the table');
+  });
+  await withApp({ holderError: 'warehouse stopped' }, async (url) => {
+    const got = await call(url, CHECK);
+    assert.equal(got.status, 500);
+    assert.match(got.data.error, /warehouse stopped/, 'an unexpected error is never read as "nobody holds it"');
+  });
+});
+
+test('the holder statement reads each use case\'s latest version and orders by the first version that named the table', () => {
+  const s = I.resultTableHolderStatement('`main`.`inspire`.`__inspire_implement`', '`Main`.inspire.`Churn_Out`');
+  assert.deepEqual(s.parameters, [{ name: 't', value: 'main.inspire.churn_out', type: 'STRING' }]);
+  assert.match(s.sql, /ROW_NUMBER\(\) OVER \(PARTITION BY session_id, use_case_id ORDER BY spec_version DESC\) AS latest/);
+  assert.match(s.sql, /WHERE latest = 1 AND t = :t/, 'a use case that moved to another table no longer holds this one');
+  assert.match(s.sql, /ORDER BY MIN\(n\.created_at\), n\.session_id, n\.use_case_id LIMIT 1/);
+  assert.equal(I.resultTableHolderProblem('main.s.t', null, '42', 'N01-U01'), '');
+  assert.equal(I.resultTableHolderProblem('main.s.t', { session_id: '42', use_case_id: 'N01-U01' }, '42', 'N01-U01'), '');
+  assert.equal(I.resultTableHolderProblem('main.s.t', { session_id: '', use_case_id: '' }, '42', 'N01-U01'), '');
+  assert.match(I.resultTableHolderProblem('`main`.`s`.`t`', { session_id: 43, use_case_id: 'N01-U01' }, '42', 'N01-U01'),
+    /^main\.s\.t already holds the results of use case N01-U01 of session 43;/);
 });
 
 const TRAINS = { id: 'N01-U01', use_case: 'Predict churn', code_structure_mandate: 'Execution pattern: family B (classification).', genie_instruction: '' };
@@ -1097,7 +1154,7 @@ test('a notebook request is refused when the jobs list cannot be read, so a runn
   }
 });
 
-test('history carries the session notebook run, and a jobs error beside the PoC rows instead of failing them', async () => {
+test('history carries the session notebook run, and a jobs error beside the MVP rows instead of failing them', async () => {
   const RAIL = 'inspire_database=main.inspire&warehouse_id=wh1&session_id=42';
   {
     const { app } = makeApp(notebookJobs('RUNNING'));

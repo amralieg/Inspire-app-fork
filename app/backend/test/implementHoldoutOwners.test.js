@@ -138,7 +138,7 @@ test('the wizard holdout starts unsent, ticks on at 10%, takes a percent from 1 
   assert.equal(w.HOLDOUT_SHARE_DEFAULT, I.IMPLEMENT_HOLDOUT_SHARE);
   assert.equal(w.HOLDOUT_MAX_PERCENT / 100, I.IMPLEMENT_HOLDOUT_MAX_SHARE);
   assert.equal(w.HOLDOUT_MIN_PERCENT, 1);
-  const fresh = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire' });
+  const fresh = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', sessionId: '42' });
   assert.equal(Object.prototype.hasOwnProperty.call(fresh, 'holdout'), false, 'a new spec sends no holdout');
   assert.deepEqual(w.holdoutOf(fresh), { enabled: false, share: 0.1 });
   assert.equal(w.holdoutPercentText(fresh), '10');

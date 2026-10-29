@@ -18,7 +18,7 @@ const BUILT = {
   spec_version: 2, status: 'ready', spec_json: SPEC, use_case_id: 'N01-U01', job_id: '77', implement_run_id: '900',
   dashboard_id: 'd1', genie_space_id: 'g1', app_name: 'churn-desk', alert_id: 'a1',
 };
-const POC_JOB = { job_id: 77, settings: { tags: { dbx_inspire_ai_run_type: 'implement', dbx_inspire_ai_session_id: '42', dbx_inspire_ai_usecase_id: 'N01-U01' },
+const MVP_JOB = { job_id: 77, settings: { tags: { dbx_inspire_ai_run_type: 'implement', dbx_inspire_ai_session_id: '42', dbx_inspire_ai_usecase_id: 'N01-U01' },
   schedule: { quartz_cron_expression: '0 0 6 * * ?', timezone_id: 'Europe/London', pause_status: 'PAUSED' } } };
 const CTX = { useCaseId: 'N01-U01', sessionId: '42' };
 const Q = 'inspire_database=main.inspire&warehouse_id=wh1&session_id=42&use_case_id=N01-U01';
@@ -45,7 +45,7 @@ async function withApp(overrides, fn) {
 const ok = (data) => ({ ok: true, status: 200, data });
 const missing = (message = 'not found') => ({ ok: false, status: 404, data: { message } });
 
-test('the control tower acts only on ids this PoC recorded, and on a build only while it builds', () => {
+test('the control tower acts only on ids this MVP recorded, and on a build only while it builds', () => {
   assert.deepEqual(C.controlTargets([BUILT]), { dashboard: 'd1', genie_space: 'g1', app: 'churn-desk', alert: 'a1', job: '77' });
   const building = { spec_version: 3, status: 'building_outputs', implement_run_id: '901', use_case_id: 'N01-U01' };
   assert.equal(C.controlTargets([BUILT, building]).build, '901', 'the newest version is the one that builds, whatever the row order');
@@ -55,7 +55,7 @@ test('the control tower acts only on ids this PoC recorded, and on a build only 
   const removed = { ...BUILT, spec_version: 3, dashboard_id: null, asset_status: { dashboard: { state: 'deleted' } } };
   assert.equal(C.controlTargets([removed, BUILT]).dashboard, undefined, 'a deleted dashboard is never acted on again');
   assert.throws(() => C.controlTarget('dashboard', {}), (e) => e.statusCode === 409 && /no Dashboard that Inspire built/.test(e.message));
-  assert.throws(() => C.controlTarget('build', {}), (e) => e.statusCode === 409 && /no version of this PoC\/MVP is building now/.test(e.message));
+  assert.throws(() => C.controlTarget('build', {}), (e) => e.statusCode === 409 && /no version of this MVP is building now/.test(e.message));
   assert.equal(C.controlTarget('job', { job: '77' }), '77');
   assert.throws(() => C.controlTarget('__proto__', { job: '77' }), (e) => e.statusCode === 409, 'an inherited key is never a target');
 });
@@ -81,19 +81,19 @@ test('each action calls the one Databricks API that does it', () => {
   assert.throws(() => C.controlRequest('dashboard', 'publish', 'd1', {}), (e) => e.statusCode === 409 && /no SQL warehouse/.test(e.message));
 });
 
-test('a job is this PoC\'s only when its tags say implement, this session and, when tagged, this use case', () => {
-  assert.equal(C.jobOwnerProblem(ok(POC_JOB), CTX), '');
+test('a job is this MVP\'s only when its tags say implement, this session and, when tagged, this use case', () => {
+  assert.equal(C.jobOwnerProblem(ok(MVP_JOB), CTX), '');
   const legacy = { settings: { tags: { dbx_inspire_ai_run_type: 'implement', dbx_inspire_ai_session_id: '42' } } };
   assert.equal(C.jobOwnerProblem(ok(legacy), CTX), '', 'a job built before the use case id tag still counts');
-  const tagged = (tags) => ok({ settings: { tags: { ...POC_JOB.settings.tags, ...tags } } });
-  assert.equal(C.jobOwnerProblem(tagged({ dbx_inspire_ai_run_type: 'discovery' }), CTX), 'the job is not an Inspire PoC/MVP job');
+  const tagged = (tags) => ok({ settings: { tags: { ...MVP_JOB.settings.tags, ...tags } } });
+  assert.equal(C.jobOwnerProblem(tagged({ dbx_inspire_ai_run_type: 'discovery' }), CTX), 'the job is not an Inspire MVP job');
   assert.equal(C.jobOwnerProblem(tagged({ dbx_inspire_ai_session_id: '43' }), CTX), 'the job belongs to another Inspire session');
   assert.equal(C.jobOwnerProblem(tagged({ dbx_inspire_ai_usecase_id: 'N01-U02' }), CTX), 'the job belongs to another use case');
-  assert.equal(C.jobOwnerProblem(ok({ settings: {} }), CTX), 'the job is not an Inspire PoC/MVP job');
+  assert.equal(C.jobOwnerProblem(ok({ settings: {} }), CTX), 'the job is not an Inspire MVP job');
   assert.equal(C.jobOwnerProblem(missing('Job 77 does not exist.'), CTX), 'Inspire cannot read this job: Job 77 does not exist.');
 });
 
-test('the App, the dashboard and the build each refuse what is not this PoC\'s or is already gone', () => {
+test('the App, the dashboard and the build each refuse what is not this MVP\'s or is already gone', () => {
   assert.equal(C.ownerProblem('app', ok({ name: 'churn-desk', description: OURS }), CTX), '');
   assert.equal(C.ownerProblem('app', ok({ name: 'churn-desk', description: 'Finance tool' }), CTX), 'the App named churn-desk is no longer this use case\'s App');
   assert.equal(C.ownerProblem('app', missing(), CTX), 'the App no longer exists');
@@ -113,7 +113,7 @@ test('live status reads every asset in one pass and says plainly what is gone or
   assert.deepEqual(C.livePaths({}), {});
   const live = C.liveStatus(targets, {
     app: ok({ name: 'churn-desk', description: OURS, url: 'https://churn-desk.example', compute_status: { state: 'STOPPED' }, app_status: { state: 'UNAVAILABLE' } }),
-    job: ok(POC_JOB),
+    job: ok(MVP_JOB),
     runs: ok({ runs: [{ run_id: 5, state: { life_cycle_state: 'RUNNING' }, run_page_url: 'https://h/run/5' }] }),
     dashboard: ok({ display_name: 'Churn', lifecycle_state: 'ACTIVE' }),
     published: missing(),
@@ -129,11 +129,11 @@ test('live status reads every asset in one pass and says plainly what is gone or
   const gone = C.liveStatus(targets, { app: missing(), job: ok({ settings: { tags: {} } }), runs: { ok: false, status: 403, data: { message: 'no' } },
     dashboard: missing(), published: missing(), genie_space: missing(), alert: { ok: false, status: 403, data: { message: 'PERMISSION_DENIED' } } }, CTX);
   assert.deepEqual(gone.app, { ok: false, error: 'the App no longer exists' });
-  assert.deepEqual(gone.job, { ok: false, error: 'the job is not an Inspire PoC/MVP job' });
+  assert.deepEqual(gone.job, { ok: false, error: 'the job is not an Inspire MVP job' });
   assert.deepEqual(gone.dashboard, { ok: false, error: 'the dashboard no longer exists' });
   assert.deepEqual(gone.genie_space, { ok: false, error: 'the Genie Agent no longer exists' });
   assert.deepEqual(gone.alert, { ok: false, error: 'Inspire cannot read the alert: PERMISSION_DENIED' });
-  const unread = C.liveStatus({ job: '77' }, { job: ok(POC_JOB), runs: { ok: false, status: 403, data: { message: 'no runs access' } } }, CTX);
+  const unread = C.liveStatus({ job: '77' }, { job: ok(MVP_JOB), runs: { ok: false, status: 403, data: { message: 'no runs access' } } }, CTX);
   assert.equal(unread.job.active_runs, null, 'unreadable runs are not shown as zero runs');
   assert.equal(unread.job.runs_error, 'no runs access');
   const published = C.liveStatus({ dashboard: 'd1' }, { dashboard: ok({ display_name: 'Churn', lifecycle_state: 'ACTIVE' }),
@@ -186,10 +186,10 @@ test('every control click is written to the control log with who did it', () => 
 
 const APP_OURS = { name: 'churn-desk', description: OURS, compute_status: { state: 'ACTIVE' } };
 
-test('stopping the App checks it is this PoC\'s, stops it, records who did it and refreshes the live status', async () => {
+test('stopping the App checks it is this MVP\'s, stops it, records who did it and refreshes the live status', async () => {
   await withApp({ history: [BUILT], responses: {
     'GET /api/2.0/apps/churn-desk': [APP_OURS], 'POST /api/2.0/apps/churn-desk/stop': [{}],
-    'GET /api/2.1/jobs/get': [POC_JOB], 'GET /api/2.0/lakeview/dashboards/d1': [{ lifecycle_state: 'ACTIVE' }],
+    'GET /api/2.1/jobs/get': [MVP_JOB], 'GET /api/2.0/lakeview/dashboards/d1': [{ lifecycle_state: 'ACTIVE' }],
     'GET /api/2.0/lakeview/dashboards/d1/published': [{}, 404], 'GET /api/2.0/genie/spaces/g1': [{ title: 'g' }], 'GET /api/2.0/alerts/a1': [{}],
   } }, async (url, made) => {
     const before = await call(url, `/api/inspire/implement/live?${Q}`);
@@ -227,14 +227,14 @@ test('another team\'s App, a job of another session, and an App or the job mid-b
   const cases = [
     [{ history: [BUILT], responses: { 'GET /api/2.0/apps/churn-desk': [{ ...APP_OURS, description: 'Finance team tool' }] } },
       { asset: 'app', action: 'stop' }, 409, "Inspire did not stop the App: the App named churn-desk is no longer this use case's App"],
-    [{ history: [BUILT], responses: { 'GET /api/2.1/jobs/get': [{ settings: { tags: { ...POC_JOB.settings.tags, dbx_inspire_ai_session_id: '7' } } }] } },
+    [{ history: [BUILT], responses: { 'GET /api/2.1/jobs/get': [{ settings: { tags: { ...MVP_JOB.settings.tags, dbx_inspire_ai_session_id: '7' } } }] } },
       { asset: 'job', action: 'cancel' }, 409, 'Inspire did not stop the running job: the job belongs to another Inspire session'],
     [{ history: [{ ...BUILT, spec_version: 3, status: 'building_outputs', implement_run_id: '901' }, BUILT] },
       { asset: 'app', action: 'start' }, 409, 'spec v3 is still building_outputs; start the App after it finishes, or stop the build first'],
     [{ history: [{ ...BUILT, spec_version: 3, status: 'previewing', implement_run_id: '901' }, BUILT] },
       { asset: 'job', action: 'cancel' }, 409, 'spec v3 is still previewing; stop the running job after it finishes, or stop the build first'],
-    [{ history: [BUILT] }, { asset: 'build', action: 'cancel' }, 409, 'no version of this PoC/MVP is building now'],
-    [{ history: [] }, { asset: 'dashboard', action: 'unpublish' }, 409, 'this PoC/MVP has no Dashboard that Inspire built'],
+    [{ history: [BUILT] }, { asset: 'build', action: 'cancel' }, 409, 'no version of this MVP is building now'],
+    [{ history: [] }, { asset: 'dashboard', action: 'unpublish' }, 409, 'this MVP has no Dashboard that Inspire built'],
     [{ history: [BUILT] }, { asset: 'genie_space', action: 'stop' }, 400, null],
   ];
   for (const [overrides, body, status, error] of cases) {
@@ -350,13 +350,13 @@ test('the App tile says which backend the App reads, and offers Switch to Lakeba
   assert.equal(v.APP_BACKEND_FACTS.delta, 'Reads Delta tables: pages take a few seconds to load');
 });
 
-test('the Build summary counts each use case once, by the same state the rail groups it in, and what its PoC/MVP delivered', async () => {
+test('the Build summary counts each use case once, by the same state the rail groups it in, and what its MVP delivered', async () => {
   const v = await view();
   const w = await import(wizardUrl);
   const useCases = [
     { No: 'N01', Name: 'Ready one' }, { No: 'N02', Name: 'Building one' }, { No: 'N03', Name: 'Failed one' }, { No: 'N04', Name: 'Stopped one' },
     { No: 'N05', Name: 'Notebook one', has_genie_code: 'Y' }, { No: 'N06', Name: 'Requested one', generate_genie_code_instruction: 'Y' },
-    { No: 'N07', Name: 'Untouched one' }, { No: 'N08', Name: 'PoC with a notebook', has_genie_code: 'Y' },
+    { No: 'N07', Name: 'Untouched one' }, { No: 'N08', Name: 'MVP with a notebook', has_genie_code: 'Y' },
   ];
   const latest = [
     { use_case_id: 'N01', status: 'ready', dashboard_url: 'https://w/d1', genie_space_url: 'https://w/g1' },
@@ -368,14 +368,14 @@ test('the Build summary counts each use case once, by the same state the rail gr
   const items = w.implementGroups(useCases, latest, null).flatMap((g) => g.items);
   const got = v.buildSummary(items);
   assert.deepEqual({ ...got, building: got.building.map((i) => i.id) },
-    { pocs: 5, building: ['N02'], ready: 2, failed: 2, notebooks: 1, notStarted: 2,
+    { mvps: 5, building: ['N02'], ready: 2, failed: 2, notebooks: 1, notStarted: 2,
       delivered: [{ id: 'dashboard', count: 2, text: '2 dashboards' }, { id: 'genie_space', count: 1, text: '1 Genie Agent' },
         { id: 'alert', count: 1, text: '1 alert' }] });
-  assert.equal(got.pocs + got.notebooks + got.notStarted, items.length, 'every use case lands in exactly one count');
+  assert.equal(got.mvps + got.notebooks + got.notStarted, items.length, 'every use case lands in exactly one count');
   assert.deepEqual(latest.map((row) => v.deliveredOutputs(row)), [['dashboard', 'genie_space'], ['dashboard'], [], [], ['alert']],
     'an output counts as delivered only when its link is recorded');
   assert.deepEqual(v.deliveredOutputs(null), []);
-  assert.deepEqual(v.buildSummary(null), { pocs: 0, building: [], ready: 0, failed: 0, notebooks: 0, notStarted: 0, delivered: [] });
+  assert.deepEqual(v.buildSummary(null), { mvps: 0, building: [], ready: 0, failed: 0, notebooks: 0, notStarted: 0, delivered: [] });
 });
 
 test('the control tower shows a tile for every output: live when built, building while Genie works, failed, missing or not chosen', async () => {

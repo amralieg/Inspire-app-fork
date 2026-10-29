@@ -23,7 +23,7 @@ test('the first look opens Progress while a build runs and the Control Tower oth
   }
   assert.deepEqual(implementDefaultTab(null, versionActive({ status: 'filling' }, { reason: 'the run ended' })), { tab: 'Control Tower', active: false },
     'a run that stopped while filling is not building');
-  assert.deepEqual(implementDefaultTab(null, versionActive(null)), { tab: 'Control Tower', active: false }, 'a use case with no PoC/MVP');
+  assert.deepEqual(implementDefaultTab(null, versionActive(null)), { tab: 'Control Tower', active: false }, 'a use case with no MVP');
   assert.deepEqual(implementDefaultTab(undefined, undefined), { tab: 'Control Tower', active: false });
 });
 
@@ -32,7 +32,7 @@ test('a build that starts opens Progress and a build that ends opens the Control
   assert.equal(follow(['ready', 'queued']).tab, 'Progress', 'the user submits a change');
   assert.equal(follow(['queued', 'filling', 'ready']).tab, 'Control Tower', 'the build finished');
   assert.equal(follow(['filling', 'failed']).tab, 'Control Tower', 'the build failed');
-  assert.equal(follow([null, 'queued']).tab, 'Progress', 'the first PoC/MVP of a use case starts');
+  assert.equal(follow([null, 'queued']).tab, 'Progress', 'the first MVP of a use case starts');
   assert.equal(follow(['ready', 'queued', 'ready', 'queued']).tab, 'Progress');
 });
 

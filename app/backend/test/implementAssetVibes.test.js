@@ -16,7 +16,7 @@ const BASE = {
 const PAGE = 'app:page:decisions';
 const CHART = 'dashboard:w1a2b3c4';
 const ASKED = '  Put the rows to act on first,\n  then a map by region  ';
-const NOT_BUILT = (label) => `Inspire has not built the ${label} on this PoC/MVP, so it cannot rebuild it with your vibes; pick an asset the Control tower lists`;
+const NOT_BUILT = (label) => `Inspire has not built the ${label} on this MVP, so it cannot rebuild it with your vibes; pick an asset the Control tower lists`;
 
 function spec(outputs = {}, top = {}) {
   return I.validateImplementSpec({ ...JSON.parse(JSON.stringify(BASE)), ...top, outputs: { ...BASE.outputs, ...outputs } });

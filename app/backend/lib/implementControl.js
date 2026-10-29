@@ -50,15 +50,15 @@ function controlAction(asset, action) {
 
 function controlTarget(asset, targets) {
   const id = Object.hasOwn(targets || {}, asset) ? str(targets[asset]) : '';
-  if (!id && asset === 'build') throw I.badRequest('no version of this PoC/MVP is building now', 409);
-  if (!id) throw I.badRequest(`this PoC/MVP has no ${asset === 'job' ? 'job' : I.IMPLEMENT_OUTPUT_LABELS[asset]} that Inspire built`, 409);
+  if (!id && asset === 'build') throw I.badRequest('no version of this MVP is building now', 409);
+  if (!id) throw I.badRequest(`this MVP has no ${asset === 'job' ? 'job' : I.IMPLEMENT_OUTPUT_LABELS[asset]} that Inspire built`, 409);
   return id;
 }
 
 function jobOwnerProblem(got, { useCaseId, sessionId } = {}) {
   if (!got || !got.ok) return `Inspire cannot read this job: ${errorOf(got)}`;
   const tags = (dataOf(got).settings || {}).tags || {};
-  if (str(tags.dbx_inspire_ai_run_type) !== 'implement') return 'the job is not an Inspire PoC/MVP job';
+  if (str(tags.dbx_inspire_ai_run_type) !== 'implement') return 'the job is not an Inspire MVP job';
   if (str(tags.dbx_inspire_ai_session_id) !== str(sessionId)) return 'the job belongs to another Inspire session';
   if (tags.dbx_inspire_ai_usecase_id && str(tags.dbx_inspire_ai_usecase_id) !== str(useCaseId)) return 'the job belongs to another use case';
   return '';
@@ -75,7 +75,7 @@ function controlRequest(asset, action, id, { warehouseId } = {}) {
   if (asset === 'job') return { method: 'POST', path: '/api/2.1/jobs/runs/cancel-all', body: { job_id: Number(id) } };
   if (asset === 'build') return { method: 'POST', path: '/api/2.1/jobs/runs/cancel', body: { run_id: Number(id) } };
   if (action === 'unpublish') return { method: 'DELETE', path: `/api/2.0/lakeview/dashboards/${enc}/published` };
-  if (!str(warehouseId)) throw I.badRequest('the PoC/MVP spec has no SQL warehouse to publish the dashboard on', 409);
+  if (!str(warehouseId)) throw I.badRequest('the MVP spec has no SQL warehouse to publish the dashboard on', 409);
   return { method: 'POST', path: `/api/2.0/lakeview/dashboards/${enc}/published`, body: { warehouse_id: str(warehouseId), embed_credentials: false } };
 }
 
@@ -183,7 +183,7 @@ function controlLogTableName(catalog, schema) {
 function controlLogCreateSql(table) {
   const columns = CONTROL_LOG_COLUMNS.map(([name, kind]) => `\`${name}\` ${kind}`).join(', ');
   return `CREATE TABLE IF NOT EXISTS ${table} (${columns}) USING DELTA CLUSTER BY (\`session_id\`, \`use_case_id\`) `
-    + "COMMENT 'Start Use Case PoC/MVP with Genie control tower: one row per Stop, Start, Publish, Unpublish or Stop-the-run click in the Inspire App'";
+    + "COMMENT 'Start Use Case MVP with Genie control tower: one row per Stop, Start, Publish, Unpublish or Stop-the-run click in the Inspire App'";
 }
 
 function controlLogInsert(table, { sessionId, useCaseId, asset, assetId, action, result, message, actedBy }) {

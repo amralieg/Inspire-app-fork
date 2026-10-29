@@ -19,10 +19,13 @@ const RESULTS = {
       uc('N01-U01', 'Predict churn', { Subdomain: 'Retention', Priority: 'Very High', Quality: 'High', 'Analytics Technique': 'Classification',
         priority_score: '4.6', value_score: '4.8', feasibility_score: '4.4', Sponsor: 'Head of Retention', has_genie_code: 'Y',
         best_of_best: 'Y', best_of_best_rank: '1', strategy_alignment: JSON.stringify([{ id: 'S1', path: 'Grow > Keep customers', evidence: 'churn' }]),
-        kpis: JSON.stringify([{ name: 'Churn rate', direction: 'decrease' }]), channels: JSON.stringify(['Email', 'SMS']) }),
+        kpis: JSON.stringify([{ name: 'Churn rate', direction: 'decrease' }]), channels: JSON.stringify(['Email', 'SMS']),
+        data_evidence: JSON.stringify({ tables: { 'main.s.orders': { rows: 1200, sampled: false } }, signal: { status: 'no_signal', check: 'outcome',
+          table: 'main.s.orders', reason: 'The data shows no signal: no signal column separates the outcome. Inspire kept it because the instructions ask for it.' } }) }),
       uc('N01-U02', 'Score upsell', { Subdomain: 'Growth', Priority: 'High', Quality: 'Medium', 'Analytics Technique': 'Regression',
         priority_score: '3.9', Sponsor: 'Head of Sales', strategy_alignment: JSON.stringify([{ id: 'S2', path: 'Grow > Sell more', evidence: 'upsell' }]),
-        channels: JSON.stringify(['Email']) }),
+        channels: JSON.stringify(['Email']), data_evidence: JSON.stringify({ signal: { status: 'passed', check: 'outcome', table: 'main.s.orders',
+          reason: 'basket_size moves with the outcome, with a correlation of 0.210.' } }) }),
       uc('N01-U03', 'Segment shoppers', { Subdomain: 'Growth', Priority: 'Medium', Quality: 'Medium', 'Analytics Technique': 'Clustering',
         priority_score: '3.1', channels: JSON.stringify(['App']) }),
       uc('N01-U04', 'Price elasticity', { Subdomain: 'Pricing', Priority: 'Low', Quality: 'Low', 'Analytics Technique': 'Regression',
@@ -78,6 +81,27 @@ test('the Results page is the list it was before the grid: the sidebar and the f
     await list(page).getByText('Build predict churn').first().waitFor();
     await card(page, 'Forecast stock').click();
     assert.equal(await churn.getAttribute('aria-expanded'), 'false', 'one card is open at a time');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('an open card says what the Deep data check found, and a card without the check says nothing about it', async () => {
+  const ui = await openUi('results', STATE);
+  const { page } = ui;
+  try {
+    await ready(page);
+    const line = list(page).locator('[data-testid="data-signal"]');
+    await card(page, 'Predict churn').click();
+    await line.waitFor();
+    assert.equal(await line.innerText(), 'The data shows no signal: no signal column separates the outcome. Inspire kept it because the instructions ask for it.');
+    await card(page, 'Score upsell').click();
+    await list(page).getByText('Data check passed').waitFor();
+    assert.equal(await line.innerText(), 'Data check passed: basket_size moves with the outcome, with a correlation of 0.210.');
+    await card(page, 'Segment shoppers').click();
+    await list(page).getByText('Build segment shoppers').first().waitFor();
+    assert.equal(await line.count(), 0);
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();

@@ -12,7 +12,7 @@ const {
 } = require('../lib/inspireFeedback');
 
 const body = {
-  session_id: '4038328984923949099',
+  session_id: '3333333333333333333',
   use_case_id: 'N01-U03',
   use_case_key: 'forecast weekly demand|main.s.orders',
   use_case_title: 'Forecast weekly demand',

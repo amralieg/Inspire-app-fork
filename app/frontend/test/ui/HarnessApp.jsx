@@ -58,12 +58,14 @@ function CardHarness() {
     ['running', implementState({ status: 'filling' }, null), true],
     ['notebook', implementState(null, notebookStatus({ has_genie_code: 'Y' }, null)), true],
     ['no-session', implementState({ status: 'ready' }, null), false],
+    ['uninstalled', implementState({ status: 'uninstalled' }, null), true],
   ];
   return (
     <div className="p-6 space-y-3">
       {cards.map(([id, status, canStart]) => (
         <div key={id} data-card={id} onClick={() => push(`card:${id}`)} className="border border-border rounded-lg py-3">
-          <ImplementCardActions status={status} onImplement={canStart ? () => push(`start:${id}`) : undefined} />
+          <ImplementCardActions status={status} onImplement={canStart ? () => push(`start:${id}`) : undefined}
+            onOpen={canStart ? () => push(`open:${id}`) : undefined} notebookUrl={canStart ? `https://workspace.example.com/#workspace/nb/${id}` : ''} />
         </div>
       ))}
       <output aria-label="Clicks">{clicks.join(',')}</output>

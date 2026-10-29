@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { ArrowDown, Terminal, Info } from 'lucide-react';
 import GenieLogo from './GenieLogo';
-import { feedLine, feedKey, feedTypesOut, typedText, typingSchedule } from '../lib/pocProgress';
+import { feedLine, feedKey, feedTypesOut, typedText, typingSchedule } from '../lib/mvpProgress';
 import { reducedMotion } from '../lib/motion';
 
 const TONE_TEXT = { plain: 'text-text-primary', quiet: 'text-text-secondary', warning: 'text-warning-fg', error: 'text-error-fg' };
@@ -85,7 +85,7 @@ export default function GenieFeed({ feed, arrivals, active, working }) {
         aria-busy={typing}
         aria-label="Genie's messages"
         tabIndex={0}
-        className={`${active || entries.length ? 'h-80' : 'max-h-80'} overflow-y-auto overscroll-contain bg-panel px-4 py-4 space-y-3 glow-focus`}
+        className={`${active || entries.length ? 'h-[36rem] min-h-48 max-h-[85vh] resize-y' : 'max-h-[36rem]'} overflow-y-auto overscroll-contain bg-panel px-4 py-4 space-y-3 glow-focus`}
       >
         {!Array.isArray(feed) && <p className="text-[12px] text-text-tertiary">Loading Genie&apos;s messages…</p>}
         {Array.isArray(feed) && shown.length === 0 && (

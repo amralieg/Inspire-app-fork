@@ -1,7 +1,7 @@
-export const START_POC_LABEL = 'Start Use Case PoC/MVP with Genie';
+export const START_MVP_LABEL = 'Start Use Case MVP with Genie';
 
 export const IMPLEMENT_MODES = [
-  { id: 'poc', label: 'Full PoC/MVP', blurb: 'Genie builds the result table, then the outputs you pick: dashboard, Genie Agent, App or alert.' },
+  { id: 'mvp', label: 'Full MVP', blurb: 'Genie builds the result table, then the outputs you pick: dashboard, Genie Agent, App or alert.' },
   { id: 'notebook', label: 'Notebook only', blurb: 'Inspire writes the Genie Code notebook for this use case. Nothing else is built; you run the notebook yourself.' },
 ];
 
@@ -26,7 +26,7 @@ export const NOTEBOOK_STEPS = [
 ];
 
 export function wizardSteps(mode, spec = null) {
-  if (mode === 'poc') return spec?.outputs?.app ? [...IMPLEMENT_STEPS, ...APP_STEPS] : IMPLEMENT_STEPS;
+  if (mode === 'mvp') return spec?.outputs?.app ? [...IMPLEMENT_STEPS, ...APP_STEPS] : IMPLEMENT_STEPS;
   if (mode === 'notebook') return NOTEBOOK_STEPS;
   throw new Error(`unknown implement mode '${mode}'`);
 }
@@ -444,10 +444,15 @@ export function slugOf(id) {
   return String(id || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
 }
 
-export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner, businessName } = {}) {
+export function defaultResultTable(inspireDatabase, useCaseId, sessionId) {
+  const slug = slugOf(useCaseId);
+  const sid = /^\d+$/.test(String(sessionId ?? '').trim()) ? String(sessionId).trim() : '';
+  return inspireDatabase && slug && sid ? `${inspireDatabase}.${slug}_s${sid}_out` : '';
+}
+
+export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, sessionId, owner, businessName } = {}) {
   const id = caseIdOf(uc);
-  const slug = slugOf(id);
-  const resultTable = inspireDatabase && slug ? `${inspireDatabase}.${slug}_out` : '';
+  const resultTable = defaultResultTable(inspireDatabase, id, sessionId);
   const measures = listOf(uc?.measures_of_success || uc?._v130?.measuresOfSuccess).slice(0, 3);
   const goal = String(uc?.statement || uc?.Statement || uc?.business_value || '').trim().slice(0, 500);
   const decisionOwner = String(owner || uc?.sponsor || uc?.Sponsor || '').trim();
@@ -524,7 +529,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
   };
 }
 
-const ONE_VERSION_KEYS = ['retry_outputs', 'retry_asks', 'rollback_outputs', 'confirm_notebook_overwrite'];
+const ONE_VERSION_KEYS = ['retry_outputs', 'retry_asks', 'rollback_outputs', 'confirm_notebook_overwrite', 'vibes', 'vibe_previous', 'remove_kept', 'uninstall'];
 
 function withoutOneVersionKeys(spec) {
   return Object.fromEntries(Object.entries(spec || {}).filter(([key]) => !ONE_VERSION_KEYS.includes(key)));
@@ -927,7 +932,7 @@ export function profileEstimate({ evidence, table, dateColumn, windowDays, dataW
     }
   } else if (Number(windowDays) > 0 || dataWindow?.start || dataWindow?.end) {
     notes.push(dateColumn ? 'no date range was profiled, so this is the whole table'
-      : 'no event date column is set here, so this is the whole table; the PoC/MVP applies the window to the instruction\'s date');
+      : 'no event date column is set here, so this is the whole table; the MVP applies the window to the instruction\'s date');
   }
   if (Number(sampleEntities) > 0) notes.push(`then a sample of ${Number(sampleEntities)} entities`);
   if (Number(entityCap) > 0) notes.push(`capped at ${Number(entityCap)} entities`);
@@ -1125,11 +1130,11 @@ function stepOf(id, mode, spec) {
   return step;
 }
 
-export function stepErrors(step, spec, extras = {}, mode = 'poc') {
+export function stepErrors(step, spec, extras = {}, mode = 'mvp') {
   return stepOf(step, mode, spec).sections.flatMap((section) => sectionErrors(section, spec, extras));
 }
 
-export function advancedErrors(step, spec, extras = {}, mode = 'poc') {
+export function advancedErrors(step, spec, extras = {}, mode = 'mvp') {
   return stepOf(step, mode, spec).advanced.flatMap((section) => sectionErrors(section, spec, extras));
 }
 
@@ -1301,9 +1306,12 @@ export function versionActive(latest, stalled = null) {
   return IMPLEMENT_ACTIVE_STATUSES.includes(String(latest?.status || '')) && !stalled;
 }
 
+export const IMPLEMENT_UNINSTALLED = 'uninstalled';
+
 export function statusChip(status, stalled = null) {
   const s = String(status || '');
   if (s === 'ready') return { label: 'Ready', tone: 'success' };
+  if (s === IMPLEMENT_UNINSTALLED) return { label: 'Uninstalled', tone: 'idle' };
   if (s === 'ready_with_warnings') return { label: 'Warnings', tone: 'warning' };
   if (s === 'failed') return { label: 'Failed', tone: 'error' };
   if (IMPLEMENT_ACTIVE_STATUSES.includes(s)) return stalled ? { label: 'Stopped', tone: 'error' } : { label: s.replace(/_/g, ' '), tone: 'busy' };
@@ -1339,7 +1347,7 @@ export function lostTablesText(missing) {
     + 'Swap each for a table with the same role, or remove it.';
 }
 
-export function initialStepIndex(focus, mode = 'poc', spec = null) {
+export function initialStepIndex(focus, mode = 'mvp', spec = null) {
   const steps = wizardSteps(mode, spec);
   const want = focus?.step;
   if (want === 'review') return steps.length - 1;
@@ -1380,13 +1388,14 @@ const NOTEBOOK_GROUP = { running: 'in_progress', ready: 'ready', failed: 'failed
 
 export function implementState(latest, notebook = null) {
   const s = String(latest?.status || '');
+  if (s === IMPLEMENT_UNINSTALLED) return { group: 'not_started', label: 'MVP uninstalled', tone: 'idle', kind: 'uninstalled' };
   if (s) {
-    if (s === 'ready') return { group: 'ready', label: 'PoC/MVP ready', tone: 'success', kind: 'poc' };
-    if (s === 'ready_with_warnings') return { group: 'ready', label: 'PoC/MVP ready with warnings', tone: 'warning', kind: 'poc' };
-    if (s === 'failed') return { group: 'failed', label: 'PoC/MVP failed', tone: 'error', kind: 'poc' };
-    if (IMPLEMENT_ACTIVE_STATUSES.includes(s) && latest.stalled) return { group: 'failed', label: 'PoC/MVP stopped', tone: 'error', kind: 'poc' };
-    if (IMPLEMENT_ACTIVE_STATUSES.includes(s)) return { group: 'in_progress', label: 'PoC/MVP running', tone: 'busy', kind: 'poc' };
-    return { group: 'in_progress', label: `PoC/MVP ${s.replace(/_/g, ' ')}`, tone: 'idle', kind: 'poc' };
+    if (s === 'ready') return { group: 'ready', label: 'MVP ready', tone: 'success', kind: 'mvp' };
+    if (s === 'ready_with_warnings') return { group: 'ready', label: 'MVP ready with warnings', tone: 'warning', kind: 'mvp' };
+    if (s === 'failed') return { group: 'failed', label: 'MVP failed', tone: 'error', kind: 'mvp' };
+    if (IMPLEMENT_ACTIVE_STATUSES.includes(s) && latest.stalled) return { group: 'failed', label: 'MVP stopped', tone: 'error', kind: 'mvp' };
+    if (IMPLEMENT_ACTIVE_STATUSES.includes(s)) return { group: 'in_progress', label: 'MVP running', tone: 'busy', kind: 'mvp' };
+    return { group: 'in_progress', label: `MVP ${s.replace(/_/g, ' ')}`, tone: 'idle', kind: 'mvp' };
   }
   if (notebook) return { group: NOTEBOOK_GROUP[notebook.state], label: notebook.label, tone: notebook.tone, kind: 'notebook' };
   return { group: 'not_started', label: '', tone: 'idle', kind: 'none' };

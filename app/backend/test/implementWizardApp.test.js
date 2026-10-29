@@ -92,8 +92,8 @@ test('ticking the App ticks the Genie Agent and locks it, and the lock refuses a
   assert.deepEqual([off.outputs.app, off.outputs.genie_space], [false, true], 'unticking the App leaves the Genie Agent as it is');
   assert.equal(w.withOutput(off, 'genie_space', false).outputs.genie_space, false);
   assert.deepEqual(w.withOutput(spec, 'alert', true).outputs.alert_recipients, w.defaultAlertRecipients(spec));
-  assert.deepEqual(w.wizardSteps('poc', ticked).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'app_access', 'app_look']);
-  assert.deepEqual(w.wizardSteps('poc', off).map((s) => s.id), ['choose', 'data', 'results', 'delivery']);
+  assert.deepEqual(w.wizardSteps('mvp', ticked).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'app_access', 'app_look']);
+  assert.deepEqual(w.wizardSteps('mvp', off).map((s) => s.id), ['choose', 'data', 'results', 'delivery']);
   assert.deepEqual(w.stepErrors('delivery', { ...ticked, outputs: { ...ticked.outputs, genie_space: false } }), [w.GENIE_FOR_APP_NOTE]);
 });
 
@@ -177,18 +177,39 @@ test('Edit of an App built before Lakebase keeps it on Delta tables, and one nev
   assert.equal(w.specFromLatest(onLakebase, fallback, { app: 'churn-desk' }).outputs.app_backend, 'lakebase');
 });
 
+test('an Edit of a version saved before result tables carried the session keeps the table it was built on', async () => {
+  const w = await load();
+  const fallback = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', sessionId: '42' });
+  const older = { spec_version: 3, spec_json: { ...fallback, config: { ...fallback.config, result_table: 'main.inspire.n01_u01_out' } } };
+  const edited = w.specFromLatest(older, fallback);
+  assert.equal(fallback.config.result_table, 'main.inspire.n01_u01_s42_out');
+  assert.equal(edited.config.result_table, 'main.inspire.n01_u01_out');
+  assert.deepEqual(w.stepErrors('results', edited), []);
+  const fresh = w.specFromLatest(null, fallback);
+  assert.equal(fresh.config.result_table, 'main.inspire.n01_u01_s42_out');
+});
+
 test('the result table is picked as catalog, schema and name, defaults to the Inspire Database and refuses a partial name', async () => {
   const w = await load();
-  const spec = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire' });
-  assert.equal(spec.config.result_table, 'main.inspire.n01_u01_out');
-  assert.deepEqual(w.resultTableParts(spec.config.result_table), { catalog: 'main', schema: 'inspire', table: 'n01_u01_out' });
+  const spec = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', sessionId: '1111111111111111111' });
+  assert.equal(spec.config.result_table, 'main.inspire.n01_u01_s1111111111111111111_out');
+  assert.deepEqual(w.resultTableParts(spec.config.result_table), { catalog: 'main', schema: 'inspire', table: 'n01_u01_s1111111111111111111_out' });
+  const other = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', sessionId: 2222222222222222222n });
+  assert.equal(other.config.result_table, 'main.inspire.n01_u01_s2222222222222222222_out');
+  assert.notEqual(other.config.result_table, spec.config.result_table, 'the same use case id in two Discover sessions never shares a result table');
+  for (const sessionId of [undefined, '', 'abc', '12 3', null]) {
+    assert.equal(w.defaultSpecFromUseCase(UC, { inspireDatabase: 'main.inspire', sessionId }).config.result_table, '',
+      `no default without a session id (${String(sessionId)})`);
+  }
+  assert.equal(w.defaultResultTable('', 'N01-U01', '42'), '');
+  assert.equal(w.defaultResultTable('main.inspire', '', '42'), '');
   assert.deepEqual(w.resultTableParts(''), { catalog: '', schema: '', table: '' });
-  const moved = w.withResultTable(spec, { catalog: 'sales', schema: 'poc', table: ' churn_out ' });
-  assert.equal(moved.config.result_table, 'sales.poc.churn_out');
+  const moved = w.withResultTable(spec, { catalog: 'sales', schema: 'mvp', table: ' churn_out ' });
+  assert.equal(moved.config.result_table, 'sales.mvp.churn_out');
   assert.deepEqual(w.stepErrors('results', moved), []);
   assert.deepEqual(w.stepErrors('results', w.withResultTable(spec, { catalog: 'sales', schema: '', table: 'x' })),
     ['pick a catalog and a schema, and name the result table']);
-  assert.deepEqual(w.stepErrors('results', w.withResultTable(spec, { catalog: 'sales', schema: 'poc', table: 'churn out' })),
+  assert.deepEqual(w.stepErrors('results', w.withResultTable(spec, { catalog: 'sales', schema: 'mvp', table: 'churn out' })),
     ['the result table can only use catalog, schema and table names of letters, digits, _ and -']);
   assert.equal(w.withResultTable(spec, { catalog: '', schema: '', table: '' }).config.result_table, '');
   assert.match(w.RESULT_TABLE_MOVE_NOTE, /copies its history to the new table and keeps the old one/);
@@ -226,7 +247,7 @@ test('every user-visible output label and preflight label says Genie Agent', asy
     path.resolve(__dirname, '..', '..', 'frontend', 'src', 'pages', 'ImplementPage.jsx'),
     path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib', 'implementControl.js'),
     path.resolve(__dirname, '..', 'lib', 'implementControl.js'),
-    ...['BuildUi.jsx', 'ImplementControlTower.jsx', 'PocProgress.jsx', 'GenieFeed.jsx', 'ImplementCardActions.jsx', 'ImplementStatusBadge.jsx', 'VibesEditor.jsx']
+    ...['BuildUi.jsx', 'ImplementControlTower.jsx', 'MvpProgress.jsx', 'GenieFeed.jsx', 'ImplementCardActions.jsx', 'ImplementStatusBadge.jsx', 'VibesEditor.jsx']
       .map((name) => path.resolve(__dirname, '..', '..', 'frontend', 'src', 'components', name)),
   ];
   for (const file of files) assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /Genie spaces?\b|Space name/, path.basename(file));

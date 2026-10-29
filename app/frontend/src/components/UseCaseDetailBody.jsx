@@ -3,7 +3,7 @@ import { Check, Copy, Loader2 } from 'lucide-react';
 import GenieMarkdownPreview from './GenieMarkdownPreview';
 import { BestOfBestDetail, FeedbackControls, UseCaseStrategyDetail } from './UseCaseStrategyDetail';
 import { workspaceNotebookUrl } from '../lib/workspaceLinks';
-import { START_POC_LABEL } from '../lib/implementWizard';
+import { START_MVP_LABEL } from '../lib/implementWizard';
 import { beneficiaryFromUc, expandWorkspaceListCandidates, fieldOf, hasShippedGenieCode, notebookPathOf, sponsorFromUc } from '../lib/useCaseFields';
 
 const notebookCache = new Map();
@@ -315,7 +315,7 @@ export default function UseCaseDetailBody({
 
           {!shippedGenie && notebookPath && (
             <p className="text-[10px] text-text-tertiary mb-2 leading-relaxed">
-              Skeleton or partial Genie text. To write the full Genie instruction, use <span className="font-semibold">{START_POC_LABEL}</span> and choose Notebook only. Preview shows notebook cells / instruction text when available.
+              Skeleton or partial Genie text. To write the full Genie instruction, use <span className="font-semibold">{START_MVP_LABEL}</span> and choose Notebook only. Preview shows notebook cells / instruction text when available.
             </p>
           )}
 

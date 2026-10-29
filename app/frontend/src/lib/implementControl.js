@@ -1,5 +1,5 @@
 import {
-  BUILT_ASSET_STATES, IMPLEMENT_OUTPUTS, holdoutText, partLabel, partOf, rebuildableOutputs, statusChip, versionActive, vibesKey,
+  BUILT_ASSET_STATES, IMPLEMENT_OUTPUTS, IMPLEMENT_UNINSTALLED, holdoutText, partLabel, partOf, rebuildableOutputs, statusChip, versionActive, vibesKey,
 } from './implementWizard.js';
 import { formatWhen } from './formatWhen.js';
 
@@ -154,16 +154,16 @@ export function deliveredOutputs(latest) {
 
 export function buildSummary(items) {
   const list = Array.isArray(items) ? items : [];
-  const pocs = list.filter((item) => item.state?.kind === 'poc');
-  const inGroup = (group) => pocs.filter((item) => item.state.group === group);
+  const mvps = list.filter((item) => item.state?.kind === 'mvp');
+  const inGroup = (group) => mvps.filter((item) => item.state.group === group);
   const delivered = IMPLEMENT_OUTPUTS
     .map((output) => {
-      const count = pocs.filter((item) => deliveredOutputs(item.latest).includes(output.id)).length;
+      const count = mvps.filter((item) => deliveredOutputs(item.latest).includes(output.id)).length;
       return { id: output.id, count, text: `${count} ${DELIVERED_WORDS[output.id][count === 1 ? 0 : 1]}` };
     })
     .filter((entry) => entry.count > 0);
   return {
-    pocs: pocs.length,
+    mvps: mvps.length,
     building: inGroup('in_progress'),
     ready: inGroup('ready').length,
     failed: inGroup('failed').length,
@@ -415,4 +415,81 @@ export function controlActionText(entry) {
   const who = entry?.acted_by ? ` by ${entry.acted_by}` : '';
   const when = entry?.acted_at ? `, ${formatWhen(entry.acted_at, entry.acted_at)}` : '';
   return `${entry?.message || `${entry?.asset} ${entry?.action}`}${who}${when}`;
+}
+
+const VIBE_OUTPUT_WORDS = { genie_space: 'the Genie Agent', app: 'the App', dashboard: 'the dashboard', alert: 'the alert' };
+const heading = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+const newestFirst = (history) => [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
+
+export function vibeOutputs(cards) {
+  const live = new Set((cards || []).filter((c) => c.live && Object.hasOwn(VIBE_OUTPUT_WORDS, c.output)).map((c) => c.output));
+  return Object.keys(VIBE_OUTPUT_WORDS).filter((id) => live.has(id));
+}
+
+export function vibePlaceholder(outputs) {
+  const words = (outputs || []).map((id) => VIBE_OUTPUT_WORDS[id]).filter(Boolean);
+  if (!words.length) return '';
+  return `Tell us what to change in ${words.length === 1 ? words[0] : `${words.slice(0, -1).join(', ')} or ${words.at(-1)}`}`;
+}
+
+export function liveVersion(history) {
+  return newestFirst(history).find((row) => DONE.includes(String(row?.status)))?.spec_version ?? null;
+}
+
+export function globalVibeChanges(text, previous) {
+  return { vibes: String(text ?? '').trim(), vibe_previous: previous };
+}
+
+export function removeKeptChanges(version) {
+  return { remove_kept: [Number(version)] };
+}
+
+export function uninstallChanges() {
+  return { uninstall: true };
+}
+
+export function lastVibe(history) {
+  const row = newestFirst(history).find((r) => r?.asset_status?.vibe && typeof r.asset_status.vibe === 'object' && !Array.isArray(r.asset_status.vibe));
+  if (!row) return null;
+  const vibe = row.asset_status.vibe;
+  const named = (id) => String(row.asset_status?.[id]?.name ?? row.asset_status?.[id]?.title ?? '');
+  const routes = Object.entries(vibe.routes && typeof vibe.routes === 'object' ? vibe.routes : {})
+    .map(([id, words]) => ({ id, label: heading(partLabel(id, named(id))), words: String(words ?? '').trim() }))
+    .filter((route) => route.words);
+  const notRouted = (Array.isArray(vibe.not_routed) ? vibe.not_routed : [])
+    .map((item) => ({ ask: String(item?.ask ?? '').trim(), reason: String(item?.reason ?? '').trim() }))
+    .filter((item) => item.ask);
+  return { version: row.spec_version, status: String(row.status || ''), text: String(vibe.text ?? '').trim(), previous: String(vibe.previous ?? ''), routes, notRouted };
+}
+
+export function keptVersions(history) {
+  const row = newestFirst(history).find((r) => r?.asset_status?.kept && typeof r.asset_status.kept === 'object');
+  const byVersion = new Map();
+  for (const entry of Array.isArray(row?.asset_status?.kept?.assets) ? row.asset_status.kept.assets : []) {
+    const output = IMPLEMENT_OUTPUTS.find((o) => o.id === entry?.output);
+    const version = Number(entry?.version);
+    if (!output || !String(entry.id ?? '').trim() || !Number.isInteger(version) || version < 1) continue;
+    if (!byVersion.has(version)) byVersion.set(version, { version, keptIn: Number(entry.kept_in) || null, assets: [] });
+    byVersion.get(version).assets.push({ output: output.id, label: output.label, id: String(entry.id), url: String(entry.url || ''), title: String(entry.title || '') });
+  }
+  return [...byVersion.values()].sort((a, b) => b.version - a.version);
+}
+
+export const ASSET_FILTERS = [['notebook', 'Notebook'], ['app', 'App'], ['dashboard', 'Dashboard'], ['genie_space', 'Genie Agent'], ['alert', 'Alert']];
+
+export function itemAssets(item) {
+  const gone = item?.latest?.status === IMPLEMENT_UNINSTALLED;
+  const have = new Set(gone ? [] : deliveredOutputs(item?.latest));
+  if (item?.notebook?.state === 'ready' || (!gone && item?.latest?.notebook_path)) have.add('notebook');
+  return have;
+}
+
+export function assetFilterCounts(items) {
+  const list = (items || []).map(itemAssets);
+  return ASSET_FILTERS.map(([id, label]) => ({ id, label, count: list.filter((have) => have.has(id)).length }));
+}
+
+export function filterByAsset(groups, asset) {
+  if (!asset) return groups;
+  return (groups || []).map((group) => ({ ...group, items: group.items.filter((item) => itemAssets(item).has(asset)) }));
 }

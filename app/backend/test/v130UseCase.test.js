@@ -70,6 +70,32 @@ test('results_json keys and tracking columns give the same view', async () => {
   assert.deepEqual(fromResults.keyResults.map((kr) => kr.source), ['strategy', 'proposed']);
 });
 
+test('the Deep data check reaches the view from results_json and the tracking row, and reads as one plain line', async () => {
+  const lib = await load();
+  const signal = { status: 'no_signal', check: 'lever', table: 'main.s.orders', columns: { lever: 'price', outcome: 'quantity' },
+    measures: { lever_effect: 0.001 }, reason: 'The data shows no signal: quantity does not move with price. Inspire kept it because you asked for it.' };
+  const evidence = { ...EVIDENCE, signal };
+  const fromResults = lib.v130View({ ...RESULTS_UC, 'Data Evidence': evidence });
+  const fromTracking = lib.v130View(normalizeV130UseCaseFields({ id: 'N01-U01', data_evidence: JSON.stringify(evidence) }));
+  assert.deepEqual(fromTracking.dataEvidence, fromResults.dataEvidence);
+  assert.equal(fromResults.dataEvidence.signal.status, 'no_signal');
+  assert.deepEqual(lib.dataSignalLine(fromResults.dataEvidence.signal), {
+    tone: 'warning', label: 'The data shows no signal', text: 'quantity does not move with price. Inspire kept it because you asked for it.',
+  });
+  const onlySignal = lib.v130View({ 'Data Evidence': { signal: { status: 'passed', reason: 'quantity moves with price, with a correlation of 0.310.' } } });
+  assert.deepEqual(onlySignal.dataEvidence.tables, {});
+  assert.deepEqual(lib.dataSignalLine(onlySignal.dataEvidence.signal),
+    { tone: 'passed', label: 'Data check passed', text: 'quantity moves with price, with a correlation of 0.310.' });
+  const unchecked = lib.v130View({ 'Data Evidence': { signal: { status: 'not_checked', reason: 'Not checked: the Deep signal check budget of 600s is spent.' } } });
+  assert.deepEqual(lib.dataSignalLine(unchecked.dataEvidence.signal),
+    { tone: 'neutral', label: 'Data not checked', text: 'the Deep signal check budget of 600s is spent.' });
+  for (const bad of [{ status: 'maybe' }, { status: '' }, [], 'passed', null]) {
+    assert.equal(lib.v130View({ 'Data Evidence': { signal: bad } }).dataEvidence, null, JSON.stringify(bad));
+  }
+  assert.equal(lib.dataSignalLine(null), null);
+  assert.equal(lib.v130View(RESULTS_UC).dataEvidence.signal, null);
+});
+
 test('tracking fields fill gaps and never overwrite results_json values', async () => {
   const lib = await load();
   const uc = { 'Strategy Path': 'Customer', kpis: [{ name: 'Kept' }], use_case_key: '' };

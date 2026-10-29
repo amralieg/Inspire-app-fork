@@ -112,7 +112,7 @@ test('only failed outputs that are still selected on a version with warnings can
   assert.deepEqual(w.retryableOutputs({ status: 'ready_with_warnings', spec_json: {}, asset_status: null }), []);
 });
 
-test('only an output that was built and still works can be rebuilt, and only once the PoC is ready', async () => {
+test('only an output that was built and still works can be rebuilt, and only once the MVP is ready', async () => {
   const w = await load();
   const latest = {
     status: 'ready_with_warnings',
@@ -182,7 +182,7 @@ test('a baseline alert fires only on a rise or a fall, like the agent checks', a
   assert.equal(w.baselineOperatorOk('constructor'), false);
 });
 
-test('each Full PoC step runs the checks of every section it shows, and only those', async () => {
+test('each Full MVP step runs the checks of every section it shows, and only those', async () => {
   const w = await load();
   assert.deepEqual(w.IMPLEMENT_STEPS.map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['results', 'Results'], ['delivery', 'Delivery']]);
   assert.deepEqual(w.APP_STEPS.map((s) => [s.id, s.label]), [['app_access', 'App access'], ['app_look', 'App look']]);
@@ -661,7 +661,7 @@ test('profile estimates come from Deep evidence, and say unknown when there is n
   assert.equal(w.profileEstimate({ ...base, table: 'main.s.events', windowDays: '30' }).text,
     'at most 500 rows of main.s.events (no date range was profiled, so this is the whole table)');
   assert.equal(w.profileEstimate({ ...base, table: 'main.s.events', dateColumn: '', windowDays: '30' }).text,
-    "at most 500 rows of main.s.events (no event date column is set here, so this is the whole table; the PoC/MVP applies the "
+    "at most 500 rows of main.s.events (no event date column is set here, so this is the whole table; the MVP applies the "
     + "window to the instruction's date)");
 });
 
@@ -778,8 +778,8 @@ test('Edit opens the wizard on the step it was asked for, and on Choose otherwis
   for (const section of ['use_case', 'configure']) assert.equal(w.initialStepIndex({ step: section }), 1, section);
   for (const section of ['use_it', 'alert', 'schedule', 'review']) assert.equal(w.initialStepIndex({ step: section }), 3, section);
   const withApp = { outputs: { app: true } };
-  assert.equal(w.initialStepIndex({ step: 'review' }, 'poc', withApp), 5, 'review lands on the last step, App look when the App is ticked');
-  assert.equal(w.initialStepIndex({ step: 'app_access' }, 'poc', withApp), 4);
+  assert.equal(w.initialStepIndex({ step: 'review' }, 'mvp', withApp), 5, 'review lands on the last step, App look when the App is ticked');
+  assert.equal(w.initialStepIndex({ step: 'app_access' }, 'mvp', withApp), 4);
   assert.equal(w.initialStepIndex({ step: 'app_access' }), 0, 'no App, no App access step');
   assert.equal(w.initialStepIndex({ step: 'nope' }), 0);
   assert.equal(w.initialStepIndex(null), 0);
@@ -789,16 +789,16 @@ test('Edit opens the wizard on the step it was asked for, and on Choose otherwis
   assert.equal(w.initialStepIndex({ step: 'delivery' }, 'notebook'), 0);
 });
 
-test('Full PoC is the first mode, and Notebook only swaps Delivery for a Notebook step with nothing to check', async () => {
+test('Full MVP is the first mode, and Notebook only swaps Delivery for a Notebook step with nothing to check', async () => {
   const w = await load();
-  assert.deepEqual(w.IMPLEMENT_MODES.map((m) => [m.id, m.label]), [['poc', 'Full PoC/MVP'], ['notebook', 'Notebook only']]);
-  assert.equal(w.wizardSteps('poc'), w.IMPLEMENT_STEPS);
+  assert.deepEqual(w.IMPLEMENT_MODES.map((m) => [m.id, m.label]), [['mvp', 'Full MVP'], ['notebook', 'Notebook only']]);
+  assert.equal(w.wizardSteps('mvp'), w.IMPLEMENT_STEPS);
   assert.deepEqual(w.wizardSteps('notebook').map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['notebook', 'Notebook']]);
   assert.throws(() => w.wizardSteps('both'), /unknown implement mode 'both'/);
   assert.throws(() => w.wizardSteps(undefined), /unknown implement mode 'undefined'/);
   const spec = w.defaultSpecFromUseCase(UC, { warehouseId: '', inspireDatabase: 'main.inspire' });
   const bad = { ...spec, use_case: { ...spec.use_case, decision_owner: '' } };
-  assert.ok(w.stepErrors('data', bad).length > 0, 'Full PoC checks the Data step');
+  assert.ok(w.stepErrors('data', bad).length > 0, 'Full MVP checks the Data step');
   for (const id of ['choose', 'data', 'notebook']) {
     assert.deepEqual(w.stepErrors(id, bad, {}, 'notebook'), [], id);
     assert.deepEqual(w.advancedErrors(id, bad, {}, 'notebook'), [], id);
@@ -832,18 +832,18 @@ test('a use case notebook reads ready, running, failed or requested from its fla
   assert.equal(w.notebookStatus(null, RUN('running')), null);
 });
 
-test('the PoC state outranks the notebook, and a stopped PoC run counts as failed', async () => {
+test('the MVP state outranks the notebook, and a stopped MVP run counts as failed', async () => {
   const w = await load();
   const ready = { state: 'ready', label: 'Notebook ready', tone: 'success' };
   const cases = [
-    [{ status: 'ready' }, ready, 'ready', 'PoC/MVP ready'],
-    [{ status: 'ready_with_warnings' }, null, 'ready', 'PoC/MVP ready with warnings'],
-    [{ status: 'failed' }, ready, 'failed', 'PoC/MVP failed'],
-    [{ status: 'filling', stalled: { reason: 'run ended' } }, null, 'failed', 'PoC/MVP stopped'],
-    [{ status: 'previewing', stalled: null }, ready, 'in_progress', 'PoC/MVP running'],
-    [{ status: 'queued' }, null, 'in_progress', 'PoC/MVP running'],
-    [{ status: 'building_outputs' }, null, 'in_progress', 'PoC/MVP running'],
-    [{ status: 'archived_v2' }, null, 'in_progress', 'PoC/MVP archived v2'],
+    [{ status: 'ready' }, ready, 'ready', 'MVP ready'],
+    [{ status: 'ready_with_warnings' }, null, 'ready', 'MVP ready with warnings'],
+    [{ status: 'failed' }, ready, 'failed', 'MVP failed'],
+    [{ status: 'filling', stalled: { reason: 'run ended' } }, null, 'failed', 'MVP stopped'],
+    [{ status: 'previewing', stalled: null }, ready, 'in_progress', 'MVP running'],
+    [{ status: 'queued' }, null, 'in_progress', 'MVP running'],
+    [{ status: 'building_outputs' }, null, 'in_progress', 'MVP running'],
+    [{ status: 'archived_v2' }, null, 'in_progress', 'MVP archived v2'],
     [null, ready, 'ready', 'Notebook ready'],
     [null, { state: 'running', label: 'Notebook running', tone: 'busy' }, 'in_progress', 'Notebook running'],
     [null, { state: 'failed', label: 'Notebook failed', tone: 'error' }, 'failed', 'Notebook failed'],
@@ -855,12 +855,12 @@ test('the PoC state outranks the notebook, and a stopped PoC run counts as faile
     const got = w.implementState(latest, notebook);
     assert.deepEqual([got.group, got.label], [group, label], JSON.stringify([latest, notebook]));
   }
-  assert.equal(w.implementState({ status: 'ready' }, ready).kind, 'poc');
+  assert.equal(w.implementState({ status: 'ready' }, ready).kind, 'mvp');
   assert.equal(w.implementState(null, ready).kind, 'notebook');
   assert.equal(w.implementState(null, null).kind, 'none');
 });
 
-test('the Implement page groups every use case in a fixed order, keeps PoCs of unlisted use cases, and searches id, name and domain', async () => {
+test('the Implement page groups every use case in a fixed order, keeps MVPs of unlisted use cases, and searches id, name and domain', async () => {
   const w = await load();
   const useCases = [
     { id: 'N01-U01', Name: 'Predict churn', _domain: 'Retention' },

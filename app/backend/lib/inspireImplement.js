@@ -3,7 +3,9 @@ const { IMPLEMENT_RUN_ID_PARAM } = require('./inspireJobParams');
 
 const IMPLEMENT_OPERATION = 'Implement Use Cases';
 const IMPLEMENT_TABLE = '__inspire_implement';
-const IMPLEMENT_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs', 'checking', 'ready', 'ready_with_warnings', 'failed'];
+const IMPLEMENT_UNINSTALLED = 'uninstalled';
+const IMPLEMENT_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs', 'checking', 'ready', 'ready_with_warnings', 'failed',
+  IMPLEMENT_UNINSTALLED];
 const IMPLEMENT_ACTIVE_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs', 'checking'];
 const IMPLEMENT_DONE_STATUSES = ['ready', 'ready_with_warnings'];
 const IMPLEMENT_OUTPUTS = ['dashboard', 'genie_space', 'app', 'alert'];
@@ -15,7 +17,9 @@ const IMPLEMENT_OUTPUT_ID_COLUMNS = { dashboard: 'dashboard_id', genie_space: 'g
 const IMPLEMENT_STOPPED_STATES = ['deleted', 'released'];
 const IMPLEMENT_RUN_ENDED_STATES = ['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR'];
 const IMPLEMENT_STALE_AFTER_MS = 4 * 3600 * 1000;
-const IMPLEMENT_CHANGE_CLASSES = ['initial', 'data', 'config', 'schedule', 'holdout', 'outputs', 'deselect', 'sharing', 'retry', 'rollback'];
+const IMPLEMENT_CHANGE_CLASSES = ['initial', 'data', 'config', 'schedule', 'holdout', 'outputs', 'deselect', 'sharing', 'retry', 'rollback',
+  'vibe', 'remove_kept', 'uninstall'];
+const IMPLEMENT_VIBE_PREVIOUS = ['keep', 'remove'];
 const IMPLEMENT_HOLDOUT_SHARE = 0.1;
 const IMPLEMENT_HOLDOUT_MAX_SHARE = 0.5;
 const IMPLEMENT_RUN_PROFILES = ['preview', 'full'];
@@ -77,7 +81,7 @@ const IMPLEMENT_COLUMNS = [
 const IMPLEMENT_UNREAD_COLUMNS = ['asset_snapshots'];
 const IMPLEMENT_VARIANT_COLUMNS = IMPLEMENT_COLUMNS.filter(([, t]) => t === 'VARIANT').map(([n]) => n);
 const IMPLEMENT_NOT_AVAILABLE =
-  'Start Use Case PoC/MVP with Genie needs the Inspire Database: set it in Settings, then try again.';
+  'Start Use Case MVP with Genie needs the Inspire Database: set it in Settings, then try again.';
 
 function badRequest(message, statusCode = 400) {
   const err = new Error(message);
@@ -501,6 +505,29 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
     else rollback[name] = version;
   }
   out.rollback_outputs = rollback;
+  const vibe = vibesText(spec.vibes, 'vibes', 'MVP', errors);
+  const previousChoice = (textValue(spec.vibe_previous) || '').toLowerCase();
+  if (vibe && !IMPLEMENT_VIBE_PREVIOUS.includes(previousChoice)) {
+    errors.push(`vibe_previous ${shownValue(spec.vibe_previous)} must be keep or remove: it says what happens to the version before this vibe`);
+  } else if (vibe) {
+    out.vibes = vibe;
+    out.vibe_previous = previousChoice;
+    if (Object.keys(rollback).length) errors.push('a vibe and a roll back cannot run in the same version');
+  } else if (previousChoice) errors.push('vibe_previous needs vibes: it says what happens to the version before a vibe');
+  const keptVersions = [];
+  for (const raw of listField(spec.remove_kept, 'remove_kept', errors)) {
+    const version = wholeNumber(raw);
+    if (version == null || version < 1) errors.push(`remove_kept ${shownValue(raw)} must be a version number, 1 or more`);
+    else if (!keptVersions.includes(version)) keptVersions.push(version);
+  }
+  if (keptVersions.length) out.remove_kept = keptVersions;
+  if (flagField(spec.uninstall, 'uninstall', errors)) {
+    out.uninstall = true;
+    if (out.vibes || retry.length || Object.keys(rollback).length || keptVersions.length) {
+      errors.push('Uninstall All removes everything this use case built, so it cannot also rebuild, vibe, roll back or remove a kept version '
+        + 'in the same version');
+    }
+  }
 
   const sharing = objectField(spec.sharing, 'sharing', errors);
   const principals = [];
@@ -579,7 +606,7 @@ function partProblems(built, spec) {
     const { label } = implementPart(id);
     const entry = assets[id];
     if (!isPlainObject(entry) || !IMPLEMENT_PART_STATES.includes(entry.state)) {
-      problems.push(`Inspire has not built the ${label} on this PoC/MVP, so it cannot rebuild it with your vibes; pick an asset the Control tower lists`);
+      problems.push(`Inspire has not built the ${label} on this MVP, so it cannot rebuild it with your vibes; pick an asset the Control tower lists`);
     } else if (!retry.includes(id)) {
       problems.push(`the vibes for the ${label} changed, so list ${id} in retry_outputs to rebuild it with them`);
     }
@@ -790,6 +817,10 @@ function classifyImplementChange(previous, current) {
   if ((current.retry_outputs || []).length) classes.add('retry');
   if (Object.keys(current.rollback_outputs || {}).length) classes.add('rollback');
   if (implementHoldoutShare(previous.holdout) !== implementHoldoutShare(current.holdout)) classes.add('holdout');
+  for (const [name, key] of [['vibe', 'vibes'], ['remove_kept', 'remove_kept'], ['uninstall', 'uninstall']]) {
+    const value = current[key];
+    if (Array.isArray(value) ? value.length : value) classes.add(name);
+  }
   return IMPLEMENT_CHANGE_CLASSES.filter((c) => classes.has(c));
 }
 
@@ -836,7 +867,7 @@ function implementTableName(catalog, schema) {
 function implementTableCreateSql(table) {
   const columns = IMPLEMENT_COLUMNS.map(([name, kind]) => `\`${name}\` ${kind}`).join(', ');
   return `CREATE TABLE IF NOT EXISTS ${table} (${columns}) USING DELTA CLUSTER BY (\`session_id\`, \`use_case_id\`) `
-    + "COMMENT 'Start Use Case PoC/MVP with Genie: one row per wizard spec version. The Inspire App inserts the spec and the id of the run "
+    + "COMMENT 'Start Use Case MVP with Genie: one row per wizard spec version. The Inspire App inserts the spec and the id of the run "
     + "that builds it; the Inspire agent writes every other column.'";
 }
 
@@ -1100,6 +1131,32 @@ function carriedAssets(history) {
   return carried;
 }
 
+function keptAssets(history) {
+  const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
+  const holder = rows.find((r) => isPlainObject(r.asset_status) && isPlainObject(r.asset_status.kept));
+  const listed = holder ? holder.asset_status.kept.assets : null;
+  return (Array.isArray(listed) ? listed : []).filter((a) => isPlainObject(a) && IMPLEMENT_OUTPUTS.includes(a.output) && a.id);
+}
+
+function mvpActionProblems(history, spec) {
+  const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
+  const built = Object.keys(carriedAssets(rows)).length > 0;
+  const kept = keptAssets(rows);
+  const problems = [];
+  if (spec.vibes && !built) {
+    problems.push('Inspire has built no dashboard, Genie Agent, App or alert on this MVP yet, so a vibe has nothing to change; build one first');
+  }
+  if (spec.uninstall && rows[0] && rows[0].status === IMPLEMENT_UNINSTALLED) {
+    problems.push(`this MVP was uninstalled in v${rows[0].spec_version}, so there is nothing left to remove`);
+  } else if (spec.uninstall && !built && !kept.length && !rows.some((r) => r.notebook_path || r.job_id)) {
+    problems.push('Inspire has built nothing for this use case yet, so there is nothing to uninstall');
+  }
+  for (const version of spec.remove_kept || []) {
+    if (!kept.some((a) => Number(a.version) === version)) problems.push(`v${version} has nothing kept live, so there is nothing of it to remove`);
+  }
+  return problems;
+}
+
 function rollbackSpec(history, spec) {
   const asked = Object.entries((spec && spec.rollback_outputs) || {});
   if (!asked.length) return spec;
@@ -1137,9 +1194,10 @@ function planSubmission(history, spec, stalled = null) {
     throw badRequest(`v${built.spec_version} was built after the version you edited (v${spec.based_on_version}); `
       + 'reopen Edit to see it and submit again', 409);
   }
-  const parts = partProblems(built, spec);
+  const parts = [...partProblems(built, spec), ...mvpActionProblems(rows, spec)];
   if (parts.length) throw badRequest(parts.join('; '));
-  const previous = built ? validateImplementSpec(built.spec_json, { legacyAccess: legacyAppAccess(rows) }).spec : null;
+  const fresh = Boolean(latest && latest.status === IMPLEMENT_UNINSTALLED);
+  const previous = built && !fresh ? validateImplementSpec(built.spec_json, { legacyAccess: legacyAppAccess(rows) }).spec : null;
   const summary = implementChangeSummary(previous, spec, carriedAssets(rows));
   if (summary.undecided.length) {
     throw badRequest(`choose whether to delete or keep ${summary.undecided.map((n) => IMPLEMENT_OUTPUT_LABELS[n]).join(' and ')}, `
@@ -1926,6 +1984,28 @@ function otherUseCaseRowsStatement(table, useCaseId) {
   };
 }
 
+function resultTableHolderStatement(implementTable, table) {
+  return {
+    sql: 'WITH named AS (SELECT session_id, use_case_id, created_at, '
+      + "lower(replace(CAST(spec_json:config.result_table AS STRING), '`', '')) AS t, "
+      + `ROW_NUMBER() OVER (PARTITION BY session_id, use_case_id ORDER BY spec_version DESC) AS latest FROM ${implementTable}), `
+      + 'held AS (SELECT session_id, use_case_id FROM named WHERE latest = 1 AND t = :t) '
+      + 'SELECT CAST(n.session_id AS STRING) AS session_id, n.use_case_id FROM named n '
+      + 'JOIN held h ON n.session_id = h.session_id AND n.use_case_id = h.use_case_id WHERE n.t = :t '
+      + 'GROUP BY n.session_id, n.use_case_id ORDER BY MIN(n.created_at), n.session_id, n.use_case_id LIMIT 1',
+    parameters: [{ name: 't', value: plainTable(table).toLowerCase(), type: 'STRING' }],
+  };
+}
+
+function resultTableHolderProblem(table, holder, sessionId, useCaseId) {
+  if (!holder) return '';
+  const sid = str(holder.session_id);
+  const uc = str(holder.use_case_id);
+  if (!sid || (sid === str(sessionId) && uc === str(useCaseId))) return '';
+  return `${plainTable(table)} already holds the results of use case ${uc} of session ${sid}; give each use case its own `
+    + 'result table so its outputs show only its rows';
+}
+
 function appOwnerTag(useCaseId, sessionId) {
   return `Inspire use case ${str(useCaseId)} (session ${str(sessionId)})`;
 }
@@ -2048,6 +2128,10 @@ module.exports = {
   IMPLEMENT_STATUSES,
   IMPLEMENT_ACTIVE_STATUSES,
   IMPLEMENT_DONE_STATUSES,
+  IMPLEMENT_UNINSTALLED,
+  IMPLEMENT_VIBE_PREVIOUS,
+  keptAssets,
+  mvpActionProblems,
   IMPLEMENT_OUTPUTS,
   IMPLEMENT_OUTPUT_LABELS,
   IMPLEMENT_OUTPUT_ID_COLUMNS,
@@ -2166,6 +2250,8 @@ module.exports = {
   trainsModel,
   resultTableProblem,
   otherUseCaseRowsStatement,
+  resultTableHolderStatement,
+  resultTableHolderProblem,
   appOwnerTag,
   appNameCheck,
   appsLimit,

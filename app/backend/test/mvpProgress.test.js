@@ -24,57 +24,57 @@ const BUILT = [
 ];
 
 test('a failed preview shows every finished stage, the failed one, and what it never reached', async () => {
-  const { pocStages, pocProgressSummary } = await lib('pocProgress.js');
+  const { mvpStages, mvpProgressSummary } = await lib('mvpProgress.js');
   const steps = [...BUILT, row('Preview run', 'ended_error', '10:10:00'), row('Preview run', 'started', '10:10:00'), row('Implement', 'ended_error', '10:10:08')];
-  const stages = pocStages(steps, latestOf('failed'), { now: at('10:30:00') });
+  const stages = mvpStages(steps, latestOf('failed'), { now: at('10:30:00') });
   assert.deepEqual(states(stages), [
     ['Plan', 'done'], ['Instruction', 'done'], ['Genie Code', 'done'], ['Genie build', 'done'],
     ['Preview run', 'error'], ['Dashboard', 'not_reached'], ['Done', 'not_reached'],
   ]);
   assert.equal(stages[3].elapsed, '4m 55s');
   assert.equal(stages[1].elapsed, '2m 45s');
-  const summary = pocProgressSummary(stages, latestOf('failed'), { now: at('10:30:00') });
+  const summary = mvpProgressSummary(stages, latestOf('failed'), { now: at('10:30:00') });
   assert.deepEqual({ ...summary, current: summary.current?.id }, { active: false, current: undefined, percent: 57, headline: '', detail: '', span: 'Took 10m 0s' });
 });
 
 test('a running build names what Genie is doing, how long it has run, and moves on to the next stage between steps', async () => {
-  const { pocStages, pocProgressSummary } = await lib('pocProgress.js');
-  const running = pocStages(BUILT.slice(0, 6), latestOf('filling'), { now: at('10:06:05') });
+  const { mvpStages, mvpProgressSummary } = await lib('mvpProgress.js');
+  const running = mvpStages(BUILT.slice(0, 6), latestOf('filling'), { now: at('10:06:05') });
   assert.equal(running[3].state, 'running');
   assert.equal(running[3].elapsed, '2m 0s');
-  const summary = pocProgressSummary(running, latestOf('filling'), { now: at('10:06:05') });
+  const summary = mvpProgressSummary(running, latestOf('filling'), { now: at('10:06:05') });
   assert.equal(summary.headline, 'Genie is building the notebook…');
   assert.equal(summary.span, 'Running for 6m 5s');
   assert.equal(summary.percent, 43);
-  const between = pocStages(BUILT, latestOf('previewing'), { now: at('10:09:30') });
+  const between = mvpStages(BUILT, latestOf('previewing'), { now: at('10:09:30') });
   assert.equal(between[4].state, 'next');
   assert.equal(between[4].elapsed, '30s');
-  assert.equal(pocProgressSummary(between, latestOf('previewing'), { now: at('10:09:30') }).headline, 'Inspire is running the notebook on a preview…');
+  assert.equal(mvpProgressSummary(between, latestOf('previewing'), { now: at('10:09:30') }).headline, 'Inspire is running the notebook on a preview…');
 });
 
 test('a queued build waits for its job, and a stage the plan did not need is skipped rather than waiting', async () => {
-  const { pocStages, pocProgressSummary } = await lib('pocProgress.js');
-  const queued = pocStages([], latestOf('queued'), { now: at('10:00:20') });
+  const { mvpStages, mvpProgressSummary } = await lib('mvpProgress.js');
+  const queued = mvpStages([], latestOf('queued'), { now: at('10:00:20') });
   assert.equal(queued[0].state, 'next');
   assert.equal(queued[0].elapsed, '20s');
-  assert.equal(pocProgressSummary(queued, latestOf('queued'), { now: at('10:00:20') }).headline, 'Inspire is planning the build…');
+  assert.equal(mvpProgressSummary(queued, latestOf('queued'), { now: at('10:00:20') }).headline, 'Inspire is planning the build…');
   const fresh = { ...latestOf('queued'), created_at: '' };
-  assert.equal(pocProgressSummary(pocStages([], fresh), fresh).headline, 'Waiting for the build job to start');
-  const noInstruction = pocStages([row('Plan', 'ended_success', '10:01:00'), row('Genie Code', 'started', '10:01:02')], latestOf('filling'), { now: at('10:01:10') });
+  assert.equal(mvpProgressSummary(mvpStages([], fresh), fresh).headline, 'Waiting for the build job to start');
+  const noInstruction = mvpStages([row('Plan', 'ended_success', '10:01:00'), row('Genie Code', 'started', '10:01:02')], latestOf('filling'), { now: at('10:01:10') });
   assert.deepEqual(states(noInstruction).slice(0, 3), [['Plan', 'done'], ['Instruction', 'skipped'], ['Genie Code', 'running']]);
 });
 
 test('a second Genie round after a warning is running again, and a tie at the same second keeps the end state', async () => {
-  const { pocStages } = await lib('pocProgress.js');
+  const { mvpStages } = await lib('mvpProgress.js');
   const rounds = [row('Genie build', 'started', '10:04:00'), row('Genie build', 'ended_warning', '10:06:00'), row('Genie build', 'started', '10:06:10')];
-  assert.equal(pocStages(rounds, latestOf('filling'), { now: at('10:07:00') })[3].state, 'running');
+  assert.equal(mvpStages(rounds, latestOf('filling'), { now: at('10:07:00') })[3].state, 'running');
   for (const order of [['started', 'ended_error'], ['ended_error', 'started']]) {
     const tie = order.map((status) => row('Preview run', status, '10:10:00'));
-    assert.equal(pocStages(tie, latestOf('failed'))[4].state, 'error', order.join(' then '));
+    assert.equal(mvpStages(tie, latestOf('failed'))[4].state, 'error', order.join(' then '));
   }
   for (const order of [['started', 'ended_success'], ['ended_success', 'started']]) {
     const tie = order.map((status) => row('Genie Code', status, '10:04:00'));
-    const stages = pocStages(tie, latestOf('filling'), { now: at('10:04:30') });
+    const stages = mvpStages(tie, latestOf('filling'), { now: at('10:04:30') });
     assert.deepEqual(states(stages).slice(2, 4), [['Genie Code', 'done'], ['Genie build', 'next']], order.join(' then '));
   }
 });
@@ -85,98 +85,98 @@ const evented = (phase, status, flushed, eventAt, payload = {}) => ({
 });
 
 test('stages follow when each event happened, not when the writer flushed it', async () => {
-  const { pocStages } = await lib('pocProgress.js');
+  const { mvpStages } = await lib('mvpProgress.js');
   const batch = [
     evented('Genie build', 'started', '10:09:01', '10:04:05.100000', { round: 1, rounds: 3 }),
     evented('Genie build', 'started', '10:09:01', '10:09:00.700000', { round: 2, rounds: 3 }),
     evented('Genie build', 'ended_success', '10:09:01', '10:09:00.200000', { round: 1 }),
   ];
-  const stages = pocStages(batch, latestOf('filling'), { now: at('10:09:30') });
+  const stages = mvpStages(batch, latestOf('filling'), { now: at('10:09:30') });
   assert.equal(stages[3].state, 'running', 'round 2 started after round 1 ended, in the same flush');
   assert.equal(stages[3].round, 2);
   assert.equal(stages[3].elapsed, '5m 24s');
 });
 
 test('a stage Genie runs again resets the later stages until they run again', async () => {
-  const { pocStages, pocProgressSummary } = await lib('pocProgress.js');
+  const { mvpStages, mvpProgressSummary } = await lib('mvpProgress.js');
   const retried = [
     ...BUILT,
     row('Preview run', 'started', '10:09:10'),
     row('Preview run', 'ended_error', '10:10:00'),
     evented('Genie build', 'started', '10:10:05', '10:10:05', { round: 2, rounds: 3 }),
   ];
-  const stages = pocStages(retried, latestOf('filling'), { now: at('10:12:05') });
+  const stages = mvpStages(retried, latestOf('filling'), { now: at('10:12:05') });
   assert.deepEqual(states(stages).slice(3), [['Genie build', 'running'], ['Preview run', 'waiting'], ['Dashboard', 'waiting'], ['Done', 'waiting']]);
   assert.equal(stages[4].elapsed, '');
-  const summary = pocProgressSummary(stages, latestOf('filling'), { now: at('10:12:05') });
+  const summary = mvpProgressSummary(stages, latestOf('filling'), { now: at('10:12:05') });
   assert.equal(summary.headline, 'Genie is building the notebook…');
   assert.equal(summary.detail, 'Round 2 of 3: Genie is fixing what failed in round 1');
   assert.equal(summary.percent, 43);
-  const failed = pocStages(retried, latestOf('failed'));
+  const failed = mvpStages(retried, latestOf('failed'));
   assert.deepEqual(states(failed).slice(3, 5), [['Genie build', 'error'], ['Preview run', 'error']], 'a finished build keeps what happened');
 });
 
 test('a retried output round is still running, names the next round, and never hands over to Done', async () => {
-  const { pocStages, pocProgressSummary } = await lib('pocProgress.js');
+  const { mvpStages, mvpProgressSummary } = await lib('mvpProgress.js');
   const outputs = { dashboard: true, app: true };
   const base = [...BUILT, row('Preview run', 'ended_success', '10:11:00'), row('Dashboard', 'ended_success', '10:15:00')];
   const sentBack = [...base,
     evented('App', 'started', '10:15:02', '10:15:01', { round: 1, rounds: 3 }),
     evented('App', 'started', '10:20:02', '10:20:01', { round: 1, rounds: 3, failure: 'app.yaml: command not found' })];
-  const stages = pocStages(sentBack, latestOf('building_outputs', outputs), { now: at('10:20:30') });
+  const stages = mvpStages(sentBack, latestOf('building_outputs', outputs), { now: at('10:20:30') });
   assert.deepEqual(states(stages).slice(6), [['App', 'running'], ['Done', 'waiting']]);
-  const summary = pocProgressSummary(stages, latestOf('building_outputs', outputs), { now: at('10:20:30') });
+  const summary = mvpProgressSummary(stages, latestOf('building_outputs', outputs), { now: at('10:20:30') });
   assert.equal(summary.headline, 'Genie is building the App…');
   assert.equal(summary.detail, 'Round 2 of 3: Genie is fixing what failed in round 1');
-  const genie = pocStages([...base, row('Genie Agent', 'started', '10:15:02')], latestOf('building_outputs', { dashboard: true, genie_space: true }), { now: at('10:16:00') });
-  assert.equal(pocProgressSummary(genie, latestOf('building_outputs', { dashboard: true, genie_space: true }), { now: at('10:16:00') }).headline,
+  const genie = mvpStages([...base, row('Genie Agent', 'started', '10:15:02')], latestOf('building_outputs', { dashboard: true, genie_space: true }), { now: at('10:16:00') });
+  assert.equal(mvpProgressSummary(genie, latestOf('building_outputs', { dashboard: true, genie_space: true }), { now: at('10:16:00') }).headline,
     'Genie is building the Genie Agent…');
-  const firstRound = pocStages(sentBack.slice(0, -1), latestOf('building_outputs', outputs), { now: at('10:16:00') });
-  assert.equal(pocProgressSummary(firstRound, latestOf('building_outputs', outputs), { now: at('10:16:00') }).detail, '');
+  const firstRound = mvpStages(sentBack.slice(0, -1), latestOf('building_outputs', outputs), { now: at('10:16:00') });
+  assert.equal(mvpProgressSummary(firstRound, latestOf('building_outputs', outputs), { now: at('10:16:00') }).detail, '');
 });
 
 test('a finished build marks Done, skips what it did not touch, and a stopped run is not shown as still going', async () => {
-  const { pocStages, pocProgressSummary } = await lib('pocProgress.js');
+  const { mvpStages, mvpProgressSummary } = await lib('mvpProgress.js');
   const outputs = { dashboard: true, alert: true };
-  const ready = pocStages([...BUILT, row('Preview run', 'ended_success', '10:11:00'), row('Dashboard', 'ended_success', '10:15:00')], latestOf('ready', outputs));
+  const ready = mvpStages([...BUILT, row('Preview run', 'ended_success', '10:11:00'), row('Dashboard', 'ended_success', '10:15:00')], latestOf('ready', outputs));
   assert.deepEqual(states(ready).slice(4), [['Preview run', 'done'], ['Dashboard', 'done'], ['Alert', 'skipped'], ['Done', 'done']]);
-  const warned = pocStages([row('Alert', 'ended_success', '10:01:00')], latestOf('ready_with_warnings', { alert: true }));
+  const warned = mvpStages([row('Alert', 'ended_success', '10:01:00')], latestOf('ready_with_warnings', { alert: true }));
   assert.deepEqual(states(warned), [
     ['Plan', 'skipped'], ['Instruction', 'skipped'], ['Genie Code', 'skipped'], ['Genie build', 'skipped'], ['Preview run', 'skipped'],
     ['Alert', 'done'], ['Done', 'warning'],
   ]);
   const stalled = { reason: 'its run was cancelled' };
-  const stopped = pocStages(BUILT.slice(0, 6), latestOf('filling'), { now: at('11:00:00'), stalled });
+  const stopped = mvpStages(BUILT.slice(0, 6), latestOf('filling'), { now: at('11:00:00'), stalled });
   assert.deepEqual(states(stopped).slice(3), [['Genie build', 'error'], ['Preview run', 'not_reached'], ['Dashboard', 'not_reached'], ['Done', 'not_reached']]);
-  assert.equal(pocProgressSummary(stopped, latestOf('filling'), { stalled }).active, false);
+  assert.equal(mvpProgressSummary(stopped, latestOf('filling'), { stalled }).active, false);
 });
 
 test('the stepper shows only when some stage has a record: a finished version with no step rows has nothing to show', async () => {
-  const { pocStages, stagesRecorded } = await lib('pocProgress.js');
+  const { mvpStages, stagesRecorded } = await lib('mvpProgress.js');
   const outputs = { dashboard: true, alert: true };
-  const unrecorded = pocStages([], latestOf('ready', outputs));
+  const unrecorded = mvpStages([], latestOf('ready', outputs));
   assert.ok(unrecorded.slice(0, -1).every((s) => s.state === 'skipped'));
   assert.equal(stagesRecorded(unrecorded), false);
-  assert.equal(stagesRecorded(pocStages([], latestOf('ready_with_warnings', outputs))), false);
-  assert.equal(stagesRecorded(pocStages([row('Alert', 'ended_success', '10:01:00')], latestOf('ready', outputs))), true);
-  assert.equal(stagesRecorded(pocStages([], latestOf('failed', outputs))), true);
-  assert.equal(stagesRecorded(pocStages([], latestOf('queued', outputs), { now: at('10:00:05') })), true);
-  assert.equal(stagesRecorded(pocStages(BUILT, latestOf('building_outputs', outputs), { now: at('10:10:00') })), true);
+  assert.equal(stagesRecorded(mvpStages([], latestOf('ready_with_warnings', outputs))), false);
+  assert.equal(stagesRecorded(mvpStages([row('Alert', 'ended_success', '10:01:00')], latestOf('ready', outputs))), true);
+  assert.equal(stagesRecorded(mvpStages([], latestOf('failed', outputs))), true);
+  assert.equal(stagesRecorded(mvpStages([], latestOf('queued', outputs), { now: at('10:00:05') })), true);
+  assert.equal(stagesRecorded(mvpStages(BUILT, latestOf('building_outputs', outputs), { now: at('10:10:00') })), true);
   assert.equal(stagesRecorded([]), false);
   assert.equal(stagesRecorded(null), false);
 });
 
 test('a step row without a phase falls back to its step name, and rows of other stages are ignored', async () => {
-  const { pocStages } = await lib('pocProgress.js');
+  const { mvpStages } = await lib('mvpProgress.js');
   const bare = { ...row('Preview run', 'started', '10:10:00'), result_json: null };
   const lock = row('Lock', 'ended_warning', '10:10:01');
   const odd = row('Preview run', 'something_else', '10:10:02');
-  assert.equal(pocStages([bare, lock, odd], latestOf('previewing'), { now: at('10:10:30') })[4].state, 'running');
-  assert.equal(pocStages([{ ...bare, result_json: '{not json' }], latestOf('previewing'), { now: at('10:10:30') })[4].elapsed, '30s');
+  assert.equal(mvpStages([bare, lock, odd], latestOf('previewing'), { now: at('10:10:30') })[4].state, 'running');
+  assert.equal(mvpStages([{ ...bare, result_json: '{not json' }], latestOf('previewing'), { now: at('10:10:30') })[4].elapsed, '30s');
 });
 
 test('each feed item reads as a sentence, never as a log line', async () => {
-  const { feedLine } = await lib('pocProgress.js');
+  const { feedLine } = await lib('mvpProgress.js');
   assert.deepEqual(feedLine({ kind: 'message', text: 'I am reading the notebook.' }), { who: 'genie', tone: 'plain', text: 'I am reading the notebook.' });
   assert.deepEqual(feedLine({ kind: 'stopped', text: 'History covers 0 windows' }), { who: 'genie', tone: 'warning', text: 'Stopped: History covers 0 windows' });
   assert.equal(feedLine({ kind: 'error', text: 'quota' }).text, 'Genie hit an error: quota');
@@ -197,7 +197,7 @@ test('each feed item reads as a sentence, never as a log line', async () => {
 });
 
 test('Genie\'s words appear one word at a time and keep their spacing', async () => {
-  const { typedText, typingDone, feedKey } = await lib('pocProgress.js');
+  const { typedText, typingDone, feedKey } = await lib('mvpProgress.js');
   const words = 'I found the wizard overrides;  implementing them now.';
   assert.equal(typedText(words, 0), '');
   assert.equal(typedText(words, 1000 / 12), 'I');
@@ -220,13 +220,13 @@ test('durations read the same on every page that shows one', async () => {
   assert.equal(formatDuration(3661000), '1h 1m');
   const fs = require('node:fs');
   const src = (p) => fs.readFileSync(path.resolve(__dirname, '..', '..', 'frontend', 'src', p), 'utf8');
-  for (const file of ['components/RunStatus.jsx', 'pages/MonitorPage.jsx', 'lib/pocProgress.js']) {
+  for (const file of ['components/RunStatus.jsx', 'pages/MonitorPage.jsx', 'lib/mvpProgress.js']) {
     assert.doesNotMatch(src(file), /function formatDuration/, file);
   }
 });
 
 test('messages already there when the page opens show at once; later ones type one after another, never commands', async () => {
-  const { feedArrivals, typingSchedule, feedKey } = await lib('pocProgress.js');
+  const { feedArrivals, typingSchedule, feedKey } = await lib('mvpProgress.js');
   const old = [{ at: 'a', kind: 'message', text: 'first look' }, { at: 'b', kind: 'activity', commands: 2, failed: 0, files: [] }];
   const opened = feedArrivals(null, old, 5000);
   assert.deepEqual([...opened.values()], [0, 0]);
@@ -254,11 +254,11 @@ test('the Progress tab shows the stepper and Genie\'s scrolling messages, never 
   const progressTab = page.slice(page.indexOf('{tab === PROGRESS_TAB && ('), page.indexOf('{tab === CONTROL_TAB && ('));
   assert.ok(progressTab.length > 100);
   assert.doesNotMatch(progressTab, /<pre|steps \|\| \[\]\)\.map/);
-  assert.match(page, /<PocProgress /);
+  assert.match(page, /<MvpProgress /);
   assert.match(page, /<GenieFeed /);
   const feed = src('components/GenieFeed.jsx');
-  assert.match(feed, /\$\{active \|\| entries\.length \? 'h-80' : 'max-h-80'\} overflow-y-auto/);
-  assert.match(src('components/PocProgress.jsx'), /\{stagesRecorded\(stages\) && \(/);
+  assert.match(feed, /\$\{active \|\| entries\.length \? 'h-\[36rem\] min-h-48 max-h-\[85vh\] resize-y' : 'max-h-\[36rem\]'\} overflow-y-auto/);
+  assert.match(src('components/MvpProgress.jsx'), /\{stagesRecorded\(stages\) && \(/);
   assert.match(feed, /role="log"/);
   assert.match(feed, /<GenieLogo /);
   assert.doesNotMatch(feed, /scrollIntoView/);
@@ -268,10 +268,10 @@ test('the Progress tab shows the stepper and Genie\'s scrolling messages, never 
 });
 
 test('the Genie Agent stage follows the agent step, and a run recorded when it was called a Genie space keeps its state', async () => {
-  const { pocStages } = await lib('pocProgress.js');
+  const { mvpStages } = await lib('mvpProgress.js');
   for (const phase of ['Genie Agent', 'Genie space']) {
     const steps = [...BUILT, row('Preview run', 'ended_success', '10:12:00'), row(phase, 'started', '10:12:05'), row(phase, 'ended_success', '10:14:00')];
-    const stage = pocStages(steps, latestOf('building_outputs', { genie_space: true }), { now: at('10:15:00') }).find((s) => s.id === 'Genie Agent');
+    const stage = mvpStages(steps, latestOf('building_outputs', { genie_space: true }), { now: at('10:15:00') }).find((s) => s.id === 'Genie Agent');
     assert.equal(stage.state, 'done', phase);
   }
 });

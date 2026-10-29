@@ -75,6 +75,35 @@ export function copyV130TrackingFields(uc, row) {
   return uc;
 }
 
+const DATA_SIGNAL_LABELS = {
+  passed: { tone: 'passed', label: 'Data check passed', prefix: '' },
+  no_signal: { tone: 'warning', label: 'The data shows no signal', prefix: 'The data shows no signal: ' },
+  failed: { tone: 'warning', label: 'The data shows no signal', prefix: 'The data shows no signal: ' },
+  not_checked: { tone: 'neutral', label: 'Data not checked', prefix: 'Not checked: ' },
+};
+
+function dataSignalOf(evidence) {
+  const signal = evidence && evidence.signal;
+  if (!signal || typeof signal !== 'object' || Array.isArray(signal)) return null;
+  const status = String(signal.status ?? '').trim();
+  if (!DATA_SIGNAL_LABELS[status]) return null;
+  return {
+    status,
+    check: String(signal.check ?? '').trim(),
+    table: String(signal.table ?? '').trim(),
+    columns: signal.columns && typeof signal.columns === 'object' && !Array.isArray(signal.columns) ? signal.columns : {},
+    reason: String(signal.reason ?? '').trim(),
+  };
+}
+
+export function dataSignalLine(signal) {
+  const kind = signal && DATA_SIGNAL_LABELS[signal.status];
+  if (!kind) return null;
+  let text = signal.reason || '';
+  if (kind.prefix && text.toLowerCase().startsWith(kind.prefix.toLowerCase())) text = text.slice(kind.prefix.length);
+  return { tone: kind.tone, label: kind.label, text: text.trim() };
+}
+
 export function v130View(uc) {
   const u = uc && typeof uc === 'object' ? uc : {};
   const alignments = objectList(fieldOf(u, 'Strategy Alignment', 'strategy_alignment'))
@@ -99,6 +128,7 @@ export function v130View(uc) {
   const evidenceTables = evidence && typeof evidence === 'object' && !Array.isArray(evidence) && evidence.tables && typeof evidence.tables === 'object'
     ? evidence.tables : {};
   const evidenceJoins = evidence && Array.isArray(evidence.joins) ? evidence.joins : [];
+  const evidenceSignal = dataSignalOf(evidence);
   return {
     alignments,
     paths,
@@ -110,7 +140,8 @@ export function v130View(uc) {
     measures,
     financial,
     nonFinancial,
-    dataEvidence: Object.keys(evidenceTables).length || evidenceJoins.length ? { tables: evidenceTables, joins: evidenceJoins } : null,
+    dataEvidence: Object.keys(evidenceTables).length || evidenceJoins.length || evidenceSignal
+      ? { tables: evidenceTables, joins: evidenceJoins, signal: evidenceSignal } : null,
     foundations: textList(fieldOf(u, 'Foundations', 'foundation_ids')),
     useCaseKey: String(u.use_case_key ?? '').trim(),
     feedbackStatus: String(u['Feedback Status'] ?? '').trim().toLowerCase(),

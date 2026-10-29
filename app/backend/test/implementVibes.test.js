@@ -84,7 +84,8 @@ test('vibes that are not text are refused with the shared message, and a missing
 });
 
 test('a vibe change refreshes only that output, and the rollback class sits right after retry', () => {
-  assert.deepEqual(I.IMPLEMENT_CHANGE_CLASSES.slice(-2), ['retry', 'rollback']);
+  const classes = I.IMPLEMENT_CHANGE_CLASSES;
+  assert.deepEqual(classes.slice(classes.indexOf('retry')), ['retry', 'rollback', 'vibe', 'remove_kept', 'uninstall']);
   const assets = { dashboard: 'd1', genie_space: 'g1', app: 'churn-desk', alert: 'a1' };
   const before = spec({ dashboard_vibes: 'weekly bars' }).spec;
   for (const name of I.IMPLEMENT_OUTPUTS) {

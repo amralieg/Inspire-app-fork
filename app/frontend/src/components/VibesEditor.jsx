@@ -13,7 +13,7 @@ const PLACEHOLDERS = {
   value_formula: 'For example: price each row at its open order value times the chance it is lost',
 };
 
-export default function VibesEditor({ id, value, onChange, autoFocus = false, label = '', heading = '', rows = 3, disabled = false }) {
+export default function VibesEditor({ id, value, onChange, autoFocus = false, label = '', heading = '', rows = 3, disabled = false, placeholder = '' }) {
   const hint = useId();
   const box = useId();
   const problem = vibesProblem(id, value, label);
@@ -29,7 +29,7 @@ export default function VibesEditor({ id, value, onChange, autoFocus = false, la
         disabled={disabled}
         rows={rows}
         value={value}
-        placeholder={PLACEHOLDERS[partOf(id)?.kind || id]}
+        placeholder={placeholder || PLACEHOLDERS[partOf(id)?.kind || id]}
         onChange={(e) => onChange(e.target.value)}
         className={`w-full px-2.5 py-2 text-sm leading-snug border rounded-md bg-surface text-text-primary glow-focus resize-none disabled:opacity-60 ${problem ? 'border-error' : 'border-border'}`}
       />

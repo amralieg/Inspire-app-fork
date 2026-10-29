@@ -1,7 +1,7 @@
 import { AlertTriangle, Check, CheckCircle2, Circle, Loader2, Minus, X, XCircle } from 'lucide-react';
 import GenieLogo from './GenieLogo';
 import { IconChip, PANEL_CLASS, SectionTitle } from './BuildUi';
-import { stagesRecorded } from '../lib/pocProgress';
+import { stagesRecorded } from '../lib/mvpProgress';
 
 const STAGE_LOOK = {
   done: { Icon: Check, node: 'bg-success-bg text-success-fg ring-1 ring-inset ring-success/40', words: 'done' },
@@ -73,12 +73,12 @@ function StageNodes({ stages }) {
   );
 }
 
-export default function PocProgress({ stages, summary, chip, reason, toneClass, version, children }) {
+export default function MvpProgress({ stages, summary, chip, reason, toneClass, version, children }) {
   const percent = chip?.tone === 'success' || chip?.tone === 'warning' ? 100 : summary.percent;
   const bar = BAR_TONE[chip?.tone] || BAR_TONE.idle;
   const headline = summary.headline || chip?.label || '';
   return (
-    <section aria-label="PoC/MVP progress" className={PANEL_CLASS} data-poc-progress="">
+    <section aria-label="MVP progress" className={PANEL_CLASS} data-mvp-progress="">
       <SectionTitle
         icon={GenieLogo}
         title={`Live build${version ? ` · v${version}` : ''}`}

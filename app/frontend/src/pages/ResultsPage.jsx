@@ -69,7 +69,7 @@ import {
   trackingIdOf,
 } from '../lib/useCaseFields';
 import { fileExtension, quickAccessFiles, visibleArtifactFiles } from '../lib/artifactFiles';
-import { generationFolder, workspaceWebUiHashPath } from '../lib/workspaceLinks';
+import { generationFolder, workspaceNotebookUrl, workspaceWebUiHashPath } from '../lib/workspaceLinks';
 import ImplementWizard from './ImplementWizard';
 import { implementState, notebookRunEnded, notebookStatus, versionActive } from '../lib/implementWizard';
 import { buildUseCaseList } from '../lib/useCaseList';
@@ -2265,6 +2265,8 @@ export default function ResultsPage({
                         feedbackCurrent={feedbackCurrentFor(uc)}
                         implementStatus={tid ? implementState(implementLatestById[tid] || null, notebookStatus(uc, implementView.notebook_run)) : null}
                         onImplement={canImplement ? () => startImplement(uc) : undefined}
+                        onOpenMvp={onOpenImplement && tid && selectedSessionId ? () => onOpenImplement(String(selectedSessionId), tid) : undefined}
+                        notebookUrl={workspaceNotebookUrl(databricksHost, uc.notebook_path || '')}
                         {...detailPropsFor(uc)}
                       />
                       );

@@ -35,9 +35,9 @@ async function toDelivery(page) {
 }
 
 async function startWhenReady(page) {
-  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Start PoC/MVP' && !b.disabled),
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Start MVP' && !b.disabled),
     null, { timeout: 15000 });
-  await page.getByRole('button', { name: 'Start PoC/MVP', exact: true }).click();
+  await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
   await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
 }
 
@@ -209,7 +209,7 @@ test('the App reads Lakebase by default when the workspace has it, a per-user Ap
 });
 
 test('Where results live picks a catalog and a schema from Unity Catalog, offers the default back, and Next checks the table live', async () => {
-  const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' }, catalogs: ['main', 'sales'], schemas: { main: ['inspire', 's'], sales: ['poc', 'gold'] } });
+  const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' }, catalogs: ['main', 'sales'], schemas: { main: ['inspire', 's'], sales: ['mvp', 'gold'] } });
   const { page, made } = ui;
   try {
     await onStep(page, 'Choose');
@@ -223,25 +223,25 @@ test('Where results live picks a catalog and a schema from Unity Catalog, offers
     const catalog = step.getByLabel('Catalog');
     const schema = step.getByLabel('Schema');
     await catalog.locator('option[value="sales"]').waitFor({ state: 'attached' });
-    assert.deepEqual([await catalog.inputValue(), await schema.inputValue(), await step.getByLabel('Table name').inputValue()], ['main', 'inspire', 'n01_u01_out']);
+    assert.deepEqual([await catalog.inputValue(), await schema.inputValue(), await step.getByLabel('Table name').inputValue()], ['main', 'inspire', 'n01_u01_s42_out']);
     await step.getByText("Inspire's default").waitFor();
     await step.getByRole('note', { name: 'Moving the result table' }).getByText('Moving the table later copies its history to the new table and keeps the old one.').waitFor();
     await catalog.selectOption('sales');
     assert.equal(await schema.inputValue(), '', 'a new catalog asks for its schema again');
     await schema.locator('option[value="gold"]').waitFor({ state: 'attached' });
-    assert.deepEqual(await schema.locator('option').evaluateAll((os) => os.map((o) => o.value)), ['', 'gold', 'poc']);
+    assert.deepEqual(await schema.locator('option').evaluateAll((os) => os.map((o) => o.value)), ['', 'gold', 'mvp']);
     await next(page);
     await page.locator('[role="alert"]').waitFor();
     assert.deepEqual(await footerErrors(page), ['pick a catalog and a schema, and name the result table']);
-    await schema.selectOption('poc');
+    await schema.selectOption('mvp');
     await step.getByLabel('Table name').fill('churn_out');
-    await step.getByText('sales.poc.churn_out', { exact: true }).waitFor();
+    await step.getByText('sales.mvp.churn_out', { exact: true }).waitFor();
     made.state.access = [];
     await next(page);
     await page.locator('[role="alert"]').waitFor();
     assert.deepEqual(await footerErrors(page), ['catalog sales does not exist or you have no access to it']);
     await onStep(page, 'Results');
-    await step.getByRole('button', { name: 'Use the default, main.inspire.n01_u01_out' }).click();
+    await step.getByRole('button', { name: 'Use the default, main.inspire.n01_u01_s42_out' }).click();
     assert.deepEqual([await catalog.inputValue(), await schema.inputValue()], ['main', 'inspire']);
     made.state.access = [
       { level: 'catalog', privilege: 'OWNER', principal: 'admins', mine: 'false', me: OWNER },
@@ -249,12 +249,12 @@ test('Where results live picks a catalog and a schema from Unity Catalog, offers
       { level: 'schema', privilege: 'OWNER', principal: OWNER, mine: 'true', me: OWNER },
     ];
     await catalog.selectOption('sales');
-    await schema.locator('option[value="poc"]').waitFor({ state: 'attached' });
-    await schema.selectOption('poc');
+    await schema.locator('option[value="mvp"]').waitFor({ state: 'attached' });
+    await schema.selectOption('mvp');
     await next(page);
     await onStep(page, 'Delivery');
     await startWhenReady(page);
-    assert.equal(submittedSpec(made).config.result_table, 'sales.poc.n01_u01_out');
+    assert.equal(submittedSpec(made).config.result_table, 'sales.mvp.n01_u01_s42_out');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -430,7 +430,7 @@ test('every wizard step fits a 1440x900 screen with nothing to scroll, the App s
     await page.getByRole('button', { name: 'Back' }).click();
     await page.getByRole('button', { name: 'Back' }).click();
     await onStep(page, 'Choose');
-    await page.getByRole('radio', { name: /^Full PoC\/MVP/ }).check();
+    await page.getByRole('radio', { name: /^Full MVP/ }).check();
     await fits('1-choose');
     await next(page);
     await onStep(page, 'Data');

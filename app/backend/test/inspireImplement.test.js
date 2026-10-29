@@ -217,18 +217,18 @@ test('a new version may replace a stalled one, never one whose run may still be 
 test('the App records the run it started, and fails a version whose run never started', () => {
   const key = { sessionId: 42, useCaseId: 'N01-U01', specVersion: 3 };
   const keyParams = [{ name: 'sid', value: '42', type: 'BIGINT' }, { name: 'uc', value: 'N01-U01', type: 'STRING' }, { name: 'v', value: '3', type: 'INT' }];
-  const started = implementRunStartedStatement('t', { ...key, runId: 1066484287074577, message: 'https://x/run/1066484287074577' });
+  const started = implementRunStartedStatement('t', { ...key, runId: 5555555555555555, message: 'https://x/run/5555555555555555' });
   assert.equal(started.sql, "UPDATE t SET implement_run_id = :run, status_message = CASE WHEN status = 'queued' THEN :message ELSE status_message END "
     + 'WHERE session_id = :sid AND use_case_id = :uc AND spec_version = :v');
-  assert.deepEqual(started.parameters, [{ name: 'run', value: '1066484287074577', type: 'BIGINT' },
-    { name: 'message', value: 'https://x/run/1066484287074577', type: 'STRING' }, ...keyParams]);
+  assert.deepEqual(started.parameters, [{ name: 'run', value: '5555555555555555', type: 'BIGINT' },
+    { name: 'message', value: 'https://x/run/5555555555555555', type: 'STRING' }, ...keyParams]);
   for (const runId of [undefined, null, '', 'run-9', '1'.repeat(20)]) {
     assert.deepEqual(implementRunStartedStatement('t', { ...key, runId, message: 'm' }).parameters[0], { name: 'run', type: 'BIGINT' }, String(runId));
   }
-  const failed = implementStartFailedStatement('t', { ...key, message: 'the PoC/MVP run could not start: RESOURCE_EXHAUSTED' });
+  const failed = implementStartFailedStatement('t', { ...key, message: 'the MVP run could not start: RESOURCE_EXHAUSTED' });
   assert.equal(failed.sql, "UPDATE t SET status = 'failed', status_message = :message, updated_at = current_timestamp() "
     + "WHERE session_id = :sid AND use_case_id = :uc AND spec_version = :v AND status = 'queued'");
-  assert.deepEqual(failed.parameters, [{ name: 'message', value: 'the PoC/MVP run could not start: RESOURCE_EXHAUSTED', type: 'STRING' }, ...keyParams]);
+  assert.deepEqual(failed.parameters, [{ name: 'message', value: 'the MVP run could not start: RESOURCE_EXHAUSTED', type: 'STRING' }, ...keyParams]);
 });
 
 test('a version is stalled when its run ended, or when its run cannot be read and it has not moved for longer than a run may hold its lock', () => {

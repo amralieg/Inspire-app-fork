@@ -12,7 +12,7 @@ const withView = (f, uc) => ({ ...uc, _v130: f.v130View(uc) });
 
 test('a use case row carries the fields the drawer and the wizard header show', async () => {
   const f = await load();
-  const statusOf = (_uc, id) => (id === 'N01-U02' ? { label: 'PoC/MVP ready' } : null);
+  const statusOf = (_uc, id) => (id === 'N01-U02' ? { label: 'MVP ready' } : null);
   const churn = f.catalogRow(withView(f, {
     id: 'N01-U01', Name: 'Predict churn', _domain: 'Customer', Subdomain: 'Retention', Priority: 'Very High', Quality: 'High',
     'Analytics Technique': 'Classification', priority_score: '4.5', value_score: '4', feasibility_score: '5',
@@ -32,8 +32,8 @@ test('a use case row carries the fields the drawer and the wizard header show', 
   assert.equal(churn.genie, f.GENIE_LABELS.shipped);
   assert.equal(upsell.genie, f.GENIE_LABELS.draft);
   assert.equal(stock.genie, f.GENIE_LABELS.none);
-  assert.equal(churn.status, null, 'a use case without a PoC/MVP has no status');
-  assert.equal(upsell.status.label, 'PoC/MVP ready');
+  assert.equal(churn.status, null, 'a use case without an MVP has no status');
+  assert.equal(upsell.status.label, 'MVP ready');
   assert.equal(upsell.priority, '', 'a numeric priority is a score, not a tier');
   assert.equal(stock.title, 'N02-U01', 'a use case without a name shows its ID');
   assert.equal(stock.bob, null);

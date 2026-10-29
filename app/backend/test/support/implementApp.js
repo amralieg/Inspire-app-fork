@@ -58,6 +58,10 @@ function makeApp(overrides = {}) {
       if (sql.includes('__inspire_implement') && sql.includes('INSERT')) return { rows: [] };
       if (sql.includes('__inspire_implement') && sql.includes('`app_name` IS NOT NULL')) return { rows: state.registry || [] };
       if (sql.includes('__inspire_implement') && sql.includes('UPDATE')) return { rows: [] };
+      if (sql.includes('__inspire_implement') && sql.includes('held AS')) {
+        if (state.holderError) throw new Error(state.holderError);
+        return { rows: state.resultTableHolders || [] };
+      }
       if (sql.includes('__inspire_implement')) {
         const unknown = IMPLEMENT_COLUMNS.map(([name]) => name)
           .find((name) => !state.implementColumns.includes(name) && sql.includes(`\`${name}\``) && !sql.includes(`NULL AS \`${name}\``));

@@ -26,6 +26,8 @@ export default function UseCaseCard({
   onToggleFavorite,
   implementStatus = null,
   onImplement,
+  onOpenMvp,
+  notebookUrl = '',
   v130 = null,
   feedbackCurrent,
   ...detailProps
@@ -120,7 +122,7 @@ export default function UseCaseCard({
         </div>
       </div>
 
-      <ImplementCardActions status={implementStatus} onImplement={onImplement} />
+      <ImplementCardActions status={implementStatus} onImplement={onImplement} onOpen={onOpenMvp} notebookUrl={notebookUrl} />
 
       {expanded && (
         <UseCaseDetailBody

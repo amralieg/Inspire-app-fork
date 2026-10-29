@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaultSpecFromUseCase } from '../../src/lib/implementWizard.js';
-import { HARNESS_USE_CASE, HARNESS_SETTINGS } from './implementFixtures.js';
+import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
 import { closeBrowser, lowContrast, openUi } from './uiSupport.mjs';
 
 const OWNER = ['owner', 'example.com'].join('@');
@@ -9,7 +9,7 @@ const OWNER = ['owner', 'example.com'].join('@');
 test.after(closeBrowser);
 
 const spec = () => ({
-  ...defaultSpecFromUseCase(HARNESS_USE_CASE, { warehouseId: HARNESS_SETTINGS.warehouseId, inspireDatabase: HARNESS_SETTINGS.inspireDatabase, owner: OWNER }),
+  ...defaultSpecFromUseCase(HARNESS_USE_CASE, { warehouseId: HARNESS_SETTINGS.warehouseId, inspireDatabase: HARNESS_SETTINGS.inspireDatabase, sessionId: HARNESS_SESSION_ID, owner: OWNER }),
 });
 
 const BUILT = {
@@ -34,10 +34,11 @@ async function openMoney(state) {
     await ui.page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     const control = ui.page.getByRole('tab', { name: 'Control Tower', exact: true });
     if (await control.getAttribute('aria-selected') !== 'true') await control.click();
-    const picker = ui.page.getByRole('region', { name: 'Control tower' }).getByRole('region', { name: 'Vibe any asset' });
-    await picker.getByRole('button', { name: 'Money at stake, Ready', exact: true }).click();
-    await picker.locator('[data-vibe-card="value_formula"]').waitFor({ timeout: 15000 });
-    return { ...ui, card: picker.locator('[data-vibe-card="value_formula"]') };
+    await ui.page.getByRole('region', { name: 'Control tower' }).getByRole('button', { name: 'Genie Code notebook details', exact: true }).click({ timeout: 15000 });
+    const drawer = ui.page.getByRole('dialog', { name: 'Genie Code notebook details', exact: true });
+    await drawer.getByRole('navigation', { name: 'Pick a part to vibe' }).getByRole('button', { name: 'Money at stake, Ready', exact: true }).click();
+    await drawer.locator('[data-vibe-card="value_formula"]').waitFor({ timeout: 15000 });
+    return { ...ui, card: drawer.locator('[data-vibe-card="value_formula"]') };
   } catch (e) {
     await ui.close();
     throw e;
@@ -61,8 +62,8 @@ test('the Money at stake part shows the formula Genie proposed, its assumptions 
     assert.equal(await review.locator('[data-change-how]').textContent(),
       'To change how it is counted, say so below and rebuild only this part. Owners of the App can change the assumption values there.');
     await card.getByRole('textbox', { name: 'How should it work?', exact: true }).waitFor();
-    const reads = made.sqlCalls.filter((c) => c.sql.includes('n01_u01_out_'));
-    assert.ok(reads.some((c) => c.sql.includes('`n01_u01_out_summary`')) && reads.some((c) => c.sql.includes('`n01_u01_out_assumptions`')));
+    const reads = made.sqlCalls.filter((c) => c.sql.includes('n01_u01_s42_out_'));
+    assert.ok(reads.some((c) => c.sql.includes('`n01_u01_s42_out_summary`')) && reads.some((c) => c.sql.includes('`n01_u01_s42_out_assumptions`')));
     const contrast = await lowContrast(page, ['[aria-label="Money at stake review"]', '[aria-label="Nothing to act on yet"]']);
     assert.ok(contrast.checked >= 8, `measured ${contrast.checked}`);
     assert.deepEqual(contrast.low, []);
@@ -72,7 +73,7 @@ test('the Money at stake part shows the formula Genie proposed, its assumptions 
   }
 });
 
-test('a PoC whose last run has nothing to act on says so in a plain card with the run reason, and one with records to act on shows no card', async () => {
+test('an MVP whose last run has nothing to act on says so in a plain card with the run reason, and one with records to act on shows no card', async () => {
   const ui = await openMoney({ moneySummary: [SUMMARY], moneyEdits: [] });
   try {
     const card = ui.page.getByRole('status').filter({ hasText: 'Nothing to act on yet' });

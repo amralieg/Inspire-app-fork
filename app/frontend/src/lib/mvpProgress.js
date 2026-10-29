@@ -1,7 +1,7 @@
 import { IMPLEMENT_OUTPUTS, IMPLEMENT_ACTIVE_STATUSES } from './implementWizard.js';
 import { formatDuration } from './formatWhen.js';
 
-export const POC_BUILD_STAGES = [
+export const MVP_BUILD_STAGES = [
   { id: 'Plan', label: 'Plan', working: 'Inspire is planning the build' },
   { id: 'Instruction', label: 'Instruction', working: 'Inspire is writing the Genie Code instruction' },
   { id: 'Genie Code', label: 'Start Genie Code', working: 'Inspire is starting Genie Code' },
@@ -11,7 +11,7 @@ export const POC_BUILD_STAGES = [
 
 const EARLIER_PHASES = { genie_space: ['Genie space'] };
 
-const FINISH_STAGE = { id: 'Done', label: 'Done', working: 'Inspire is scheduling and sharing the PoC/MVP', phases: ['Schedule', 'Sharing', 'Done'] };
+const FINISH_STAGE = { id: 'Done', label: 'Done', working: 'Inspire is scheduling and sharing the MVP', phases: ['Schedule', 'Sharing', 'Done'] };
 
 const STEP_STATES = { started: 'running', ended_success: 'done', ended_warning: 'warning', ended_error: 'error' };
 const RUN_STARTING_STATES = ['PENDING', 'QUEUED', 'BLOCKED'];
@@ -55,10 +55,10 @@ function roundOf(payload) {
   return payload.failure ? round + 1 : round;
 }
 
-export function pocStages(steps, latest, { now = Date.now(), stalled = null } = {}) {
+export function mvpStages(steps, latest, { now = Date.now(), stalled = null } = {}) {
   const outputs = latest?.spec_json?.outputs || {};
   const plan = [
-    ...POC_BUILD_STAGES,
+    ...MVP_BUILD_STAGES,
     ...IMPLEMENT_OUTPUTS.filter((o) => outputs[o.id]).map((o) => ({ id: o.label, label: o.label, phases: EARLIER_PHASES[o.id] || [], working: `Genie is building the ${o.label}` })),
     FINISH_STAGE,
   ];
@@ -131,7 +131,7 @@ export function pocStages(steps, latest, { now = Date.now(), stalled = null } = 
   return stages;
 }
 
-export function pocProgressSummary(stages, latest, { now = Date.now(), stalled = null } = {}) {
+export function mvpProgressSummary(stages, latest, { now = Date.now(), stalled = null } = {}) {
   const counted = stages.filter((s) => s.state !== 'skipped');
   const settled = counted.filter((s) => ['done', 'warning'].includes(s.state)).length;
   const current = stages.find((s) => ['running', 'next'].includes(s.state)) || null;

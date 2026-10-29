@@ -14,6 +14,7 @@ import {
   ALERT_BASELINE_DIRECTIONS,
   baselineOperatorOk,
   FRESHNESS_OPTIONS,
+  defaultResultTable,
   defaultSpecFromUseCase,
   caseNameOf,
   specFromLatest,
@@ -54,7 +55,7 @@ import {
   PREFLIGHT_LABELS,
   PROFILE_FIELDS,
   APP_NAME_RE,
-  START_POC_LABEL,
+  START_MVP_LABEL,
   RESET_ROLES_LABEL,
   BUILD_STEP_IDS,
   APP_ACCESS_CHOICES,
@@ -229,9 +230,9 @@ export default function ImplementWizard({
 }) {
   const warehouseId = settings.warehouseId;
   const inspireDatabase = settings.inspireDatabase;
-  const [mode, setMode] = useState('poc');
+  const [mode, setMode] = useState('mvp');
   const [step, setStep] = useState(() => initialStepIndex(focus));
-  const [spec, setSpec] = useState(() => defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase }));
+  const [spec, setSpec] = useState(() => defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, sessionId }));
   const [context, setContext] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState([]);
@@ -325,6 +326,7 @@ export default function ImplementWizard({
         const fallback = defaultSpecFromUseCase(row, {
           warehouseId,
           inspireDatabase,
+          sessionId,
           owner: data.me?.username,
           businessName: data.business_name,
         });
@@ -334,7 +336,7 @@ export default function ImplementWizard({
         if (!next.config.warehouse_id) next.config.warehouse_id = warehouseId;
         setSpec(next);
         setMissingTables(missing);
-        if (focus?.step === 'review') setStep(initialStepIndex(focus, 'poc', next));
+        if (focus?.step === 'review') setStep(initialStepIndex(focus, 'mvp', next));
         const same = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
         const chosenOf = (t) => ((next.data.removed_tables || []).some((r) => same(r, t)) ? ''
           : next.data.tables[Object.keys(next.data.tables).find((k) => same(k, t))] || t);
@@ -740,7 +742,7 @@ export default function ImplementWizard({
                   >
                     <input type="radio" name="implement-mode" value={m.id} checked={mode === m.id} onChange={() => setMode(m.id)} className="mt-0.5" />
                     <span className="space-y-0.5">
-                      <span className="block text-sm font-semibold text-text-primary">{m.label}{m.id === 'poc' ? ' (default)' : ''}</span>
+                      <span className="block text-sm font-semibold text-text-primary">{m.label}{m.id === 'mvp' ? ' (default)' : ''}</span>
                       <span className="block text-[12px] text-text-secondary">{m.blurb}</span>
                     </span>
                   </label>
@@ -748,7 +750,7 @@ export default function ImplementWizard({
               </div>
               {editing && (
                 <p className="text-[11px] text-text-tertiary">
-                  This use case has a PoC/MVP (v{context.latest.spec_version}). Full PoC/MVP edits it; Notebook only leaves it as it is.
+                  This use case has an MVP (v{context.latest.spec_version}). Full MVP edits it; Notebook only leaves it as it is.
                 </p>
               )}
             </fieldset>
@@ -759,7 +761,7 @@ export default function ImplementWizard({
           <section className="space-y-3" aria-label="Tables the notebook uses">
             <h3 className="text-sm font-semibold text-text-primary">Tables the notebook uses</h3>
             <p className="text-[12px] text-text-secondary">
-              Notebook only writes the notebook over the tables this use case was discovered with. To swap, remove or filter a table, go back and choose Full PoC/MVP.
+              Notebook only writes the notebook over the tables this use case was discovered with. To swap, remove or filter a table, go back and choose Full MVP.
             </p>
             <ul className="space-y-1.5">
               {tablesOf(ucRow).map((t) => (
@@ -788,12 +790,12 @@ export default function ImplementWizard({
                 If you edited it, Inspire keeps it and writes the new notebook beside it.
               </p>
             )}
-            {editing && <p>Your PoC/MVP (v{context.latest.spec_version}) is not changed.</p>}
+            {editing && <p>Your MVP (v{context.latest.spec_version}) is not changed.</p>}
             <p>The run takes a few minutes. Follow it on the Build page.</p>
           </section>
         )}
 
-        {stepId === 'data' && mode === 'poc' && (
+        {stepId === 'data' && mode === 'mvp' && (
           <>
             <section className="space-y-2">
               <div>
@@ -994,7 +996,7 @@ export default function ImplementWizard({
             <ResultTableStep
               parts={resultParts}
               table={spec.config.result_table}
-              defaultTable={defaultSpecFromUseCase(ucRow, { inspireDatabase }).config.result_table}
+              defaultTable={defaultResultTable(inspireDatabase, spec.use_case_id, sessionId)}
               catalogs={catalogs}
               catalogsError={catalogsError}
               schemas={schemas[resultParts.catalog]}
@@ -1153,7 +1155,7 @@ export default function ImplementWizard({
               </label>
             )}
 
-            {folderWarning && <p role="note" aria-label="Where Inspire saves the PoC/MVP" className="text-[11px] text-warning-fg">{folderWarning}</p>}
+            {folderWarning && <p role="note" aria-label="Where Inspire saves the MVP" className="text-[11px] text-warning-fg">{folderWarning}</p>}
 
             {generalChecks.some(([, v]) => !v.ok || v.warn) && (
               <section className="space-y-1" aria-label="Access checks">
@@ -1405,7 +1407,7 @@ export default function ImplementWizard({
               onClick={submit}
             >
               {(busy || checksBusy) && <Loader2 size={14} className="animate-spin" />}
-              {busy ? 'Starting…' : checksBusy ? 'Checking access…' : 'Start PoC/MVP'}
+              {busy ? 'Starting…' : checksBusy ? 'Checking access…' : 'Start MVP'}
             </button>
           )}
         </div>
@@ -1527,7 +1529,7 @@ function ResultTableStep({ parts, table, defaultTable, catalogs, catalogsError, 
     <section className="space-y-4" aria-label="Where the result table lives">
       <div>
         <h3 className="text-sm font-semibold text-text-primary">Where should the result table live?</h3>
-        <p className="text-[11px] text-text-tertiary">Genie writes this PoC/MVP&apos;s results to this table, and Inspire writes nowhere else. Next checks live that you can create or write it.</p>
+        <p className="text-[11px] text-text-tertiary">Genie writes this MVP&apos;s results to this table, and Inspire writes nowhere else. Next checks live that you can create or write it.</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Field label="Catalog">
@@ -1973,11 +1975,11 @@ function Overlay({ title, uc, steps, step, onClose, children }) {
   return (
     <BodyPortal>
       <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" data-implement-overlay="">
-        <div role="dialog" aria-modal="true" aria-label={title ? `${START_POC_LABEL}: ${title}` : START_POC_LABEL} className="bg-surface border border-border rounded-xl shadow-elevated w-full max-w-3xl max-h-full flex flex-col overflow-hidden">
+        <div role="dialog" aria-modal="true" aria-label={title ? `${START_MVP_LABEL}: ${title}` : START_MVP_LABEL} className="bg-surface border border-border rounded-xl shadow-elevated w-full max-w-3xl max-h-full flex flex-col overflow-hidden">
           <header className="px-6 pt-4 pb-3 border-b border-border space-y-3" data-wizard-header="">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-db-red-fg">{START_POC_LABEL}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-db-red-fg">{START_MVP_LABEL}</p>
                 <h2 className="mt-1 text-lg font-semibold leading-snug text-text-primary break-words">{title}</h2>
                 {facts.length > 0 && (
                   <ul aria-label="About this use case" className="mt-2 flex flex-wrap gap-1.5">

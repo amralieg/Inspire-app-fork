@@ -15,18 +15,15 @@ const ASSET_ICONS = { build: Hammer, job: Briefcase, dashboard: LayoutDashboard,
 const TONE_CHIP = { success: 'success', error: 'error', warning: 'warning', busy: 'red', idle: 'idle' };
 const BUTTON = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-50';
 
-function RemoveDialog({ row, useCaseId, busy, onCancel, onConfirm }) {
+export function ConfirmDialog({ title, confirmLabel, useCaseId, busy, onCancel, onConfirm, children }) {
   const [typed, setTyped] = useState('');
   const ok = removeConfirmed(typed, useCaseId);
   return (
     <BodyPortal>
       <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-        <div role="dialog" aria-modal="true" aria-label={`Remove the ${row.label}`} className="bg-surface border border-border rounded-xl shadow-elevated w-full max-w-md p-5 space-y-3">
-          <h3 className="text-sm font-semibold text-text-primary">Remove the {row.label}</h3>
-          <p className="text-[12px] text-text-secondary">
-            Inspire deletes the {row.label} <span className="font-medium text-text-primary">{row.name}</span> in a new version of this PoC/MVP and keeps the other outputs.
-            You can add it back with Edit the PoC/MVP.
-          </p>
+        <div role="dialog" aria-modal="true" aria-label={title} className="bg-surface border border-border rounded-xl shadow-elevated w-full max-w-md p-5 space-y-3">
+          <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+          <div className="text-[12px] text-text-secondary space-y-2">{children}</div>
           <label className="block text-[12px] text-text-secondary">
             Type <span className="font-mono font-semibold text-text-primary">{useCaseId}</span> to confirm
             <input
@@ -45,7 +42,7 @@ function RemoveDialog({ row, useCaseId, busy, onCancel, onConfirm }) {
               onClick={onConfirm}
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-error-solid disabled:opacity-50"
             >
-              {busy ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} Remove the {row.label}
+              {busy ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} {confirmLabel}
             </button>
           </div>
         </div>
@@ -136,11 +133,16 @@ function StripRow({ row, controls }) {
   );
 }
 
-function LiveTile({ row, controls }) {
+const TILE_CLICK = 'cursor-pointer transition-smooth hover:border-db-red/40 hover:shadow-md';
+const opensCard = (onDetails) => (e) => {
+  if (!e.target.closest('a, button, input, select, textarea, label')) onDetails();
+};
+
+function LiveTile({ row, controls, onDetails }) {
   const warned = row.warnings?.length > 0;
   const tone = warned && row.state.tone === 'success' ? 'warning' : TONE_CHIP[row.state.tone] || 'idle';
   return (
-    <li data-control={row.id} data-tile={row.id} className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm">
+    <li data-control={row.id} data-tile={row.id} onClick={opensCard(onDetails)} className={`flex flex-col gap-3 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm ${TILE_CLICK}`}>
       <div className="flex items-start gap-3">
         <IconChip icon={ASSET_ICONS[row.id]} tone={tone} size="md" />
         <div className="min-w-0 flex-1">
@@ -200,7 +202,7 @@ function PendingTile({ tile, liveError, active, submitBusy, failed, onAddOutput,
     missing: { tone: 'warning', text: 'Not built on this version' },
   }[kind];
   return (
-    <li className="relative flex flex-col gap-2 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm overflow-hidden" data-tile={output.id} data-tile-kind={kind}>
+    <li onClick={opensCard(onDetails)} className={`relative flex flex-col gap-2 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm overflow-hidden ${TILE_CLICK}`} data-tile={output.id} data-tile-kind={kind}>
       <div className="flex items-start gap-3">
         <IconChip icon={Icon} tone={look.tone} size="md" />
         <div className="min-w-0">
@@ -253,7 +255,7 @@ export function NotebookLinks({ notebook }) {
 
 function NotebookTile({ notebook, onDetails }) {
   return (
-    <li data-tile="notebook" className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm">
+    <li data-tile="notebook" onClick={opensCard(onDetails)} className={`sm:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-3.5 text-[12px] shadow-sm ${TILE_CLICK}`}>
       <div className="flex items-start gap-3 min-w-0 flex-1">
         <IconChip icon={NotebookPen} tone={TONE_CHIP[notebook.state.tone] || 'idle'} size="md" />
         <div className="min-w-0 space-y-0.5">
@@ -272,19 +274,53 @@ function NotebookTile({ notebook, onDetails }) {
   );
 }
 
+function KeptVersions({ kept, locked, onRemove }) {
+  return (
+    <section aria-label="Kept live from earlier versions" className="px-4 pb-4">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Kept live from earlier versions</p>
+      <ul className="mt-1.5 divide-y divide-border rounded-xl border border-border bg-surface text-[12px]">
+        {kept.map((entry) => (
+          <li key={entry.version} data-kept-version={entry.version} className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
+              <span className="font-semibold text-text-primary">v{entry.version}</span>
+              {entry.assets.map((asset) => (
+                <span key={`${asset.output}:${asset.id}`} className="inline-flex items-center gap-1.5 text-text-secondary">
+                  <IconChip icon={ASSET_ICONS[asset.output]} size="sm" />
+                  {asset.url
+                    ? <a href={asset.url} target="_blank" rel="noreferrer" className="font-medium text-db-red-fg hover:underline">{asset.title || asset.label} <ExternalLink size={11} className="inline" /></a>
+                    : <span className="font-medium text-text-primary">{asset.title || asset.label}</span>}
+                </span>
+              ))}
+            </div>
+            <button type="button" disabled={locked} onClick={() => onRemove(entry)} className={`${BUTTON} border border-error/40 bg-surface text-error-fg`}>
+              <Trash2 size={11} /> Remove v{entry.version}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+const keptNames = (entry) => entry.assets.map((asset) => asset.label).join(', ');
+
 export default function ImplementControlTower({
-  poc = true, notebook = null, banner = null, picker = null, failed = [], live, liveError, latest, useCaseId, active, buildingNow, actionBusy, submitBusy,
-  onAction, onRemove, onToggleSchedule, onRefresh, onAddOutput, onRetry, onDetails,
+  mvp = true, notebook = null, banner = null, vibe = null, kept = [], failed = [], live, liveError, latest, useCaseId, active, buildingNow, actionBusy, submitBusy,
+  onAction, onRemove, onRemoveKept, onToggleSchedule, onRefresh, onAddOutput, onRetry, onDetails,
 }) {
   const [removing, setRemoving] = useState(null);
-  const { strips, tiles } = poc ? controlTiles(live, latest, { active, buildingNow }) : { strips: [], tiles: [] };
-  const actions = poc ? (live?.actions || []).slice(0, 5) : [];
+  const [removingKept, setRemovingKept] = useState(null);
+  const { strips, tiles } = mvp ? controlTiles(live, latest, { active, buildingNow }) : { strips: [], tiles: [] };
+  const actions = mvp ? (live?.actions || []).slice(0, 5) : [];
   const hasRows = strips.length > 0 || tiles.some((t) => t.kind === 'live');
   const failedById = new Map(failed.map((o) => [o.id, o]));
   const confirmRemove = async () => {
     const row = removing;
     await onRemove(row.id);
     setRemoving(null);
+  };
+  const confirmRemoveKept = async () => {
+    if (await onRemoveKept(removingKept.version)) setRemovingKept(null);
   };
   const controls = (row, tile = false) => (
     <RowControls
@@ -301,14 +337,14 @@ export default function ImplementControlTower({
     />
   );
   let hint = 'The Genie Code notebook of this use case';
-  if (poc) hint = live?.checked_at ? `Live status checked ${formatWhen(live.checked_at, live.checked_at)}` : 'Reading the live status of every asset';
+  if (mvp) hint = live?.checked_at ? `Live status checked ${formatWhen(live.checked_at, live.checked_at)}` : 'Reading the live status of every asset';
   return (
     <section role="region" aria-label="Control tower" className={PANEL_CLASS}>
       <SectionTitle
         icon={Radar}
         title="Control tower"
         hint={hint}
-        right={poc && (
+        right={mvp && (
           <button type="button" onClick={onRefresh} aria-label="Check the live status now" className="p-1.5 rounded-lg border border-border bg-surface text-text-secondary hover:text-text-primary">
             <RefreshCw size={13} />
           </button>
@@ -316,17 +352,17 @@ export default function ImplementControlTower({
       />
       {banner && <div className="px-4 pt-4">{banner}</div>}
       {liveError && <p className="px-4 pt-3 text-[12px] text-error-fg">Inspire cannot read the live status: {liveError}</p>}
-      {live && !hasRows && <p className="px-4 pt-3 text-[12px] text-text-secondary">This PoC/MVP has no job or outputs yet.</p>}
+      {live && !hasRows && <p className="px-4 pt-3 text-[12px] text-text-secondary">This MVP has no job or outputs yet.</p>}
       {strips.length > 0 && (
         <ul className="divide-y divide-border border-b border-border">
           {strips.map((row) => <StripRow key={row.id} row={row} controls={controls(row)} />)}
         </ul>
       )}
-      {picker}
+      {vibe}
       <ul className="grid gap-3 p-4 sm:grid-cols-2">
         {notebook && <NotebookTile notebook={notebook} onDetails={() => onDetails('notebook')} />}
         {tiles.map((tile) => (tile.kind === 'live'
-          ? <LiveTile key={tile.output.id} row={tile.row} controls={controls(tile.row, true)} />
+          ? <LiveTile key={tile.output.id} row={tile.row} controls={controls(tile.row, true)} onDetails={() => onDetails(tile.output.id)} />
           : (
             <PendingTile
               key={tile.output.id}
@@ -341,6 +377,7 @@ export default function ImplementControlTower({
             />
           )))}
       </ul>
+      {kept.length > 0 && <KeptVersions kept={kept} locked={active || submitBusy} onRemove={setRemovingKept} />}
       {actions.length > 0 && (
         <div className="px-4 py-3 border-t border-border bg-bg-subtle/50">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary">Recent actions</p>
@@ -352,7 +389,21 @@ export default function ImplementControlTower({
         </div>
       )}
       {removing && (
-        <RemoveDialog row={removing} useCaseId={useCaseId} busy={submitBusy} onCancel={() => setRemoving(null)} onConfirm={confirmRemove} />
+        <ConfirmDialog title={`Remove the ${removing.label}`} confirmLabel={`Remove the ${removing.label}`} useCaseId={useCaseId} busy={submitBusy}
+          onCancel={() => setRemoving(null)} onConfirm={confirmRemove}>
+          <p>
+            Inspire deletes the {removing.label} <span className="font-medium text-text-primary">{removing.name}</span> in a new version of this MVP and keeps the other outputs.
+            You can add it back with Edit the MVP.
+          </p>
+        </ConfirmDialog>
+      )}
+      {removingKept && (
+        <ConfirmDialog title={`Remove v${removingKept.version}`} confirmLabel={`Remove v${removingKept.version}`} useCaseId={useCaseId} busy={submitBusy}
+          onCancel={() => setRemovingKept(null)} onConfirm={confirmRemoveKept}>
+          <p>
+            Inspire deletes what v{removingKept.version} kept live ({keptNames(removingKept)}) in a new version of this MVP. The live version stays as it is.
+          </p>
+        </ConfirmDialog>
       )}
     </section>
   );

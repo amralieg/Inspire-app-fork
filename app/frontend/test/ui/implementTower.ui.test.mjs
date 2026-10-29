@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaultSpecFromUseCase } from '../../src/lib/implementWizard.js';
-import { HARNESS_USE_CASE, HARNESS_SETTINGS } from './implementFixtures.js';
+import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
 import { closeBrowser, lowContrast, openUi, until } from './uiSupport.mjs';
 
 const OWNER = ['owner', 'example.com'].join('@');
 const PAGE = 'app:page:decisions';
 const CHART = 'dashboard:w1a2b3c4';
-const NOT_BUILT = 'Inspire has not built the App page decisions on this PoC/MVP, so it cannot rebuild it with your vibes; pick an asset the Control tower lists';
+const NOT_BUILT = 'Inspire has not built the App page decisions on this MVP, so it cannot rebuild it with your vibes; pick an asset the Control tower lists';
 
 test.after(closeBrowser);
 
@@ -15,7 +15,7 @@ const checks = (...items) => items.map(([ask, status, evidence]) => ({ ask, stat
 const ready = (version, extra = {}) => ({ state: 'ready', spec_version: version, ...extra });
 
 const builtSpec = (outputs = {}, top = {}) => {
-  const spec = defaultSpecFromUseCase(HARNESS_USE_CASE, { warehouseId: HARNESS_SETTINGS.warehouseId, inspireDatabase: HARNESS_SETTINGS.inspireDatabase, owner: OWNER });
+  const spec = defaultSpecFromUseCase(HARNESS_USE_CASE, { warehouseId: HARNESS_SETTINGS.warehouseId, inspireDatabase: HARNESS_SETTINGS.inspireDatabase, sessionId: HARNESS_SESSION_ID, owner: OWNER });
   return {
     ...spec,
     ...top,
@@ -80,13 +80,30 @@ function insertsOf(made) {
     .map((c) => ({ spec: JSON.parse(c.parameters.find((p) => p.name === 'spec').value), classes: c.parameters.find((p) => p.name === 'classes').value }));
 }
 
-const picker = (page) => page.getByRole('region', { name: 'Control tower' }).getByRole('region', { name: 'Vibe any asset' });
-const pick = async (page, name) => {
-  const button = picker(page).getByRole('button', { name, exact: true });
-  await button.click();
-  return button;
-};
-const picked = (page, id) => picker(page).locator(`[data-vibe-card="${id}"]`);
+const DRAWER_TITLES = { notebook: 'Genie Code notebook', ai_reasoning: 'Genie Code notebook', value_formula: 'Genie Code notebook', dashboard: 'Dashboard',
+  genie_space: 'Genie Agent', app: 'App', alert: 'Alert' };
+const drawerTitle = (id) => DRAWER_TITLES[id] || (id.startsWith('app:') ? 'App' : 'Dashboard');
+const tower = (page) => page.getByRole('region', { name: 'Control tower' });
+const openDrawer = (page) => page.locator('[data-details-drawer]');
+const drawerOf = (page, id) => page.getByRole('dialog', { name: `${drawerTitle(id)} details`, exact: true });
+const partsOf = (drawer) => drawer.getByRole('navigation', { name: 'Pick a part to vibe' });
+async function pick(page, id) {
+  const drawer = drawerOf(page, id);
+  if (!(await drawer.count())) {
+    if (await openDrawer(page).count()) {
+      await page.keyboard.press('Escape');
+      await openDrawer(page).waitFor({ state: 'detached' });
+    }
+    await tower(page).getByRole('button', { name: `${drawerTitle(id)} details`, exact: true }).click();
+    await drawer.waitFor();
+  }
+  const part = partsOf(drawer).locator(`[data-asset="${id}"]`);
+  if (await part.count()) await part.click();
+  const card = drawer.locator(`[data-vibe-card="${id}"]`);
+  await card.waitFor();
+  return card;
+}
+const picked = (page, id) => openDrawer(page).locator(`[data-vibe-card="${id}"]`);
 const box = (card) => card.getByRole('textbox', { name: 'How should it work?', exact: true });
 
 async function openTower(state = STATE) {
@@ -96,7 +113,7 @@ async function openTower(state = STATE) {
     const control = ui.page.getByRole('tab', { name: 'Control Tower', exact: true });
     if (await control.getAttribute('aria-selected') !== 'true') await control.click();
     await ui.page.getByRole('region', { name: 'History', exact: true }).getByText(/^\d+ spec versions? · /).waitFor({ timeout: 15000 });
-    await picker(ui.page).locator('[data-vibe-card]').waitFor({ timeout: 15000 });
+    await tower(ui.page).locator('[data-tile="notebook"]').waitFor({ timeout: 15000 });
   } catch (e) {
     await ui.close();
     throw e;
@@ -104,32 +121,18 @@ async function openTower(state = STATE) {
   return ui;
 }
 
-test('the control tower lists every built asset in the groups of the approved design with its pill, the first is picked, and picking another shows what it is now', async () => {
+test('a click anywhere on a tile opens its card in a drawer that lists only that output\'s parts with their pills, the first is picked, and picking another shows what it is now', async () => {
   const ui = await openTower();
   const { page } = ui;
   try {
-    const tower = picker(page);
-    await tower.getByRole('button', { name: 'Alert: Churn over 25, Ready', exact: true }).waitFor();
-    const nav = tower.getByRole('navigation', { name: 'Everything this use case built' });
-    const groups = {};
-    for (const name of ['Genie Code notebook', 'Results', 'App', 'Dashboard', 'Genie Agent', 'Alert']) {
-      groups[name] = await nav.getByRole('list', { name, exact: true }).getByRole('button').evaluateAll((items) => items.map((b) => b.getAttribute('aria-label')));
-    }
-    assert.deepEqual(groups, {
-      'Genie Code notebook': ['Notebook, Ready'],
-      Results: ['AI reasoning, Ready', 'Money at stake, Ready'],
-      App: ['Page: Decisions, Ready', 'Page: Row detail, Ready'],
-      Dashboard: ['Chart: Weekly trend, Ready with warnings'],
-      'Genie Agent': ['Instructions, Ready with warnings'],
-      Alert: ['Alert: Churn over 25, Ready'],
-    }, 'one row per page and per chart, and the whole App or dashboard only when the build lists no parts');
-    assert.deepEqual(await nav.locator('[data-asset]').evaluateAll((items) => items.map((b) => b.dataset.asset)),
-      ['notebook', 'ai_reasoning', 'value_formula', PAGE, 'app:page:detail', CHART, 'genie_space', 'alert']);
-    assert.equal(await nav.getByRole('button', { name: 'Notebook, Ready' }).getAttribute('aria-pressed'), 'true', 'the first asset is picked from the start');
-    await picked(page, 'notebook').getByRole('heading', { name: 'Notebook', exact: true }).waitFor();
-
-    const button = await pick(page, 'Page: Decisions, Ready');
-    assert.equal(await button.getAttribute('aria-pressed'), 'true');
+    assert.equal(await tower(page).getByRole('navigation', { name: 'Everything this use case built' }).count(), 0, 'the tiles are the list of what was built');
+    assert.equal(await tower(page).locator('[data-vibe-card]').count(), 0, 'no card shows until a tile is clicked');
+    await tower(page).locator('[data-tile="app"]').click({ position: { x: 6, y: 6 } });
+    const app = drawerOf(page, PAGE);
+    await app.waitFor();
+    assert.deepEqual(await partsOf(app).getByRole('button').evaluateAll((items) => items.map((b) => [b.dataset.asset, b.getAttribute('aria-label'), b.getAttribute('aria-pressed')])), [
+      [PAGE, 'Page: Decisions, Ready', 'true'], ['app:page:detail', 'Page: Row detail, Ready', 'false'],
+    ], 'one button per page of this App only, and the first is picked from the start');
     const card = picked(page, PAGE);
     assert.equal(await card.getByRole('heading').textContent(), 'Page: Decisions');
     await card.getByText('App', { exact: true }).waitFor();
@@ -137,47 +140,83 @@ test('the control tower lists every built asset in the groups of the approved de
     assert.match(await card.locator('[data-live]').textContent(), /^Version 3, built .+/);
     assert.equal(await box(card).inputValue(), V3_OUTPUTS[`${PAGE}_vibes`], 'the box holds the asks the page was built with, as written');
     assert.equal(await box(card).getAttribute('placeholder'), 'For example: put the rows to act on first and add a filter by region');
-    await card.getByText('Say each thing you want. Inspire checks every one after the rebuild.').waitFor();
-    const versions = picker(page).getByRole('region', { name: 'Versions' });
+    await card.getByText('Genie writes the Decisions page again from this version.', { exact: true }).waitFor();
+    const versions = openDrawer(page).getByRole('region', { name: 'Versions' });
     await versions.getByText('Roll back puts the whole App of an earlier version live again').waitFor();
     assert.deepEqual(await versions.locator('[data-version]').evaluateAll((rows) => rows.map((r) => r.dataset.version)), ['3', '2', '1']);
     await versions.locator('[data-live-version]').getByText('Live', { exact: true }).waitFor();
     await versions.getByRole('button', { name: 'Roll back to version 2', exact: true }).waitFor();
+    await partsOf(app).locator('[data-asset="app:page:detail"]').click();
+    await picked(page, 'app:page:detail').waitFor();
+    assert.equal(await partsOf(app).locator(`[data-asset="${PAGE}"]`).getAttribute('aria-pressed'), 'false', 'the earlier pick is let go');
+    await picked(page, PAGE).waitFor({ state: 'detached' });
+    await page.keyboard.press('Escape');
+    await openDrawer(page).waitFor({ state: 'detached' });
 
-    for (const [name, id, holder, live] of [
-      ['Instructions, Ready with warnings', 'genie_space', 'For example: answer in plain words and always say which rows you counted', /^Version 1, built /],
-      ['Money at stake, Ready', 'value_formula', 'For example: price each row at its open order value times the chance it is lost', /^Version 2, built /],
-      ['AI reasoning, Ready', 'ai_reasoning', 'For example: explain each decision in one sentence that names the two columns behind it', /^Version 2, built /],
-      ['Chart: Weekly trend, Ready with warnings', CHART, 'For example: make it a weekly bar chart and label each bar with its count', /^Version 3, built /],
-    ]) {
-      await pick(page, name);
-      const shown = picked(page, id);
-      await shown.waitFor();
-      assert.equal(await picker(page).locator('[data-vibe-card]').count(), 1, `${name}: one asset at a time`);
-      assert.equal(await box(shown).getAttribute('placeholder'), holder, name);
-      assert.match(await shown.locator('[data-live]').textContent(), live, name);
+    const parts = {};
+    for (const [output, first] of [['notebook', 'notebook'], ['dashboard', CHART], ['genie_space', 'genie_space'], ['alert', 'alert']]) {
+      await tower(page).locator(`[data-tile="${output}"]`).click({ position: { x: 6, y: 6 } });
+      const drawer = drawerOf(page, output);
+      await drawer.locator(`[data-vibe-card="${first}"]`).waitFor();
+      parts[output] = await partsOf(drawer).getByRole('button').evaluateAll((items) => items.map((b) => b.getAttribute('aria-label')));
+      assert.equal(await drawer.locator('[data-vibe-card]').count(), 1, `${output}: one card at a time`);
+      await page.keyboard.press('Escape');
+      await drawer.waitFor({ state: 'detached' });
     }
-    assert.equal(await button.getAttribute('aria-pressed'), 'false', 'the earlier pick is let go');
-    await picked(page, 'ai_reasoning').waitFor({ state: 'detached' });
+    assert.deepEqual(parts, {
+      notebook: ['Notebook, Ready', 'AI reasoning, Ready', 'Money at stake, Ready'],
+      dashboard: [], genie_space: [], alert: [],
+    }, 'a drawer with one part shows its card with no picker, and the whole dashboard only when the build lists no charts');
+
+    for (const [id, holder, live] of [
+      ['genie_space', 'For example: answer in plain words and always say which rows you counted', /^Version 1, built /],
+      ['value_formula', 'For example: price each row at its open order value times the chance it is lost', /^Version 2, built /],
+      ['ai_reasoning', 'For example: explain each decision in one sentence that names the two columns behind it', /^Version 2, built /],
+      [CHART, 'For example: make it a weekly bar chart and label each bar with its count', /^Version 3, built /],
+    ]) {
+      const shown = await pick(page, id);
+      assert.equal(await box(shown).getAttribute('placeholder'), holder, id);
+      assert.match(await shown.locator('[data-live]').textContent(), live, id);
+    }
+    await tower(page).locator('[data-tile="alert"]').getByRole('button', { name: 'Alert details', exact: true }).waitFor();
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
   }
 });
 
-test('Rebuild this stays off until there is text, and sends the vibes exactly as typed for only the picked asset', async () => {
+test('an empty box or only spaces rebuilds the picked asset as it is and sends no vibes', async () => {
+  const ui = await openTower();
+  const { page, made } = ui;
+  try {
+    const card = await pick(page, 'app:page:detail');
+    const rebuild = card.getByRole('button', { name: 'Rebuild this', exact: true });
+    assert.equal(await box(card).inputValue(), '');
+    await card.getByText('Genie writes the Row detail page again from this version.', { exact: true }).waitFor();
+    assert.equal(await rebuild.isDisabled(), false, 'an empty box rebuilds the page as it is');
+    await box(card).fill('   ');
+    await card.getByText('Genie writes the Row detail page again from this version.', { exact: true }).waitFor();
+    await rebuild.click();
+    await until(() => made.jobs.length === 1, 'the page rebuild');
+    const [plain] = insertsOf(made);
+    assert.deepEqual([plain.spec.retry_outputs, plain.spec.rollback_outputs, plain.classes, 'retry_asks' in plain.spec], [['app:page:detail'], {}, 'retry', false]);
+    assert.equal('app:page:detail_vibes' in plain.spec.outputs, false, 'spaces never become vibes');
+    for (const [key, value] of Object.entries(V3_OUTPUTS)) assert.equal(plain.spec.outputs[key], value, `${key} stays as it was`);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('Rebuild this sends the vibes exactly as typed for only the picked asset', async () => {
   const ui = await openTower();
   const { page, made } = ui;
   const asked = '  Put the rows to act on first,\n  then a map by region  ';
   try {
-    await pick(page, 'Page: Row detail, Ready');
-    const card = picked(page, 'app:page:detail');
+    const card = await pick(page, 'app:page:detail');
     const rebuild = card.getByRole('button', { name: 'Rebuild this', exact: true });
-    assert.equal(await box(card).inputValue(), '');
-    assert.equal(await rebuild.isDisabled(), true, 'no text, no rebuild');
-    await box(card).fill('   ');
-    assert.equal(await rebuild.isDisabled(), true, 'spaces are no text');
     await box(card).fill(asked);
+    await card.getByText('Genie rebuilds only the Row detail page with your asks and replaces the live one. Inspire checks every ask after the rebuild.', { exact: true }).waitFor();
     assert.equal(await rebuild.isDisabled(), false);
     await rebuild.click();
     await until(() => made.jobs.length === 1, 'the page rebuild');
@@ -186,8 +225,7 @@ test('Rebuild this stays off until there is text, and sends the vibes exactly as
     assert.deepEqual([vibed.spec.retry_outputs, vibed.spec.rollback_outputs, vibed.classes, 'retry_asks' in vibed.spec], [['app:page:detail'], {}, 'retry', false]);
     for (const [key, value] of Object.entries(V3_OUTPUTS)) assert.equal(vibed.spec.outputs[key], value, `${key} stays as it was`);
 
-    await pick(page, 'Money at stake, Ready');
-    const formula = picked(page, 'value_formula');
+    const formula = await pick(page, 'value_formula');
     await box(formula).fill('x'.repeat(2001));
     await formula.getByText('the money at stake formula vibes are 2001 characters; at most 2000 are allowed').waitFor();
     assert.equal(await formula.getByRole('button', { name: 'Rebuild this', exact: true }).isDisabled(), true, 'an ask over the limit cannot be sent');
@@ -202,8 +240,7 @@ test('an asset whose asks were all done says You asked for 2 things. Done: 2 of 
   const ui = await openTower();
   const { page } = ui;
   try {
-    await pick(page, 'Page: Decisions, Ready');
-    const list = picked(page, PAGE).locator('[data-checks]');
+    const list = (await pick(page, PAGE)).locator('[data-checks]');
     const tally = list.getByText('You asked for 2 things. Done: 2 of 2.', { exact: true });
     await tally.waitFor();
     assert.match(await tally.getAttribute('class'), /text-success-fg/);
@@ -225,8 +262,7 @@ test('a missing ask reads not done yet with the asset ready with warnings, and T
   const { page, made } = ui;
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await pick(page, 'Chart: Weekly trend, Ready with warnings');
-    const chart = picked(page, CHART);
+    const chart = await pick(page, CHART);
     const list = chart.locator('[data-checks]');
     const tally = list.getByText('You asked for 2 things. Done: 1 of 2.', { exact: true });
     await tally.waitFor();
@@ -238,14 +274,14 @@ test('a missing ask reads not done yet with the asset ready with warnings, and T
     await chart.getByText('Ready with warnings', { exact: true }).waitFor();
     await list.getByText('Only what is missing is rebuilt.').waitFor();
     const sizes = await page.evaluate(() => {
-      const card = document.querySelector('[aria-label="Vibe any asset"] [data-vibe-card]');
+      const card = document.querySelector('[data-details-drawer] [data-vibe-card]');
       return { page: document.scrollingElement.scrollWidth, wide: card.scrollWidth <= card.clientWidth + 1 };
     });
     assert.ok(sizes.page <= 1440 && sizes.wide, JSON.stringify(sizes));
     for (const dark of [false, true]) {
       await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
       await page.waitForTimeout(300);
-      const result = await lowContrast(page, ['[aria-label="Vibe any asset"]']);
+      const result = await lowContrast(page, ['[data-details-drawer]']);
       assert.ok(result.checked >= 10, `measured ${result.checked} elements`);
       assert.deepEqual(result.low, [], dark ? 'dark' : 'light');
     }
@@ -258,10 +294,9 @@ test('a missing ask reads not done yet with the asset ready with warnings, and T
       'only the missing ask is rebuilt, on the chart alone');
     assert.equal(retried.spec.outputs[`${CHART}_vibes`], V3_OUTPUTS[`${CHART}_vibes`], 'the vibes stay exactly as the user wrote them');
 
-    await pick(page, 'Instructions, Ready with warnings');
-    const genie = picked(page, 'genie_space');
+    const genie = await pick(page, 'genie_space');
     await genie.locator('[data-checks]').getByText('You asked for 3 things. Done: 1 of 3.', { exact: true }).waitFor();
-    await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="Vibe any asset"] [data-checks] button')].some((b) => !b.disabled));
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-details-drawer] [data-checks] button')].some((b) => !b.disabled));
     await genie.getByRole('button', { name: 'Try again with the 2 missing things', exact: true }).click();
     await until(() => made.jobs.length === 2, 'the Genie Agent try again');
     const whole = insertsOf(made)[1];
@@ -275,18 +310,17 @@ test('a missing ask reads not done yet with the asset ready with warnings, and T
 
 test('while a version rebuilds the picked asset, it reads Rebuilding with the three steps, its box and Rebuild this wait, and nothing else is rebuilding', async () => {
   const building = versionRow(4, {
-    status: 'building_outputs', implement_run_id: '1066484287074577', updated_at: new Date().toISOString(), change_classes: 'retry',
+    status: 'building_outputs', implement_run_id: '5555555555555555', updated_at: new Date().toISOString(), change_classes: 'retry',
     outputs: { ...V3_OUTPUTS, [`${PAGE}_vibes`]: 'Rows first, then a map by region and a filter' }, top: { retry_outputs: [PAGE] }, assets: {},
   });
-  const ui = await openTower({ ...STATE, history: [building, ...HISTORY], implementRun: { run_id: 1066484287074577, state: { life_cycle_state: 'RUNNING' } } });
+  const ui = await openTower({ ...STATE, history: [building, ...HISTORY], implementRun: { run_id: 5555555555555555, state: { life_cycle_state: 'RUNNING' } } });
   const { page } = ui;
   try {
-    const nav = picker(page).getByRole('navigation', { name: 'Everything this use case built' });
+    const card = await pick(page, PAGE);
+    const nav = partsOf(drawerOf(page, PAGE));
     await nav.getByRole('button', { name: 'Page: Decisions, Rebuilding', exact: true }).waitFor();
     await nav.getByRole('button', { name: 'Page: Row detail, Ready', exact: true }).waitFor();
     assert.equal(await nav.getByRole('button', { name: /, Rebuilding$/ }).count(), 1, 'only the page is rebuilding');
-    await pick(page, 'Page: Decisions, Rebuilding');
-    const card = picked(page, PAGE);
     const steps = card.getByRole('list', { name: 'Rebuilding the Decisions page' }).getByRole('listitem');
     assert.deepEqual(await steps.evaluateAll((li) => li.map((x) => [x.dataset.step, x.textContent])), [
       ['done', '✓Reading what you asked: 3 things'],
@@ -297,8 +331,7 @@ test('while a version rebuilds the picked asset, it reads Rebuilding with the th
     assert.equal(await box(card).isDisabled(), true);
     assert.equal(await card.getByRole('button', { name: 'Rebuild this', exact: true }).isDisabled(), true);
     assert.equal(await card.locator('[data-checks]').count(), 0, 'the checklist comes back once the build ends');
-    await pick(page, 'Page: Row detail, Ready');
-    await picked(page, 'app:page:detail').getByText('A version is building now; vibes and roll backs apply after it finishes.').waitFor();
+    await (await pick(page, 'app:page:detail')).getByText('A version is building now; vibes and roll backs apply after it finishes.').waitFor();
     assert.equal(await picked(page, 'app:page:detail').getByRole('button', { name: 'Rebuild this', exact: true }).isDisabled(), true);
     assert.deepEqual(ui.pageErrors, []);
   } finally {
@@ -306,7 +339,7 @@ test('while a version rebuilds the picked asset, it reads Rebuilding with the th
   }
 });
 
-test('a rolled back output shows the checklist of the version it rolled back to, its Versions card marks Live, and Roll back still works from the picker', async () => {
+test('a rolled back output shows the checklist of the version it rolled back to, its Versions card marks Live, and Roll back still works from its drawer', async () => {
   const rolled = [
     versionRow(4, {
       outputs: { ...V3_OUTPUTS, dashboard_vibes: 'Make the trend weekly', [`${CHART}_vibes`]: '' }, top: { rollback_outputs: { dashboard: 2 } }, change_classes: 'rollback',
@@ -319,12 +352,11 @@ test('a rolled back output shows the checklist of the version it rolled back to,
   const sent = [];
   page.on('request', (req) => { if (req.url().includes('/api/inspire/implement/submit')) sent.push(JSON.parse(req.postData())); });
   try {
-    await pick(page, 'The whole dashboard, Ready');
-    const dash = picked(page, 'dashboard');
+    const dash = await pick(page, 'dashboard');
     const list = dash.locator('[data-checks]');
     await list.getByText('You asked for 1 thing. Done: 1 of 1.', { exact: true }).waitFor();
     assert.deepEqual(await list.getByRole('listitem').allTextContents(), ['✓Done: Make the trend weeklyThe trend is weekly. Version 2.'], 'the checklist of v2');
-    const versions = picker(page).getByRole('region', { name: 'Versions' });
+    const versions = openDrawer(page).getByRole('region', { name: 'Versions' });
     await versions.getByText('Roll back puts an earlier version live again', { exact: true }).waitFor();
     assert.deepEqual(await versions.locator('[data-version]').evaluateAll((rows) => rows.map((r) => r.dataset.version)), ['4', '3', '2']);
     assert.deepEqual(await versions.locator('[data-version-checks]').allTextContents(), ['You asked for 2 things. Done: 1 of 2.', 'You asked for 1 thing. Done: 1 of 1.']);
@@ -353,14 +385,13 @@ test('a roll back of a dashboard that no longer exists says Genie builds a new o
   });
   const live = versionRow(3, { outputs: V3_OUTPUTS, status: 'ready_with_warnings', assets: noChart });
   const rolling = versionRow(4, {
-    status: 'building_outputs', implement_run_id: '1066484287074577', updated_at: new Date().toISOString(), change_classes: 'rollback',
+    status: 'building_outputs', implement_run_id: '5555555555555555', updated_at: new Date().toISOString(), change_classes: 'rollback',
     outputs: { ...V3_OUTPUTS, dashboard_vibes: 'Make the trend weekly' }, top: { rollback_outputs: { dashboard: 2 } }, assets: {},
   });
-  const whole = (page) => picker(page).getByRole('button', { name: /^The whole dashboard, / });
   let ui = await openTower({ ...STATE, history: [lost, ...HISTORY.slice(1)] });
   try {
-    await whole(ui.page).click();
-    const row = picker(ui.page).getByRole('region', { name: 'Versions' }).locator('[data-version="2"]');
+    await pick(ui.page, 'dashboard');
+    const row = openDrawer(ui.page).getByRole('region', { name: 'Versions' }).locator('[data-version="2"]');
     await row.getByRole('button', { name: 'Roll back to version 2', exact: true }).click();
     await row.getByRole('group', { name: 'Confirm the roll back to version 2' })
       .getByText('Roll back the Dashboard to version 2? The Dashboard no longer exists, so Genie builds a new one from the vibes of version 2.', { exact: true })
@@ -369,12 +400,11 @@ test('a roll back of a dashboard that no longer exists says Genie builds a new o
   } finally {
     await ui.close();
   }
-  const run = { run_id: 1066484287074577, state: { life_cycle_state: 'RUNNING' } };
+  const run = { run_id: 5555555555555555, state: { life_cycle_state: 'RUNNING' } };
   for (const [base, builds] of [[lost, true], [live, false]]) {
     ui = await openTower({ ...STATE, history: [rolling, base, ...HISTORY.slice(1)], implementRun: run });
     try {
-      await whole(ui.page).click();
-      const card = picked(ui.page, 'dashboard');
+      const card = await pick(ui.page, 'dashboard');
       const steps = card.getByRole('list', { name: 'Rebuilding the Dashboard' });
       const back = card.locator('[data-rolling-back]');
       if (builds) {
@@ -398,8 +428,7 @@ test('a notebook rebuild that would read a swapped table that is gone is refused
   const ui = await openTower({ ...STATE, history: [lost, ...HISTORY.slice(1)], probeErrors: { '`main`.`s`.`returns_old`': gone } });
   const { page, made } = ui;
   try {
-    await pick(page, 'Notebook, Ready');
-    const card = picked(page, 'notebook');
+    const card = await pick(page, 'notebook');
     await box(card).fill('Use only the last 90 days');
     await card.getByRole('button', { name: 'Rebuild this', exact: true }).click();
     const alert = card.getByRole('alert');
@@ -417,8 +446,7 @@ test('an asset the build no longer has is refused with a clear message on its ca
   const ui = await openTower();
   const { page, made } = ui;
   try {
-    await pick(page, 'Page: Decisions, Ready');
-    const card = picked(page, PAGE);
+    const card = await pick(page, PAGE);
     await box(card).fill('Put the rows to act on first');
     const { [PAGE]: _gone, ...rest } = V3_ASSETS;
     made.state.history = [{ ...HISTORY[0], asset_status: JSON.stringify(rest) }, ...HISTORY.slice(1)];
@@ -428,8 +456,8 @@ test('an asset the build no longer has is refused with a clear message on its ca
     assert.equal((await alert.textContent()).trim(), NOT_BUILT);
     assert.equal(made.jobs.length, 0);
     assert.deepEqual(insertsOf(made), []);
-    await pick(page, 'Notebook, Ready');
-    await picker(page).getByRole('alert').waitFor({ state: 'detached' });
+    await pick(page, 'notebook');
+    await openDrawer(page).getByRole('alert').waitFor({ state: 'detached' });
     assert.deepEqual(ui.pageErrors.filter((e) => !/status of 400/.test(e)), []);
   } finally {
     await ui.close();

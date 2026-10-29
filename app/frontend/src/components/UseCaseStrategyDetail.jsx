@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
   bestOfBestLabel,
+  dataSignalLine,
   feedbackLabel,
   kpiSource,
   kpiText,
@@ -17,6 +18,8 @@ function Section({ title, tone, children }) {
     </div>
   );
 }
+
+const SIGNAL_TONES = { passed: 'text-success-fg', warning: 'text-warning-fg', neutral: 'text-text-tertiary' };
 
 function Bullets({ items }) {
   return (
@@ -69,6 +72,7 @@ export function UseCaseStrategyDetail({ info, knownPriorities, foundationsById }
   const priorities = priorityMatches(info.priorityText, knownPriorities);
   const evidenceTables = info.dataEvidence ? Object.entries(info.dataEvidence.tables) : [];
   const evidenceJoins = info.dataEvidence ? info.dataEvidence.joins : [];
+  const signal = info.dataEvidence ? dataSignalLine(info.dataEvidence.signal) : null;
   return (
     <div className="space-y-4 rounded-lg border border-border bg-bg p-4">
       {info.hasStrategyData && (
@@ -148,6 +152,12 @@ export function UseCaseStrategyDetail({ info, knownPriorities, foundationsById }
       )}
       {info.dataEvidence && (
         <Section title="Data evidence" tone="text-text-secondary">
+          {signal && (
+            <p data-testid="data-signal" className="mb-1 text-xs leading-relaxed text-text-secondary">
+              <span className={`font-semibold ${SIGNAL_TONES[signal.tone]}`}>{signal.label}</span>
+              {signal.text && `: ${signal.text}`}
+            </p>
+          )}
           <ul className="space-y-0.5 text-[11px] text-text-secondary">
             {evidenceTables.map(([table, t]) => (
               <li key={table}>

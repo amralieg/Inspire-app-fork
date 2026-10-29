@@ -198,10 +198,13 @@ function registerImplementRoutes(app, deps) {
     if (asked && I.resultTableNameError(asked, 'model_name')) throw I.badRequest(I.resultTableNameError(asked, 'model_name'));
     const modelName = asked || I.defaultModelName(table);
     const elsewhere = !I.sameSchema(modelName, table);
-    const [rows, useCase, modelRows] = await Promise.all([
+    const sid = sessionIdOf(req);
+    const [rows, useCase, modelRows, holders] = await Promise.all([
       sqlRows(req.dbHost, req.dbToken, warehouseId, statement),
-      loadUseCase(req.dbHost, req.dbToken, warehouseId, catalog, schema, sessionIdOf(req), useCaseId),
+      loadUseCase(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId),
       elsewhere ? sqlRows(req.dbHost, req.dbToken, warehouseId, I.outputAccessStatement(modelName)) : null,
+      sqlRows(req.dbHost, req.dbToken, warehouseId, I.resultTableHolderStatement(I.implementTableName(catalog, schema), table))
+        .catch((err) => { if (isMissingTableError(err)) return []; throw err; }),
     ]);
     const access = I.outputAccess(rows, table);
     const model = I.trainsModel(useCase) ? I.modelAccess(elsewhere ? modelRows : rows, modelName) : null;
@@ -211,7 +214,9 @@ function registerImplementRoutes(app, deps) {
     if (warnings.length) access.grant = { ...access.grant, warn: warnings.join(' ') };
     access.app = I.appAccessCheck(access.app, warehouse);
     let safety = { ok: true, detail: access.exists ? `${access.table} holds only this use case's rows` : `${access.table} is new; the first run creates it` };
-    if (access.exists && access.write.ok) {
+    const held = I.resultTableHolderProblem(table, holders[0], sid, useCaseId);
+    if (held) safety = { ok: false, detail: held };
+    else if (access.exists && access.write.ok) {
       const columns = await sqlRows(req.dbHost, req.dbToken, warehouseId, I.columnsStatement(table));
       let problem = I.resultTableProblem(access.table, columns, 0);
       if (!problem && columns.length) {
@@ -792,7 +797,7 @@ function registerImplementRoutes(app, deps) {
           useCaseIds: [useCaseId],
         });
       } catch (err) {
-        const failed = I.implementStartFailedStatement(table, { ...version, message: `the PoC/MVP run could not start: ${err.message}` });
+        const failed = I.implementStartFailedStatement(table, { ...version, message: `the MVP run could not start: ${err.message}` });
         try {
           await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, warehouseId, failed.sql, { parameters: failed.parameters });
         } catch (e) {

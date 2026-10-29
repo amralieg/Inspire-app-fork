@@ -33,9 +33,9 @@ async function toResults(page) {
 }
 
 async function startWhenReady(page) {
-  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Start PoC/MVP' && !b.disabled),
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Start MVP' && !b.disabled),
     null, { timeout: 15000 });
-  await page.getByRole('button', { name: 'Start PoC/MVP', exact: true }).click();
+  await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
   await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
 }
 

@@ -2994,6 +2994,294 @@
         "outputs",
         "rollback"
       ]
+    },
+    {
+      "name": "an MVP vibe with v1 kept",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "vibes": "Put the riskiest customers first",
+        "vibe_previous": "keep"
+      },
+      "classes": [
+        "vibe"
+      ]
+    },
+    {
+      "name": "an MVP vibe with v1 removed",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "vibes": "Only check on weekdays",
+        "vibe_previous": "remove"
+      },
+      "classes": [
+        "vibe"
+      ]
+    },
+    {
+      "name": "a kept version removed",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "remove_kept": [
+          1
+        ]
+      },
+      "classes": [
+        "remove_kept"
+      ]
+    },
+    {
+      "name": "uninstall all",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "uninstall": true
+      },
+      "classes": [
+        "uninstall"
+      ]
     }
   ],
   "plans": [
@@ -4985,6 +5273,72 @@
         "keep_unmanaged": [],
         "schedule": false
       }
+    },
+    {
+      "name": "a vibe builds nothing until Inspire routes it",
+      "case": "an MVP vibe with v1 kept",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "vibe"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "removing a kept version builds and refreshes nothing",
+      "case": "a kept version removed",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "remove_kept"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
+    },
+    {
+      "name": "Uninstall All builds and refreshes nothing",
+      "case": "uninstall all",
+      "assets": {
+        "dashboard": "d1",
+        "genie_space": "g1",
+        "app": "churn-desk",
+        "alert": "a1"
+      },
+      "summary": {
+        "classes": [
+          "uninstall"
+        ],
+        "refill": false,
+        "build": [],
+        "refresh": [],
+        "rollback": [],
+        "delete": [],
+        "keep_unmanaged": [],
+        "schedule": false
+      }
     }
   ],
   "columns": [
@@ -6840,7 +7194,8 @@
       "checking",
       "ready",
       "ready_with_warnings",
-      "failed"
+      "failed",
+      "uninstalled"
     ],
     "IMPLEMENT_DONE_STATUSES": [
       "ready",
@@ -6882,7 +7237,10 @@
       "deselect",
       "sharing",
       "retry",
-      "rollback"
+      "rollback",
+      "vibe",
+      "remove_kept",
+      "uninstall"
     ],
     "IMPLEMENT_RUN_PROFILES": [
       "preview",
@@ -7024,6 +7382,11 @@
     "IMPLEMENT_TRAVERSE_PRIVILEGES": [
       "USE CATALOG",
       "USE SCHEMA"
-    ]
+    ],
+    "IMPLEMENT_VIBE_PREVIOUS": [
+      "keep",
+      "remove"
+    ],
+    "IMPLEMENT_UNINSTALLED": "uninstalled"
   }
 }
