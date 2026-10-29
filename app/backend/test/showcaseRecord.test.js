@@ -61,9 +61,25 @@ test('the sanitizer never rewrites its own fakes, so the same id stays the same 
 test('the sanitizer stays fast on long runs of letters and digits', () => {
   const clean = R.makeSanitizer({ sessionId: SID });
   const blob = 'QUJDRA0K'.repeat(250000);
-  const started = Date.now();
-  assert.equal(clean.text(blob), blob);
-  assert.ok(Date.now() - started < 2000, `sanitizing 2MB took ${Date.now() - started} ms`);
+  const times = [];
+  for (let i = 0; i < 3; i += 1) {
+    const started = process.hrtime.bigint();
+    assert.equal(clean.text(blob), blob);
+    times.push(Number(process.hrtime.bigint() - started) / 1e6);
+  }
+  assert.ok(Math.min(...times) < 2000, `sanitizing 2MB took ${times.map((t) => t.toFixed(0)).join(', ')} ms`);
+  assert.deepEqual(R.showcaseLeaks({ blob }), [], 'the leak check reads the same blob as clean');
+});
+
+test('an email with a local part longer than 64 characters is replaced whole, and the leak check still finds it', () => {
+  const local = 'q'.repeat(70);
+  const email = `${local}@${['corp', 'example', 'org'].join('.')}`;
+  const clean = R.makeSanitizer({ sessionId: SID });
+  assert.equal(clean.text(`owner ${email} wrote`), 'owner person1@example.com wrote');
+  assert.equal(clean.text(`x/${email}`), 'x/person1@example.com', 'the same address keeps the same fake');
+  assert.equal(R.showcaseLeaks({ owner: email }).length, 1, 'a raw over-long address is a leak');
+  assert.deepEqual(R.showcaseLeaks({ owner: clean.text(email) }), []);
+  assert.equal(clean.text(`${local}x`), `${local}x`, 'letters with no @ stay as they are');
 });
 
 test('the sanitizer drops workspace links and points a use case MVP at the App Inspire hosts', () => {

@@ -4,7 +4,7 @@ const DEMO_HOST = 'https://workspace.example.com';
 const DEMO_UUID = '00000000-0000-4000-8000-';
 const PRIVATE_RE = new RegExp([
   /(https?:\/\/[A-Za-z0-9.-]+\.(?:cloud\.databricks\.com|azuredatabricks\.net|gcp\.databricks\.com|databricks\.com|databricksapps\.com))/,
-  /([A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24})/,
+  /((?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24})/,
   /((?<![0-9a-f])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-f]))/,
   /((?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f]))/,
   /((?<!\d)\d{12,}(?!\d))/,
@@ -152,7 +152,7 @@ function makeRecorder({ id, title, business, summary = '', sessionId, replace = 
 
 const LEAK_PATTERNS = [
   ['a workspace host', /\.(?:cloud\.databricks\.com|azuredatabricks\.net|gcp\.databricks\.com|databricksapps\.com)/i],
-  ['an email outside example.com', /[A-Za-z0-9._%+-]{1,64}@(?!example\.com\b)[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24}/],
+  ['an email outside example.com', /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@(?!example\.com\b)[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24}/],
   ['a number of 12 or more digits', /(?<!\d)\d{12,}(?!\d)/],
   ['an id that is not a demo id', new RegExp(`(?<![0-9a-f])(?!${DEMO_UUID})[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-f])`, 'i')],
   ['an App service principal name', /\bapp-(?!demo00\b)(?=[a-z]*\d)[a-z0-9]{6}\b/],
