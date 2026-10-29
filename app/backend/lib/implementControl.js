@@ -15,6 +15,7 @@ const CONTROL_ACTIONS = {
 const RUN_ENDED = ['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR'];
 const LAKEBASE_KIND = 'lakebase';
 const LAKEBASE_PROBE_PATH = '/api/2.0/postgres/projects?page_size=1';
+const LAKEBASE_ABSENT_CODES = ['FEATURE_DISABLED', 'NOT_IMPLEMENTED', 'ENDPOINT_NOT_FOUND'];
 
 const str = (v) => (v == null ? '' : String(v).trim());
 const dataOf = (got) => (got && got.data && typeof got.data === 'object' ? got.data : {});
@@ -233,7 +234,8 @@ function controlLogOwnerFix(rows, logTable) {
 function lakebaseOffer(got, backends) {
   if (!(backends || []).includes(LAKEBASE_KIND)) return { state: 'absent', detail: '' };
   if (got && got.ok) return { state: 'available', detail: '' };
-  if (got && got.status === 404) return { state: 'absent', detail: '' };
+  const code = str(dataOf(got).error_code).toUpperCase();
+  if (got && (got.status === 404 || got.status === 501 || LAKEBASE_ABSENT_CODES.includes(code))) return { state: 'absent', detail: '' };
   if (got && got.status === 403) return { state: 'denied', detail: errorOf(got) };
   return { state: 'unknown', detail: errorOf(got) };
 }

@@ -558,6 +558,18 @@ test('Lakebase is offered on a 200, explained on a 403, hidden on a 404 or when 
   assert.deepEqual(C.lakebaseOffer(ok({ projects: [] }), ['delta']), { state: 'absent', detail: '' }, 'a shell that reads only Delta tables hides Lakebase');
 });
 
+test('a workspace that has Lakebase switched off hides it whatever status says so, the way the build reads the same answer', () => {
+  const both = ['lakebase', 'delta'];
+  for (const [status, code] of [[400, 'FEATURE_DISABLED'], [403, 'FEATURE_DISABLED'], [400, 'NOT_IMPLEMENTED'], [400, 'ENDPOINT_NOT_FOUND'], [501, '']]) {
+    assert.deepEqual(C.lakebaseOffer({ ok: false, status, data: { error_code: code, message: 'Lakebase is not enabled' } }, both),
+      { state: 'absent', detail: '' }, `${status} ${code}`);
+  }
+  assert.deepEqual(C.lakebaseOffer({ ok: false, status: 403, data: { error_code: 'PERMISSION_DENIED', message: 'no access' } }, both),
+    { state: 'denied', detail: 'no access' }, 'a person without access still learns why');
+  assert.deepEqual(C.lakebaseOffer({ ok: false, status: 400, data: { error_code: 'INVALID_PARAMETER_VALUE', message: 'bad page' } }, both),
+    { state: 'unknown', detail: 'bad page' });
+});
+
 test('the Lakebase route asks Databricks once, as the person, and answers with the offer', async () => {
   const cases = [
     [{ responses: { 'GET /api/2.0/postgres/projects': [{ projects: [] }, 200] } }, { state: 'available', detail: '' }],
