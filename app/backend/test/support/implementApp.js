@@ -65,6 +65,8 @@ function makeApp(overrides = {}) {
         return { rows: state.history };
       }
       if (sql.includes('__inspire_usecases')) return { rows: state.useCase ? [state.useCase] : [] };
+      if (sql.includes('_summary` WHERE use_case_id = :uc')) return { rows: state.moneySummary || [] };
+      if (sql.includes('_assumptions` WHERE use_case_id = :uc')) return { rows: state.moneyEdits || [] };
       if (sql.includes('system.information_schema.catalogs')) {
         if (state.accessError) throw new Error(state.accessError);
         const asked = ((parameters || []).find((p) => p.name === 's') || {}).value;
