@@ -308,6 +308,7 @@ export default function ImplementPage({ settings, sessionId, focusId = null, onF
     setWizard(null);
     if (data?.use_case_id) select(data.use_case_id);
     setRefreshKey((n) => n + 1);
+    if (data?.mode === 'notebook') setListVersion((n) => n + 1);
     loadRail().catch((e) => setRailError(e.message));
   };
 
