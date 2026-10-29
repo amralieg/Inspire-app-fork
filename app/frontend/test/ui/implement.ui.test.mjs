@@ -1468,6 +1468,40 @@ test('Notebook only skips the PoC settings, flags only this use case, starts Gen
   }
 });
 
+test('Notebook only started from the Build page of a use case that has a notebook shows it running at once, not the old notebook as ready', async () => {
+  const notebookPath = '/Users/owner@example.com/inspire/Acme/N01-U01';
+  const runUrl = 'https://workspace.example.com/#job/7/run/99';
+  const ui = await openUi('implement', { useCase: { ...HARNESS_USE_CASE, has_genie_code: 'Y', generate_genie_code_instruction: 'No', notebook_path: notebookPath } });
+  const { page, made } = ui;
+  made.state.afterTrigger = () => {
+    made.state.useCase = { ...HARNESS_USE_CASE, has_genie_code: 'N', generate_genie_code_instruction: 'Yes', notebook_path: notebookPath };
+    made.state.jobsList = { jobs: [{ job_id: 7, created_time: 1, settings: { name: 'Inspire AI - Genie Code - 42' } }] };
+    made.state.runsByJob = { 7: { runs: [{ run_id: 99, state: { life_cycle_state: 'RUNNING' }, run_page_url: runUrl }] } };
+  };
+  try {
+    const nav = page.getByRole('navigation', { name: 'Use cases' });
+    await nav.getByRole('region', { name: 'Ready' }).getByText('Notebook ready', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Start Use Case PoC/MVP with Genie' }).click();
+    await onStep(page, 'Choose');
+    await page.getByRole('radio', { name: /^Notebook only/ }).check();
+    await next(page);
+    await onStep(page, 'Data');
+    await next(page);
+    await onStep(page, 'Notebook');
+    await page.getByRole('button', { name: 'Generate notebook' }).click();
+    await page.getByRole('dialog').waitFor({ state: 'detached' });
+    assert.equal(made.jobs.length, 1);
+    await nav.getByRole('region', { name: 'In progress' }).getByText('Notebook running', { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await nav.getByRole('region', { name: 'Ready' }).getByText('Notebook ready', { exact: true }).count(), 0, 'the rewritten notebook is no longer listed as ready');
+    const panel = towerOf(page).locator('[data-tile="notebook"]');
+    await panel.getByText('Notebook running', { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await panel.getByRole('link', { name: 'Open the notebook run' }).getAttribute('href'), runUrl);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('the Implement page groups every use case by its state, searches by name, id or domain, and starts a PoC from one with none', async () => {
   const useCases = [
     { ...HARNESS_USE_CASE, _domain: 'Retention' },
