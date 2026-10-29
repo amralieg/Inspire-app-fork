@@ -129,7 +129,7 @@ test('ticking the App locks the Genie Agent on, App access must be chosen, per-u
   }
 });
 
-test('the App reads Lakebase by default when the workspace has it, a per-user App reads Delta tables, a 403 says why, and a 404 shows no choice', async () => {
+test('the App reads Lakebase by default when the workspace has it, a per-user App reads Delta tables, a 403 says why, and a 404 says why with no choice', async () => {
   const probe = (data, status) => ({ me: { userName: OWNER, displayName: 'Owner' }, responses: { 'GET /api/2.0/postgres/projects': [data, status] } });
   const toAccess = async (page) => {
     await toDelivery(page);
@@ -197,8 +197,10 @@ test('the App reads Lakebase by default when the workspace has it, a per-user Ap
   try {
     const access = await toAccess(ui.page);
     await access.getByRole('radio', { name: /^Internal data/ }).check();
-    await choice(access).waitFor({ state: 'detached' });
-    assert.equal(await choice(access).count(), 0, 'a workspace without Lakebase shows no choice');
+    const group = choice(access);
+    await group.getByRole('note', { name: 'Why the App reads Delta tables' })
+      .getByText('The App reads Delta tables through the SQL warehouse, because this workspace does not have Lakebase.', { exact: true }).waitFor();
+    assert.equal(await group.getByRole('radio').count(), 0, 'a workspace without Lakebase shows no choice, only the reason');
     await toStart(ui.page);
     assert.equal(submittedSpec(ui.made).outputs.app_backend, 'delta');
   } finally {

@@ -383,7 +383,11 @@ function VersionRow({ card, version, locked, pending, confirming, long = false, 
       {confirming && (
         <div ref={confirmRef} role="group" aria-label={`Confirm the roll back to ${name}`}
           className="rounded-lg border border-border-strong bg-bg-subtle px-3 py-2 space-y-2 motion-safe:animate-terminal-line">
-          <p className="text-text-primary">Roll back the {card.label} to {name}? This replaces the live {card.label}; Genie is not called.</p>
+          <p className="text-text-primary">
+            {card.gone
+              ? `Roll back the ${card.label} to ${name}? The ${card.label} no longer exists, so Genie builds a new one from the vibes of ${name}.`
+              : `Roll back the ${card.label} to ${name}? This replaces the live ${card.label}; Genie is not called.`}
+          </p>
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={locked} onClick={onConfirm} className={PRIMARY_BUTTON}>
               {pending ? <Loader2 size={12} className="animate-spin" /> : <History size={12} />} Roll back

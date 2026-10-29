@@ -1622,7 +1622,7 @@ function HoldoutSetting({ spec, onEnabled, onPercent }) {
 }
 
 function AppBackendChoice({ spec, target, lakebase, onBackend }) {
-  if (lakebase?.state === 'absent') return null;
+  const absent = lakebase?.state === 'absent';
   const backend = appBackendOf(spec, lakebase);
   const block = lakebaseBlock(spec, lakebase);
   const loading = lakebase === null && !block;
@@ -1633,6 +1633,10 @@ function AppBackendChoice({ spec, target, lakebase, onBackend }) {
       {target ? (
         <p className="text-[11px] text-text-secondary" role="note" aria-label="Why the data source is set">
           This use case joins {target.name}, which keeps reading its data where it does today.
+        </p>
+      ) : absent ? (
+        <p className="text-[11px] text-text-secondary" role="note" aria-label="Why the App reads Delta tables">
+          The App reads Delta tables through the SQL warehouse{lakebase.detail ? `, because ${lakebase.detail}` : ''}.
         </p>
       ) : (
         <>

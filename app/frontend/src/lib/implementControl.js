@@ -75,6 +75,7 @@ function alertRow(entry) {
 
 const OUTPUT_ROWS = { dashboard: dashboardRow, genie_space: genieRow, app: appRow, alert: alertRow };
 const OUTPUT_URLS = { dashboard: 'dashboard_url', genie_space: 'genie_space_url', app: 'app_url', alert: 'alert_url' };
+const OUTPUT_IDS = { dashboard: 'dashboard_id', genie_space: 'genie_space_id', app: 'app_name', alert: 'alert_id' };
 const OUTPUT_NAMES = { dashboard: (a) => a?.name, genie_space: (a) => a?.title, app: (a) => a?.name, alert: (a) => a?.name };
 
 function jobRow(entry, spec) {
@@ -316,10 +317,11 @@ export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
     const kind = partOf(id)?.kind || id;
     const { checks, checkedOn } = builtChecks(rows, version, id);
     const rebuilding = targets === ALL_ASSETS || targets.has(id) || targets.has(output);
-    const rollback = Number(rolling[output]) || null;
+    const gone = Object.hasOwn(OUTPUT_IDS, output) && !base[OUTPUT_IDS[output]];
+    const rollback = gone ? null : Number(rolling[output]) || null;
     const asks = rollback ? 0 : Array.isArray(asking[id]) ? asking[id].length : askCount(fields.vibes);
     return {
-      id, output, name: '', versions: [], warnings: [], ...fields, live: liveAt(version), url: urlOf(output),
+      id, output, name: '', versions: [], warnings: [], ...fields, gone, live: liveAt(version), url: urlOf(output),
       what: String(entry?.what ?? entry?.description ?? '').trim() || ASSET_WHAT[kind], noun: ASSET_NOUNS[kind],
       checks, checkedOn, state: assetPill(entry, checks, rebuilding), building: rebuilding ? { step: BUILD_STEP[latest.status] ?? 1, asks, rollback } : null,
     };

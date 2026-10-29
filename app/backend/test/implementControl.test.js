@@ -544,25 +544,26 @@ test('times read as a local date and time, honour their offset, and fall back in
   assert.equal(when('not a date'), '');
 });
 
-test('Lakebase is offered on a 200, explained on a 403, hidden on a 404 or when the App shell cannot read it, and unknown otherwise', () => {
+test('Lakebase is offered on a 200, explained on a 403, absent with its reason on a 404 or when the App shell cannot read it, and unknown otherwise', () => {
   const both = ['lakebase', 'delta'];
   assert.deepEqual(C.lakebaseOffer(ok({ projects: [] }), both), { state: 'available', detail: '' });
   assert.deepEqual(C.lakebaseOffer({ ok: false, status: 403, data: { message: 'PERMISSION_DENIED: no Lakebase for you' } }, both),
     { state: 'denied', detail: 'PERMISSION_DENIED: no Lakebase for you' });
-  assert.deepEqual(C.lakebaseOffer(missing(), both), { state: 'absent', detail: '' });
+  assert.deepEqual(C.lakebaseOffer(missing(), both), { state: 'absent', detail: 'this workspace does not have Lakebase' });
   assert.deepEqual(C.lakebaseOffer({ ok: false, status: 500, data: { error: 'boom' } }, both), { state: 'unknown', detail: 'boom' });
   assert.deepEqual(C.lakebaseOffer({ ok: false, status: 0, data: { message: 'socket hang up' } }, both), { state: 'unknown', detail: 'socket hang up' });
   assert.deepEqual(C.lakebaseOffer(null, both), { state: 'unknown', detail: 'no response' });
   assert.deepEqual(C.lakebaseOffer({ ok: false, status: 0, data: {} }, both), { state: 'unknown', detail: 'no response' });
   assert.deepEqual(C.lakebaseOffer({ ok: false, status: 502, data: {} }, both), { state: 'unknown', detail: 'HTTP 502' });
-  assert.deepEqual(C.lakebaseOffer(ok({ projects: [] }), ['delta']), { state: 'absent', detail: '' }, 'a shell that reads only Delta tables hides Lakebase');
+  assert.deepEqual(C.lakebaseOffer(ok({ projects: [] }), ['delta']), { state: 'absent', detail: 'the App in this Inspire version reads only Delta tables' },
+    'a shell that reads only Delta tables hides Lakebase and says so');
 });
 
 test('a workspace that has Lakebase switched off hides it whatever status says so, the way the build reads the same answer', () => {
   const both = ['lakebase', 'delta'];
   for (const [status, code] of [[400, 'FEATURE_DISABLED'], [403, 'FEATURE_DISABLED'], [400, 'NOT_IMPLEMENTED'], [400, 'ENDPOINT_NOT_FOUND'], [501, '']]) {
     assert.deepEqual(C.lakebaseOffer({ ok: false, status, data: { error_code: code, message: 'Lakebase is not enabled' } }, both),
-      { state: 'absent', detail: '' }, `${status} ${code}`);
+      { state: 'absent', detail: 'this workspace does not have Lakebase' }, `${status} ${code}`);
   }
   assert.deepEqual(C.lakebaseOffer({ ok: false, status: 403, data: { error_code: 'PERMISSION_DENIED', message: 'no access' } }, both),
     { state: 'denied', detail: 'no access' }, 'a person without access still learns why');
@@ -574,7 +575,7 @@ test('the Lakebase route asks Databricks once, as the person, and answers with t
   const cases = [
     [{ responses: { 'GET /api/2.0/postgres/projects': [{ projects: [] }, 200] } }, { state: 'available', detail: '' }],
     [{ responses: { 'GET /api/2.0/postgres/projects': [{ message: 'not allowed' }, 403] } }, { state: 'denied', detail: 'not allowed' }],
-    [{ responses: { 'GET /api/2.0/postgres/projects': [{ error_code: 'ENDPOINT_NOT_FOUND' }, 404] } }, { state: 'absent', detail: '' }],
+    [{ responses: { 'GET /api/2.0/postgres/projects': [{ error_code: 'ENDPOINT_NOT_FOUND' }, 404] } }, { state: 'absent', detail: 'this workspace does not have Lakebase' }],
     [{ fetchThrows: { 'GET /api/2.0/postgres/projects': 'getaddrinfo ENOTFOUND' } }, { state: 'unknown', detail: 'getaddrinfo ENOTFOUND' }],
   ];
   for (const [overrides, expected] of cases) {

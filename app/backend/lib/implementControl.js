@@ -232,10 +232,12 @@ function controlLogOwnerFix(rows, logTable) {
 }
 
 function lakebaseOffer(got, backends) {
-  if (!(backends || []).includes(LAKEBASE_KIND)) return { state: 'absent', detail: '' };
+  if (!(backends || []).includes(LAKEBASE_KIND)) return { state: 'absent', detail: 'the App in this Inspire version reads only Delta tables' };
   if (got && got.ok) return { state: 'available', detail: '' };
   const code = str(dataOf(got).error_code).toUpperCase();
-  if (got && (got.status === 404 || got.status === 501 || LAKEBASE_ABSENT_CODES.includes(code))) return { state: 'absent', detail: '' };
+  if (got && (got.status === 404 || got.status === 501 || LAKEBASE_ABSENT_CODES.includes(code))) {
+    return { state: 'absent', detail: 'this workspace does not have Lakebase' };
+  }
   if (got && got.status === 403) return { state: 'denied', detail: errorOf(got) };
   return { state: 'unknown', detail: errorOf(got) };
 }

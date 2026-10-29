@@ -345,6 +345,53 @@ test('a rolled back output shows the checklist of the version it rolled back to,
   }
 });
 
+test('a roll back of a dashboard that no longer exists says Genie builds a new one, and while it runs it shows the build steps, not a roll back', async () => {
+  const noChart = { ...V3_ASSETS, [CHART]: undefined };
+  const lost = versionRow(3, {
+    outputs: V3_OUTPUTS, status: 'ready_with_warnings', dashboard_id: null, dashboard_url: null,
+    assets: { ...noChart, dashboard: { state: 'failed', spec_version: 3, error: 'the warehouse is stopped' } },
+  });
+  const live = versionRow(3, { outputs: V3_OUTPUTS, status: 'ready_with_warnings', assets: noChart });
+  const rolling = versionRow(4, {
+    status: 'building_outputs', implement_run_id: '1066484287074577', updated_at: new Date().toISOString(), change_classes: 'rollback',
+    outputs: { ...V3_OUTPUTS, dashboard_vibes: 'Make the trend weekly' }, top: { rollback_outputs: { dashboard: 2 } }, assets: {},
+  });
+  const whole = (page) => picker(page).getByRole('button', { name: /^The whole dashboard, / });
+  let ui = await openTower({ ...STATE, history: [lost, ...HISTORY.slice(1)] });
+  try {
+    await whole(ui.page).click();
+    const row = picker(ui.page).getByRole('region', { name: 'Versions' }).locator('[data-version="2"]');
+    await row.getByRole('button', { name: 'Roll back to version 2', exact: true }).click();
+    await row.getByRole('group', { name: 'Confirm the roll back to version 2' })
+      .getByText('Roll back the Dashboard to version 2? The Dashboard no longer exists, so Genie builds a new one from the vibes of version 2.', { exact: true })
+      .waitFor();
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+  const run = { run_id: 1066484287074577, state: { life_cycle_state: 'RUNNING' } };
+  for (const [base, builds] of [[lost, true], [live, false]]) {
+    ui = await openTower({ ...STATE, history: [rolling, base, ...HISTORY.slice(1)], implementRun: run });
+    try {
+      await whole(ui.page).click();
+      const card = picked(ui.page, 'dashboard');
+      const steps = card.getByRole('list', { name: 'Rebuilding the Dashboard' });
+      const back = card.locator('[data-rolling-back]');
+      if (builds) {
+        await steps.waitFor();
+        assert.equal(await back.count(), 0, 'a dashboard that is gone is built by Genie, so it never says Genie is not called');
+      } else {
+        await back.waitFor();
+        assert.equal((await back.textContent()).trim(), 'Putting version 2 live again. Genie is not called and nothing else changes.');
+        assert.equal(await steps.count(), 0);
+      }
+      assert.deepEqual(ui.pageErrors, []);
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
 test('a notebook rebuild that would read a swapped table that is gone is refused on its card with the table named, and nothing is written or started', async () => {
   const gone = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`s`.`returns_old` cannot be found. Verify the spelling. SQLSTATE: 42P01';
   const lost = versionRow(3, { outputs: V3_OUTPUTS, assets: V3_ASSETS, status: 'ready_with_warnings', top: { data: { ...builtSpec().data, tables: { 'main.s.returns': 'main.s.returns_old' } } } });
