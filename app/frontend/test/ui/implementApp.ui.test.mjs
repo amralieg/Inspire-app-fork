@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { closeBrowser, lowContrast, openUi, startMvp } from './uiSupport.mjs';
+import { closeBrowser, lowContrast, openUi, onStep, startMvp } from './uiSupport.mjs';
 
 const { appShellCatalog } = createRequire(import.meta.url)('../../../backend/lib/appShell.js');
 const SHELL = appShellCatalog();
@@ -11,15 +11,6 @@ const OWNER = ['owner', 'example.com'].join('@');
 const SHOTS = process.env.WIZARD_SHOTS || '';
 
 test.after(closeBrowser);
-
-async function onStep(page, label) {
-  try {
-    await page.locator('[aria-current="step"]', { hasText: label }).waitFor({ timeout: 15000 });
-  } catch (e) {
-    const shown = await page.locator('[role="alert"] p').allTextContents();
-    throw new Error(`the wizard did not reach "${label}": ${shown.join(' | ') || e.message}`);
-  }
-}
 
 const next = (page) => page.getByRole('button', { name: 'Next' }).click();
 const footerErrors = (page) => page.locator('[role="alert"] p').allTextContents();

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { closeBrowser, openUi, startMvp } from './uiSupport.mjs';
+import { closeBrowser, openUi, onStep, startMvp } from './uiSupport.mjs';
 
 const OWNER = ['owner', 'example.com'].join('@');
 const PAT = ['pat', 'example.com'].join('@');
@@ -10,15 +10,6 @@ const SHARE_PROBLEM = 'the share of records to hold back must be 1% to 50%';
 const NO_LAKEBASE = { 'GET /api/2.0/postgres/projects': [{ projects: [] }, 200] };
 
 test.after(closeBrowser);
-
-async function onStep(page, label) {
-  try {
-    await page.locator('[aria-current="step"]', { hasText: label }).waitFor({ timeout: 15000 });
-  } catch (e) {
-    const shown = await page.locator('[role="alert"] p').allTextContents();
-    throw new Error(`the wizard did not reach "${label}": ${shown.join(' | ') || e.message}`);
-  }
-}
 
 const next = (page) => page.getByRole('button', { name: 'Next' }).click();
 const footerErrors = (page) => page.locator('[role="alert"] p').allTextContents();

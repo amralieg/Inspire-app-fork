@@ -186,9 +186,11 @@ test('each Full MVP step runs the checks of every section it shows, and only tho
   const w = await load();
   assert.deepEqual(w.IMPLEMENT_STEPS.map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['results', 'Results'], ['delivery', 'Delivery']]);
   assert.deepEqual(w.APP_STEPS.map((s) => [s.id, s.label]), [['app_access', 'App access'], ['app_look', 'App look']]);
-  const shown = [...w.IMPLEMENT_STEPS, ...w.APP_STEPS].flatMap((s) => s.sections);
-  assert.deepEqual([...shown].sort(), ['alert', 'app_access', 'app_look', 'app_owners', 'configure', 'data', 'holdout', 'results', 'schedule', 'use_case', 'use_it']);
-  for (const s of [...w.IMPLEMENT_STEPS, ...w.APP_STEPS]) assert.ok(s.advanced.every((a) => s.sections.includes(a)), s.id);
+  assert.deepEqual([w.VIBES_STEP.id, w.VIBES_STEP.label, w.VIBES_STEP.sections], ['vibes', 'Vibes', ['vibes']]);
+  const shown = [...w.IMPLEMENT_STEPS, ...w.APP_STEPS, w.VIBES_STEP].flatMap((s) => s.sections);
+  assert.deepEqual([...shown].sort(), ['alert', 'app_access', 'app_look', 'app_owners', 'configure', 'data', 'holdout', 'results', 'schedule', 'use_case', 'use_it', 'vibes']);
+  for (const s of [...w.IMPLEMENT_STEPS, ...w.APP_STEPS, w.VIBES_STEP]) assert.ok(s.advanced.every((a) => s.sections.includes(a)), s.id);
+  assert.deepEqual(w.BUILD_STEP_IDS, ['delivery', 'app_access', 'app_look', 'vibes']);
   const spec = w.defaultSpecFromUseCase(UC, { warehouseId: '', inspireDatabase: 'main.inspire' });
   const bad = { ...spec, use_case: { ...spec.use_case, decision_owner: '' }, schedule: { ...spec.schedule, enabled: true, cron: '0 0 25 * * ?' },
     config: { ...spec.config, result_table: 'main.inspire' },
@@ -779,9 +781,13 @@ test('Edit opens the wizard on the step it was asked for, and on Choose otherwis
   assert.equal(w.initialStepIndex({ step: 'results' }), 2);
   assert.equal(w.initialStepIndex({ step: 'delivery' }), 3);
   for (const section of ['use_case', 'configure']) assert.equal(w.initialStepIndex({ step: section }), 1, section);
-  for (const section of ['use_it', 'alert', 'schedule', 'review']) assert.equal(w.initialStepIndex({ step: section }), 3, section);
+  for (const section of ['use_it', 'alert', 'schedule']) assert.equal(w.initialStepIndex({ step: section }), 3, section);
+  assert.equal(w.initialStepIndex({ step: 'review' }), 4, 'review lands on the last step, Vibes');
+  assert.equal(w.initialStepIndex({ step: 'vibes' }), 4);
   const withApp = { outputs: { app: true } };
-  assert.equal(w.initialStepIndex({ step: 'review' }, 'mvp', withApp), 5, 'review lands on the last step, App look when the App is ticked');
+  assert.equal(w.initialStepIndex({ step: 'review' }, 'mvp', withApp), 6, 'review lands on Vibes, after App look when the App is ticked');
+  assert.equal(w.initialStepIndex({ step: 'vibes' }, 'mvp', withApp), 6);
+  assert.equal(w.initialStepIndex({ step: 'vibes' }, 'notebook'), 0, 'Notebook only has no Vibes step');
   assert.equal(w.initialStepIndex({ step: 'app_access' }, 'mvp', withApp), 4);
   assert.equal(w.initialStepIndex({ step: 'app_access' }), 0, 'no App, no App access step');
   assert.equal(w.initialStepIndex({ step: 'nope' }), 0);
@@ -795,7 +801,7 @@ test('Edit opens the wizard on the step it was asked for, and on Choose otherwis
 test('Full MVP is the first mode, and Notebook only swaps Delivery for a Notebook step with nothing to check', async () => {
   const w = await load();
   assert.deepEqual(w.IMPLEMENT_MODES.map((m) => [m.id, m.label]), [['mvp', 'Full MVP'], ['notebook', 'Notebook only']]);
-  assert.equal(w.wizardSteps('mvp'), w.IMPLEMENT_STEPS);
+  assert.deepEqual(w.wizardSteps('mvp').map((s) => s.id), [...w.IMPLEMENT_STEPS.map((s) => s.id), 'vibes']);
   assert.deepEqual(w.wizardSteps('notebook').map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['notebook', 'Notebook']]);
   assert.throws(() => w.wizardSteps('both'), /unknown implement mode 'both'/);
   assert.throws(() => w.wizardSteps(undefined), /unknown implement mode 'undefined'/);

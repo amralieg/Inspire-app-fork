@@ -19,6 +19,8 @@ export const APP_STEPS = [
   { id: 'app_look', label: 'App look', sections: ['app_look'], advanced: [] },
 ];
 
+export const VIBES_STEP = { id: 'vibes', label: 'Vibes', sections: ['vibes'], advanced: [] };
+
 export const NOTEBOOK_STEPS = [
   CHOOSE_STEP,
   { id: 'data', label: 'Data', sections: [], advanced: [] },
@@ -26,12 +28,12 @@ export const NOTEBOOK_STEPS = [
 ];
 
 export function wizardSteps(mode, spec = null) {
-  if (mode === 'mvp') return spec?.outputs?.app ? [...IMPLEMENT_STEPS, ...APP_STEPS] : IMPLEMENT_STEPS;
+  if (mode === 'mvp') return [...IMPLEMENT_STEPS, ...(spec?.outputs?.app ? APP_STEPS : []), VIBES_STEP];
   if (mode === 'notebook') return NOTEBOOK_STEPS;
   throw new Error(`unknown implement mode '${mode}'`);
 }
 
-export const BUILD_STEP_IDS = ['delivery', ...APP_STEPS.map((s) => s.id)];
+export const BUILD_STEP_IDS = ['delivery', ...APP_STEPS.map((s) => s.id), VIBES_STEP.id];
 
 export const APP_ACCESS_CHOICES = [
   { id: 'sp', label: 'Internal data: the App uses its own service principal',
@@ -186,6 +188,9 @@ export const IMPLEMENT_OUTPUTS = [
 
 export const VIBES_MAX = 2000;
 export const VIBES_HELP = "Tell Genie what you want in your own words. Your asks win over Inspire's defaults.";
+export const VIBES_STEP_TITLE = 'Anything else Genie should build in?';
+export const VIBES_STEP_NOTE = `${VIBES_HELP} Each box is optional: leave it empty and Genie builds it the way Inspire would. `
+  + 'The gray text in a box is only an example. You can vibe each one again after it is built.';
 
 export const BUILT_ASSET_STATES = ['ready', 'ready_with_warnings'];
 
@@ -234,6 +239,14 @@ export function vibesProblem(id, text, label = '') {
 export function vibesPreview(text, max = 80) {
   const chars = [...String(text ?? '').trim()];
   return chars.length > max ? `${chars.slice(0, max).join('').trimEnd()}…` : chars.join('');
+}
+
+export function vibesSkippedText(spec) {
+  const off = IMPLEMENT_OUTPUTS.filter((o) => !spec?.outputs?.[o.id]).map((o) => o.label);
+  if (!off.length) return '';
+  const names = off.length > 1 ? `${off.slice(0, -1).join(', ')} and ${off[off.length - 1]}` : off[0];
+  const them = off.length > 1 ? 'them' : 'it';
+  return `No box for ${names}: Genie builds only what you picked in the Delivery step. To vibe ${them}, go Back to Delivery and pick ${them}.`;
 }
 
 export function vibesProblems(spec) {
@@ -1145,7 +1158,6 @@ export function sectionErrors(section, spec, extras = {}) {
       errors.push('app name must be 3-30 lowercase letters, digits and dashes');
     }
     if (spec.outputs.app && !spec.outputs.genie_space) errors.push(GENIE_FOR_APP_NOTE);
-    errors.push(...vibesProblems(spec));
     for (const name of MERGE_OUTPUTS) {
       const id = spec.outputs.merge?.[name];
       if (!spec.outputs[name] || !id || !extras.mergeTargets || extras.held?.[name] === id) continue;
@@ -1154,6 +1166,7 @@ export function sectionErrors(section, spec, extras = {}) {
       }
     }
   }
+  if (section === 'vibes') errors.push(...vibesProblems(spec));
   if (section === 'holdout') errors.push(...holdoutProblems(spec));
   if (section === 'app_owners' && spec.outputs.app) errors.push(...appOwnerProblems(spec.outputs.app_owners));
   if (section === 'alert' && spec.outputs.alert) {

@@ -6,20 +6,11 @@ import { buildAgainHint, lostTablesText } from '../../src/lib/implementWizard.js
 import {
   HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID, OWNER, RESULT_TABLE, STUDIO_STATE, built, builtSpec,
 } from './implementFixtures.js';
-import { closeBrowser, lowContrast, openUi, startMvp, until } from './uiSupport.mjs';
+import { closeBrowser, lowContrast, openUi, onStep, startMvp, toVibes, until } from './uiSupport.mjs';
 
 const GONE = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`s`.`returns` cannot be found. Verify the spelling. SQLSTATE: 42P01';
 
 test.after(closeBrowser);
-
-async function onStep(page, label) {
-  try {
-    await page.locator('[aria-current="step"]', { hasText: label }).waitFor({ timeout: 15000 });
-  } catch (e) {
-    const shown = await page.locator('[role="alert"] p').allTextContents();
-    throw new Error(`the wizard did not reach "${label}": ${shown.join(' | ') || e.message}`);
-  }
-}
 
 const next = (page) => page.getByRole('button', { name: 'Next' }).click();
 const studioTab = (page, name) => page.getByRole('tab', { name, exact: true }).click();
@@ -89,7 +80,7 @@ function submittedSpec(made) {
 test('the wizard starts with the dashboard, Genie Agent and App ticked, drops App access and App look while the App is unticked, and Start MVP launches one run', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
-  const withApp = ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App access', '6. App look'];
+  const withApp = ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App access', '6. App look', '7. Vibes'];
   try {
     await onStep(page, 'Choose');
     assert.deepEqual(await page.locator('ol li').allTextContents(), withApp);
@@ -108,8 +99,8 @@ test('the wizard starts with the dashboard, Genie Agent and App ticked, drops Ap
     for (const name of [/^Dashboard/, /^Genie Agent/, /^App /]) assert.equal(await page.getByRole('checkbox', { name }).isChecked(), true, String(name));
     assert.equal(await page.getByRole('checkbox', { name: /^Alert/ }).isChecked(), false, 'the alert is the one output left off');
     await page.getByRole('checkbox', { name: /^App / }).uncheck();
-    assert.deepEqual(await page.locator('ol li').allTextContents(), ['1. Choose', '2. Data', '3. Results', '4. Delivery']);
-    await page.getByRole('button', { name: 'Start MVP', exact: true }).waitFor();
+    assert.deepEqual(await page.locator('ol li').allTextContents(), ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. Vibes']);
+    assert.equal(await page.getByRole('button', { name: 'Start MVP', exact: true }).count(), 0, 'without an App, Delivery leads on to Vibes');
     await page.getByRole('checkbox', { name: /^App / }).check();
     assert.deepEqual(await page.locator('ol li').allTextContents(), withApp);
     assert.equal(await page.getByLabel('App name').inputValue(), 'inspire-hub-acme', 'a new App is the business Hub');
@@ -500,10 +491,10 @@ test('an App name another App already uses offers the next name, and Implement w
     await page.getByRole('checkbox', { name: /^App / }).check();
     await page.getByText("'inspire-hub-acme' is used by another App in this workspace; pick another name.", { exact: false }).waitFor();
     await throughApp(page);
+    await toVibes(page);
     await page.locator('[role="alert"] p', { hasText: "App name: 'inspire-hub-acme' is used by another App in this workspace; pick another name (fix it on Delivery)" }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Start MVP', exact: true }).isDisabled(), true);
-    await page.getByRole('button', { name: 'Back' }).click();
-    await page.getByRole('button', { name: 'Back' }).click();
+    for (let i = 0; i < 3; i += 1) await page.getByRole('button', { name: 'Back' }).click();
     await onStep(page, 'Delivery');
     await page.getByRole('button', { name: 'Use inspire-hub-acme-2' }).click();
     assert.equal(await page.getByLabel('App name').inputValue(), 'inspire-hub-acme-2');
@@ -1320,6 +1311,7 @@ test('Edit of a version whose swapped table and own table are both gone marks th
     await onStep(page, 'App access');
     await next(page);
     await onStep(page, 'App look');
+    await toVibes(page);
     const named = 'the preview cannot run because these source tables are missing or not readable: main.s.returns_old (not found).';
     await page.waitForFunction((text) => [...document.querySelectorAll('[role="alert"] p')].some((p) => p.textContent.includes(text)), named, { timeout: 15000 });
     assert.equal(await page.getByRole('button', { name: 'Start MVP', exact: true }).isDisabled(), true);
@@ -1470,21 +1462,28 @@ test('Edit after notebook edits asks on Delivery whether to overwrite them, and 
       'an App built before the access choice existed shows the service principal it signs in with');
     await next(fresh.page);
     await onStep(fresh.page, 'App look');
+    await toVibes(fresh.page);
     const note = fresh.page.getByRole('note', { name: 'Nothing to build' });
     await note.waitFor();
     assert.match(await note.innerText(), /Nothing changed since version 1, so there is nothing new to build\. Change a choice in any step to build version 2/);
     assert.equal(await fresh.page.getByRole('button', { name: 'Start MVP', exact: true }).isDisabled(), true, 'an edit with no change cannot submit');
     assert.equal(await fresh.page.getByRole('alert').count(), 0, 'an unchanged edit is a note, never an error');
     assert.equal(await fresh.page.getByText(/^\d{3}:/).count(), 0, 'no HTTP status code reaches the screen');
-    await fresh.page.getByRole('region', { name: 'App look' }).getByRole('tab', { name: 'Palette', exact: true }).click();
-    const mode = fresh.page.getByRole('region', { name: 'App look' }).getByRole('group', { name: 'Light or dark' });
-    await mode.getByRole('button', { name: 'Dark' }).click();
-    await note.waitFor({ state: 'detached' });
+    const lookStep = async () => {
+      await fresh.page.getByRole('button', { name: 'Back' }).click();
+      await onStep(fresh.page, 'App look');
+      await fresh.page.getByRole('region', { name: 'App look' }).getByRole('tab', { name: 'Palette', exact: true }).click();
+      return fresh.page.getByRole('region', { name: 'App look' }).getByRole('group', { name: 'Light or dark' });
+    };
+    await (await lookStep()).getByRole('button', { name: 'Dark' }).click();
+    await toVibes(fresh.page);
     await fresh.page.waitForFunction(() => {
       const start = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Start MVP');
       return start && !start.disabled;
     });
-    await mode.getByRole('button', { name: 'Light' }).click();
+    assert.equal(await note.count(), 0, 'a changed look is something to build');
+    await (await lookStep()).getByRole('button', { name: 'Light' }).click();
+    await toVibes(fresh.page);
     await note.waitFor();
     await note.getByRole('button', { name: 'Go to the Build page' }).click();
     await fresh.page.getByRole('heading', { name: 'Build', exact: true }).waitFor();

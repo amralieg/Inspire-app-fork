@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, NotebookPen, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check, Lock, UserRound, KeyRound, MessageSquareText } from 'lucide-react';
+import { Loader2, NotebookPen, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check, Lock, UserRound, KeyRound } from 'lucide-react';
 import BodyPortal from '../components/BodyPortal';
 import VibesEditor from '../components/VibesEditor';
 import AppSample, { paletteVars, pv } from '../components/AppSample';
@@ -104,10 +104,9 @@ import {
   mergeTargetText,
   vibesKey,
   vibesLabel,
-  vibesLength,
-  vibesProblem,
-  VIBES_HELP,
-  VIBES_MAX,
+  VIBES_STEP_TITLE,
+  VIBES_STEP_NOTE,
+  vibesSkippedText,
   modelNameOf,
   splitList,
   APP_OWNERS_LABEL,
@@ -284,7 +283,6 @@ export default function ImplementWizard({
   const [catalogs, setCatalogs] = useState(null);
   const [catalogsError, setCatalogsError] = useState('');
   const [schemas, setSchemas] = useState({});
-  const [vibesFor, setVibesFor] = useState('');
   const bodyRef = useRef(null);
   const hubChosen = useRef(false);
   const steps = wizardSteps(mode, spec);
@@ -435,9 +433,7 @@ export default function ImplementWizard({
     setAttempted((prev) => ({ ...prev, [id]: true }));
     if (!stepErrors(id, spec, extras, mode).length) return false;
     if (advancedErrors(id, spec, extras, mode).length) setAdvanced((prev) => ({ ...prev, [id]: true }));
-    const overLimit = id === 'delivery' && (vibesProblem('notebook', spec.data.notes) ? { id: 'notebook' }
-      : IMPLEMENT_OUTPUTS.find((o) => spec.outputs[o.id] && vibesProblem(o.id, spec.outputs[vibesKey(o.id)])));
-    if (overLimit) setVibesFor(overLimit.id);
+    if (id === 'vibes') bodyRef.current?.querySelector('[data-vibes] textarea[aria-invalid="true"]')?.focus();
     return true;
   };
 
@@ -1035,104 +1031,98 @@ export default function ImplementWizard({
             {readinessText(readiness, readiness?.scope) && (
               <p className="text-[11px] text-text-secondary">{readinessText(readiness, readiness.scope)}</p>
             )}
-            {vibesFor ? (
-              <VibesPanel spec={spec} focus={vibesFor} onChange={(id, value) => patch(id === 'notebook' ? 'data.notes' : `outputs.${vibesKey(id)}`, value)} onDone={() => setVibesFor('')} />
-            ) : (
-              <section className="space-y-2">
-                <div className="relative pr-28">
-                  <VibesTrigger label="notebook" value={spec.data.notes} onOpen={() => setVibesFor('notebook')} />
-                  <h3 className="text-sm font-semibold text-text-primary">How do you want to use it?</h3>
-                  <p className="text-[11px] text-text-tertiary">Pick one or more. Genie builds each one for you.</p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {IMPLEMENT_OUTPUTS.map((item) => {
-                    const Icon = ICONS[item.id];
-                    const on = spec.outputs[item.id];
-                    const noAppAccess = item.id === 'app' && !context?.assets?.app && outputCheck?.app?.ok === false;
-                    const cannot = unavailable.includes(item.id);
-                    const tileChecks = (TILE_CHECKS[item.id] || []).map((k) => [k, preflight?.checks?.[k]])
-                      .filter(([k, v]) => v && !v.ok && on && !(k === 'app_name' && appTaken));
-                    const locked = item.id === 'genie_space' && spec.outputs.app;
-                    const mergeable = on && MERGE_OUTPUTS.includes(item.id) && !held[item.id];
-                    const gone = on && (context?.gone_assets || []).includes(item.id);
-                    return (
-                      <div key={item.id} data-output={item.id} className={`border rounded-lg p-3 space-y-2 ${on ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
-                        <div className="relative">
-                          <label className={`flex items-start gap-3 ${locked ? '' : 'cursor-pointer'}`}>
-                            <input type="checkbox" className="mt-0.5" checked={on} disabled={(cannot && !on) || locked} onChange={(e) => toggleOutput(item.id, e.target.checked)} />
-                            <span className="flex-1">
-                              <span className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-                                <Icon size={14} /> {item.label}
-                                {locked && <Lock size={12} className="text-text-tertiary" aria-hidden="true" />}
-                              </span>
-                              <span className={`block text-[11px] mt-1 ${cannot ? 'text-error-fg' : 'text-text-secondary'}`}>
-                                {!cannot && (locked ? GENIE_FOR_APP_NOTE : item.blurb)}
-                                {cannot && noAppAccess && `Inspire cannot create this App: ${outputCheck.app.detail}.${on ? ' Turn it off, or fix the access and check again.' : ''}`}
-                                {cannot && !noAppAccess && (on ? 'You cannot create this in this workspace any more. Turn it off, or ask a workspace admin.' : 'You cannot create this in this workspace.')}
-                              </span>
+            <section className="space-y-2">
+              <div>
+                <h3 className="text-sm font-semibold text-text-primary">How do you want to use it?</h3>
+                <p className="text-[11px] text-text-tertiary">Pick one or more. Genie builds each one for you.</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {IMPLEMENT_OUTPUTS.map((item) => {
+                  const Icon = ICONS[item.id];
+                  const on = spec.outputs[item.id];
+                  const noAppAccess = item.id === 'app' && !context?.assets?.app && outputCheck?.app?.ok === false;
+                  const cannot = unavailable.includes(item.id);
+                  const tileChecks = (TILE_CHECKS[item.id] || []).map((k) => [k, preflight?.checks?.[k]])
+                    .filter(([k, v]) => v && !v.ok && on && !(k === 'app_name' && appTaken));
+                  const locked = item.id === 'genie_space' && spec.outputs.app;
+                  const mergeable = on && MERGE_OUTPUTS.includes(item.id) && !held[item.id];
+                  const gone = on && (context?.gone_assets || []).includes(item.id);
+                  return (
+                    <div key={item.id} data-output={item.id} className={`border rounded-lg p-3 space-y-2 ${on ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
+                      <div className="relative">
+                        <label className={`flex items-start gap-3 ${locked ? '' : 'cursor-pointer'}`}>
+                          <input type="checkbox" className="mt-0.5" checked={on} disabled={(cannot && !on) || locked} onChange={(e) => toggleOutput(item.id, e.target.checked)} />
+                          <span className="flex-1">
+                            <span className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+                              <Icon size={14} /> {item.label}
+                              {locked && <Lock size={12} className="text-text-tertiary" aria-hidden="true" />}
                             </span>
-                          </label>
-                          {on && <VibesTrigger label={item.label} value={spec.outputs[vibesKey(item.id)]} onOpen={() => setVibesFor(item.id)} />}
-                        </div>
-                        {gone && <p className="pl-7 text-[11px] text-text-secondary">{goneAssetText(item.label, context.assets[item.id])}</p>}
-                        {mergeable && (
-                          <MergeChoice
-                            name={item.id}
-                            label={item.label}
-                            chosen={spec.outputs.merge[item.id]}
-                            targets={targets}
-                            targetsError={targetsError}
-                            access={spec.outputs.app_access}
-                            onPick={(target) => {
-                              if (item.id === 'app') hubChosen.current = true;
-                              setSpec((prev) => withMergeTarget(prev, item.id, target, mergeFresh));
-                            }}
-                          />
-                        )}
-                        {on && item.id === 'app' && !spec.outputs.merge.app && (
-                          <div className="pl-7 space-y-1">
-                            <Field label="App name">
-                              <input className={inputCls} value={spec.outputs.app_name} onChange={(e) => patch('outputs.app_name', e.target.value.toLowerCase())} />
-                            </Field>
-                            {spec.outputs.app_name && !APP_NAME_RE.test(spec.outputs.app_name) ? (
-                              <p className="text-[11px] text-error-fg">3-30 lowercase letters, digits and dashes, starting with a letter</p>
-                            ) : appTaken ? (
-                              <p className="text-[11px] text-error-fg">
-                                {preflight.checks.app_name.detail}.{' '}
-                                <button type="button" className="text-db-red-fg underline" onClick={() => patch('outputs.app_name', nextAppName(spec.outputs.app_name))}>
-                                  Use {nextAppName(spec.outputs.app_name)}
-                                </button>
-                              </p>
-                            ) : (
-                              <p className="text-[11px] text-text-tertiary">
-                                {preflight?.checks?.app_name?.ok ? preflight.checks.app_name.detail : 'Up to 30 lowercase letters, digits and dashes.'}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                        {on && item.id === 'alert' && (
-                          <p className="pl-7 text-[11px] text-text-secondary">
-                            {(spec.outputs.alert_recipients || []).length
-                              ? `Emails ${spec.outputs.alert_recipients.join(', ')} when ${alertTriggerText(spec.outputs)}.`
-                              : 'Nobody gets it yet: add an email under Advanced settings.'}
-                          </p>
-                        )}
-                        {tileChecks.map(([k, v]) => <div key={k} className="pl-7"><CheckLine check={v} label={PREFLIGHT_LABELS[k] || k} /></div>)}
-                        {!on && context?.assets?.[item.id] && (
-                          <div className="pl-7 space-y-1 text-[11px]">
-                            <p className="text-text-secondary">This use case already has {ASSET_NOUNS[item.id]}. What should happen to it?</p>
-                            <div className="flex gap-3">
-                              <label><input type="radio" checked={spec.removed_outputs[item.id] === 'delete'} onChange={() => patch('removed_outputs', { ...spec.removed_outputs, [item.id]: 'delete' })} /> Delete it</label>
-                              <label><input type="radio" checked={spec.removed_outputs[item.id] === 'keep'} onChange={() => patch('removed_outputs', { ...spec.removed_outputs, [item.id]: 'keep' })} /> Keep it unmanaged</label>
-                            </div>
-                          </div>
-                        )}
+                            <span className={`block text-[11px] mt-1 ${cannot ? 'text-error-fg' : 'text-text-secondary'}`}>
+                              {!cannot && (locked ? GENIE_FOR_APP_NOTE : item.blurb)}
+                              {cannot && noAppAccess && `Inspire cannot create this App: ${outputCheck.app.detail}.${on ? ' Turn it off, or fix the access and check again.' : ''}`}
+                              {cannot && !noAppAccess && (on ? 'You cannot create this in this workspace any more. Turn it off, or ask a workspace admin.' : 'You cannot create this in this workspace.')}
+                            </span>
+                          </span>
+                        </label>
                       </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
+                      {gone && <p className="pl-7 text-[11px] text-text-secondary">{goneAssetText(item.label, context.assets[item.id])}</p>}
+                      {mergeable && (
+                        <MergeChoice
+                          name={item.id}
+                          label={item.label}
+                          chosen={spec.outputs.merge[item.id]}
+                          targets={targets}
+                          targetsError={targetsError}
+                          access={spec.outputs.app_access}
+                          onPick={(target) => {
+                            if (item.id === 'app') hubChosen.current = true;
+                            setSpec((prev) => withMergeTarget(prev, item.id, target, mergeFresh));
+                          }}
+                        />
+                      )}
+                      {on && item.id === 'app' && !spec.outputs.merge.app && (
+                        <div className="pl-7 space-y-1">
+                          <Field label="App name">
+                            <input className={inputCls} value={spec.outputs.app_name} onChange={(e) => patch('outputs.app_name', e.target.value.toLowerCase())} />
+                          </Field>
+                          {spec.outputs.app_name && !APP_NAME_RE.test(spec.outputs.app_name) ? (
+                            <p className="text-[11px] text-error-fg">3-30 lowercase letters, digits and dashes, starting with a letter</p>
+                          ) : appTaken ? (
+                            <p className="text-[11px] text-error-fg">
+                              {preflight.checks.app_name.detail}.{' '}
+                              <button type="button" className="text-db-red-fg underline" onClick={() => patch('outputs.app_name', nextAppName(spec.outputs.app_name))}>
+                                Use {nextAppName(spec.outputs.app_name)}
+                              </button>
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-text-tertiary">
+                              {preflight?.checks?.app_name?.ok ? preflight.checks.app_name.detail : 'Up to 30 lowercase letters, digits and dashes.'}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {on && item.id === 'alert' && (
+                        <p className="pl-7 text-[11px] text-text-secondary">
+                          {(spec.outputs.alert_recipients || []).length
+                            ? `Emails ${spec.outputs.alert_recipients.join(', ')} when ${alertTriggerText(spec.outputs)}.`
+                            : 'Nobody gets it yet: add an email under Advanced settings.'}
+                        </p>
+                      )}
+                      {tileChecks.map(([k, v]) => <div key={k} className="pl-7"><CheckLine check={v} label={PREFLIGHT_LABELS[k] || k} /></div>)}
+                      {!on && context?.assets?.[item.id] && (
+                        <div className="pl-7 space-y-1 text-[11px]">
+                          <p className="text-text-secondary">This use case already has {ASSET_NOUNS[item.id]}. What should happen to it?</p>
+                          <div className="flex gap-3">
+                            <label><input type="radio" checked={spec.removed_outputs[item.id] === 'delete'} onChange={() => patch('removed_outputs', { ...spec.removed_outputs, [item.id]: 'delete' })} /> Delete it</label>
+                            <label><input type="radio" checked={spec.removed_outputs[item.id] === 'keep'} onChange={() => patch('removed_outputs', { ...spec.removed_outputs, [item.id]: 'keep' })} /> Keep it unmanaged</label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
 
             <section className="space-y-2">
               <h3 className="text-sm font-semibold text-text-primary">Keep it fresh</h3>
@@ -1367,6 +1357,10 @@ export default function ImplementWizard({
             onLook={(key, value) => setSpec((prev) => withAppLook(prev, key, value))}
           />
         )}
+
+        {stepId === 'vibes' && (
+          <VibesPanel spec={spec} onChange={(id, value) => patch(id === 'notebook' ? 'data.notes' : `outputs.${vibesKey(id)}`, value)} />
+        )}
       </div>
 
       <footer className="border-t border-border px-6 py-3 space-y-2">
@@ -1450,49 +1444,26 @@ function SegmentButton({ on, disabled = false, onClick, children }) {
   );
 }
 
-function VibesTrigger({ label, value, onOpen }) {
-  const length = vibesLength(value);
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={`absolute right-0 top-0 inline-flex items-center gap-1 rounded-full border bg-surface px-2 py-0.5 text-[11px] font-medium glow-focus ${length > VIBES_MAX ? 'border-error text-error-fg' : 'border-border text-db-red-fg hover:border-db-red/50'}`}
-    >
-      <MessageSquareText size={11} aria-hidden="true" />
-      {length ? 'Edit vibes' : 'Add vibes'}<span className="sr-only"> for the {label}{length ? ', ' : ''}</span>
-      {length > 0 && <span className="tabular-nums">{length}/{VIBES_MAX}</span>}
-    </button>
-  );
-}
-
-function VibesPanel({ spec, focus, onChange, onDone }) {
+function VibesPanel({ spec, onChange }) {
   return (
     <section aria-label="Vibes" className="space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary">What should Genie build into each one?</h3>
-          <p className="text-[11px] text-text-secondary">{VIBES_HELP} Each box is optional, and you can vibe the notebook and each output again once they are built.</p>
-        </div>
-        <button
-          type="button"
-          onClick={onDone}
-          className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-border text-text-primary hover:bg-bg-subtle"
-        >
-          <Check size={12} aria-hidden="true" /> Done
-        </button>
+      <div>
+        <h3 className="text-sm font-semibold text-text-primary">{VIBES_STEP_TITLE}</h3>
+        <p className="text-[11px] text-text-secondary">{VIBES_STEP_NOTE}</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-        {[{ id: 'notebook' }, ...IMPLEMENT_OUTPUTS.filter((o) => spec.outputs[o.id])].map((o) => {
+        {[{ id: 'notebook' }, ...IMPLEMENT_OUTPUTS.filter((o) => spec.outputs[o.id])].map((o, i) => {
           const Icon = ICONS[o.id];
           const value = o.id === 'notebook' ? spec.data.notes : spec.outputs[vibesKey(o.id)];
           return (
-            <div key={o.id} data-vibes={o.id} className={`border rounded-lg p-3 space-y-1.5 ${o.id === focus ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
+            <div key={o.id} data-vibes={o.id} className="border border-border rounded-lg p-3 space-y-1.5">
               <p className="flex items-center gap-2 text-sm font-semibold text-text-primary"><Icon size={14} aria-hidden="true" /> {vibesLabel(o.id)}</p>
-              <VibesEditor id={o.id} value={value || ''} onChange={(next) => onChange(o.id, next)} autoFocus={o.id === focus} />
+              <VibesEditor id={o.id} value={value || ''} onChange={(next) => onChange(o.id, next)} autoFocus={i === 0} />
             </div>
           );
         })}
       </div>
+      {vibesSkippedText(spec) && <p data-vibes-skipped="" className="text-[11px] text-text-secondary">{vibesSkippedText(spec)}</p>}
     </section>
   );
 }

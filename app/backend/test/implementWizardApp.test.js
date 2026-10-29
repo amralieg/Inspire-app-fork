@@ -101,8 +101,8 @@ test('ticking the App ticks the Genie Agent and locks it, and the lock refuses a
   assert.deepEqual([off.outputs.app, off.outputs.genie_space], [false, true], 'unticking the App leaves the Genie Agent as it is');
   assert.equal(w.withOutput(off, 'genie_space', false).outputs.genie_space, false);
   assert.deepEqual(w.withOutput(spec, 'alert', true).outputs.alert_recipients, w.defaultAlertRecipients(spec));
-  assert.deepEqual(w.wizardSteps('mvp', ticked).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'app_access', 'app_look']);
-  assert.deepEqual(w.wizardSteps('mvp', off).map((s) => s.id), ['choose', 'data', 'results', 'delivery']);
+  assert.deepEqual(w.wizardSteps('mvp', ticked).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'app_access', 'app_look', 'vibes']);
+  assert.deepEqual(w.wizardSteps('mvp', off).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'vibes']);
   assert.deepEqual(w.stepErrors('delivery', { ...ticked, outputs: { ...ticked.outputs, genie_space: false } }), [w.GENIE_FOR_APP_NOTE]);
 });
 

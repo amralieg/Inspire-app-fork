@@ -255,9 +255,25 @@ test('the wizard counts, limits and words vibes the way the backend does, and a 
   assert.equal('rollback_outputs' in w.nextSpecFrom(latest, { schedule: { enabled: true } }), false);
   assert.deepEqual(w.nextSpecFrom(latest, { rollback_outputs: { app: 3 } }).rollback_outputs, { app: 3 });
   const ticked = { ...fallback, outputs: { ...fallback.outputs, genie_space: true, genie_space_vibes: 'c'.repeat(2001), alert_vibes: 'd'.repeat(2001) } };
-  assert.deepEqual(w.stepErrors('delivery', ticked), ['the Genie Agent vibes are 2001 characters; at most 2000 are allowed'],
-    'Next is blocked on a ticked output only');
+  assert.deepEqual(w.stepErrors('vibes', ticked), ['the Genie Agent vibes are 2001 characters; at most 2000 are allowed'],
+    'Start is blocked on a ticked output only');
+  assert.deepEqual(w.stepErrors('delivery', ticked), [], 'the vibes are checked on the Vibes step, never on Delivery');
   assert.deepEqual(w.planLines({ classes: ['rollback'], refill: false, rollback: ['app', 'dashboard'] }).slice(-1), ['Rolls back: App, Dashboard']);
+});
+
+test('the Vibes step says every box is optional with gray example text, and names each output that has no box', async () => {
+  const w = await lib('implementWizard.js');
+  assert.equal(w.VIBES_STEP_TITLE, 'Anything else Genie should build in?');
+  assert.ok(w.VIBES_STEP_NOTE.startsWith(w.VIBES_HELP), 'the step opens with the same help the Build page vibes use');
+  assert.match(w.VIBES_STEP_NOTE, /Each box is optional: leave it empty and Genie builds it the way Inspire would\. The gray text in a box is only an example\./);
+  const all = { outputs: { dashboard: true, genie_space: true, app: true, alert: true } };
+  assert.equal(w.vibesSkippedText(all), '', 'every output picked, nothing to name');
+  assert.equal(w.vibesSkippedText({ outputs: { ...all.outputs, alert: false } }),
+    'No box for Alert: Genie builds only what you picked in the Delivery step. To vibe it, go Back to Delivery and pick it.');
+  assert.equal(w.vibesSkippedText({ outputs: { dashboard: true, alert: false } }),
+    'No box for Genie Agent, App and Alert: Genie builds only what you picked in the Delivery step. To vibe them, go Back to Delivery and pick them.');
+  assert.equal(w.vibesSkippedText(null), 'No box for Dashboard, Genie Agent, App and Alert: Genie builds only what you picked in the Delivery step. To vibe them, go Back to Delivery and pick them.');
+  for (const text of [w.VIBES_STEP_TITLE, w.VIBES_STEP_NOTE, w.vibesSkippedText(null)]) assert.doesNotMatch(text, /[\u2013\u2014]|\bgrey\b/, text);
 });
 
 test('the Build page offers a vibe panel per built output and the earlier versions that kept a snapshot', async () => {

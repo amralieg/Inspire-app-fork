@@ -40,12 +40,31 @@ export async function openUi(open, overrides = {}, query = '', { mount, init } =
   };
 }
 
-export async function startMvp(page) {
-  for (const label of ['App access', 'App look']) {
-    if (!(await page.getByRole('button', { name: 'Next' }).count())) break;
-    await page.getByRole('button', { name: 'Next' }).click();
+export async function onStep(page, label) {
+  try {
     await page.locator('[aria-current="step"]', { hasText: label }).waitFor({ timeout: 15000 });
+  } catch (e) {
+    const shown = await page.locator('[role="alert"] p').allTextContents();
+    throw new Error(`the wizard did not reach "${label}": ${shown.join(' | ') || e.message}`);
   }
+}
+
+export async function toVibes(page) {
+  for (let i = 0; i < 8 && await page.getByRole('button', { name: 'Next' }).count(); i += 1) {
+    const from = await page.locator('[aria-current="step"]').innerText();
+    await page.getByRole('button', { name: 'Next' }).click();
+    try {
+      await page.waitForFunction((was) => document.querySelector('[aria-current="step"]')?.innerText !== was, from, { timeout: 15000 });
+    } catch (e) {
+      const shown = await page.locator('[role="alert"] p').allTextContents();
+      throw new Error(`Next did not leave "${from}": ${shown.join(' | ') || e.message}`);
+    }
+  }
+  await onStep(page, 'Vibes');
+}
+
+export async function startMvp(page) {
+  await toVibes(page);
   await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Start MVP' && !b.disabled),
     null, { timeout: 15000 });
   await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
