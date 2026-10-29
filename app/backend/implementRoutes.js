@@ -5,6 +5,7 @@ const { createGenieJobGuard } = require('./lib/genieJobGuard');
 const { genieNotebookJobName, latestGenieNotebookRun } = require('./lib/genieNotebookJob');
 const C = require('./lib/implementControl');
 const { appShellCatalog } = require('./lib/appShell');
+const { moneyStatements, moneyView } = require('./lib/implementMoney');
 
 function sendError(res, err) {
   const code = err && Number.isFinite(err.statusCode) ? err.statusCode : 500;
@@ -841,6 +842,33 @@ function registerImplementRoutes(app, deps) {
       });
     } catch (err) {
       sendError(res, err);
+    }
+  });
+
+  async function optionalRows(req, warehouseId, statement) {
+    try {
+      return await sqlRows(req.dbHost, req.dbToken, warehouseId, statement);
+    } catch (err) {
+      if (isMissingTableError(err)) return [];
+      throw err;
+    }
+  }
+
+  app.get('/api/inspire/implement/money', requireToken, async (req, res) => {
+    try {
+      const sid = sessionIdOf(req);
+      const warehouseId = warehouseOf(req);
+      const { catalog, schema } = dbOf(req, splitInspireDatabase);
+      const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
+      const history = await loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId);
+      const table = String(history[0]?.spec_json?.config?.result_table || '').trim();
+      if (!table) return res.json({ run: null, model: null, history: [], result_table: '' });
+      const statements = moneyStatements(table, useCaseId);
+      const summary = (await optionalRows(req, warehouseId, statements.summary))[0] || null;
+      const edits = summary && summary.value_assumptions ? await optionalRows(req, warehouseId, statements.edits) : [];
+      return res.json({ ...moneyView(summary, edits), result_table: table });
+    } catch (err) {
+      return sendError(res, err);
     }
   });
 

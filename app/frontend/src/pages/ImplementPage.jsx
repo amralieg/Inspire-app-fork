@@ -33,6 +33,7 @@ import {
 import { pocStages, pocProgressSummary, feedArrivals } from '../lib/pocProgress';
 import PocProgress from '../components/PocProgress';
 import GenieFeed from '../components/GenieFeed';
+import MoneyReview, { NothingToActCard } from '../components/MoneyReview';
 
 const TABS = [[PROGRESS_TAB, Activity], [CONTROL_TAB, Radar]];
 const OUTPUT_ICONS = { notebook: NotebookPen, dashboard: LayoutDashboard, genie_space: GenieLogo, app: AppWindow, alert: BellRing };
@@ -608,7 +609,7 @@ function AssetVersions({ asset, locked, onRollback }) {
   );
 }
 
-function AssetCard({ asset, draft, locked, active, error, onDraft, onRebuild, onTryAgain, onRollback }) {
+function AssetCard({ asset, draft, locked, active, error, money = null, moneyError = '', onDraft, onRebuild, onTryAgain, onRollback }) {
   const [pending, setPending] = useState('');
   const text = draft ?? asset.vibes;
   const problem = vibesProblem(asset.id, text, asset.id === asset.output ? '' : asset.label);
@@ -641,6 +642,7 @@ function AssetCard({ asset, draft, locked, active, error, onDraft, onRebuild, on
             {asset.live ? `Version ${asset.live.version}, built ${formatWhen(asset.live.at, asset.live.at) || 'on an earlier run'}` : 'Its last build failed, so no version of it is live'}
           </p>
           {active && !busy && <p className="font-medium text-text-primary">A version is building now; vibes and roll backs apply after it finishes.</p>}
+          {asset.id === 'value_formula' && <MoneyReview money={money} error={moneyError} />}
           {asset.rebuild && (
             <div className="space-y-2">
               <VibesEditor id={asset.id} label={asset.id === asset.output ? '' : asset.label} heading="How should it work?" rows={4} disabled={Boolean(busy)} value={text}
@@ -778,6 +780,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const [vibeDrafts, setVibeDrafts] = useState({});
   const [pickedAsset, setPickedAsset] = useState(null);
   const [pickerFailed, setPickerFailed] = useState(false);
+  const [money, setMoney] = useState(null);
+  const [moneyError, setMoneyError] = useState('');
   const lastStatus = useRef(null);
 
   const [arrivals, setArrivals] = useState(null);
@@ -813,6 +817,15 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
 
   const latest = status ? status.latest : item.latest;
   const stalled = (status ? status.stalled : item.latest?.stalled) || null;
+  const moneyKey = `${latest?.spec_version ?? ''}:${latest?.status ?? ''}`;
+  useEffect(() => {
+    if (!hasPoc) return undefined;
+    let live = true;
+    apiFetch(`/api/inspire/implement/money?${qBase}&use_case_id=${encodeURIComponent(useCaseId)}`)
+      .then((data) => { if (live) { setMoney(data); setMoneyError(''); } })
+      .catch((e) => { if (live) setMoneyError(e.message); });
+    return () => { live = false; };
+  }, [hasPoc, apiFetch, qBase, useCaseId, moneyKey, refreshKey]);
   const chip = statusChip(latest?.status, stalled);
   const spec = latest?.spec_json || {};
   const widgets = Array.isArray(status?.rerun_widgets) ? status.rerun_widgets : [];
@@ -1150,6 +1163,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
               </button>
             </div>
           )}
+          <NothingToActCard run={money?.run} />
           <div role="tablist" aria-label="PoC/MVP views" className="inline-flex flex-wrap gap-1 p-1 rounded-xl bg-bg-subtle border border-border">
             {TABS.map((entry) => {
               const [name, TabIcon] = entry;
@@ -1206,6 +1220,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
                           locked={active || submitBusy}
                           active={active}
                           error={pickerFailed ? error : ''}
+                          money={money}
+                          moneyError={moneyError}
                           onDraft={(name, text) => setVibeDrafts((prev) => ({ ...prev, [name]: text }))}
                           onRebuild={fromPicker(vibeOutput)}
                           onTryAgain={fromPicker(tryAgain)}
