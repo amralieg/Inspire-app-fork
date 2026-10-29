@@ -21,6 +21,9 @@ import {
   primaryTableOf,
   removeTable,
   restoreTable,
+  clearedText,
+  revertLostSwaps,
+  revertedSwapsText,
   removalBlocker,
   filterValues,
   setFilterValues,
@@ -245,7 +248,8 @@ export default function ImplementWizard({
   });
   const folderWarning = sharedFolderWarning(notebookFolder);
   const [notice, setNotice] = useState(() => lostTablesText(focus?.missingTables));
-  const lostReason = (table) => (focus?.missingTables || []).find((m) => String(m.table).toLowerCase() === table.toLowerCase())?.reason;
+  const [missingTables, setMissingTables] = useState(() => focus?.missingTables || []);
+  const lostReason = (table) => missingTables.find((m) => String(m.table).toLowerCase() === table.toLowerCase())?.reason;
   const [changing, setChanging] = useState({});
   const [excludeRef, setExcludeRef] = useState('');
   const [swaps, setSwaps] = useState({});
@@ -319,13 +323,19 @@ export default function ImplementWizard({
           inspireDatabase,
           owner: data.me?.username,
         });
-        const next = specFromLatest(data.latest, fallback, data.assets);
+        const missing = [...(focus?.missingTables || []), ...(data.missing_tables || [])]
+          .filter((m, i, all) => all.findIndex((o) => String(o.table).toLowerCase() === String(m.table).toLowerCase()) === i);
+        const { spec: next, reverted } = revertLostSwaps(specFromLatest(data.latest, fallback, data.assets), row, missing);
         if (!next.config.warehouse_id) next.config.warehouse_id = warehouseId;
         setSpec(next);
+        setMissingTables(missing);
         if (focus?.step === 'review') setStep(initialStepIndex(focus, 'poc', next));
-        const lost = (focus?.missingTables || []).map((m) => tablesOf(row)
-          .find((t) => [t, next.data.tables[t]].some((n) => String(n || '').toLowerCase() === String(m.table).toLowerCase())))
-          .filter(Boolean);
+        const same = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+        const chosenOf = (t) => ((next.data.removed_tables || []).some((r) => same(r, t)) ? ''
+          : next.data.tables[Object.keys(next.data.tables).find((k) => same(k, t))] || t);
+        const lost = tablesOf(row).filter((t) => chosenOf(t) && missing.some((m) => same(m.table, chosenOf(t))));
+        const stillLost = missing.filter((m) => lost.some((t) => same(chosenOf(t), m.table)));
+        setNotice([revertedSwapsText(reverted), lostTablesText(stillLost)].filter(Boolean).join(' '));
         if (lost.length) {
           setChanging(Object.fromEntries(lost.map((t) => [t, true])));
           lost.forEach((t) => { loadSwaps(t); });
@@ -678,10 +688,8 @@ export default function ImplementWizard({
     if (value === REMOVE) {
       const { spec: next, cleared } = removeTable(spec, original);
       setSpec(next);
-      const parts = [];
-      if (cleared.roles.length) parts.push(`its column roles (${cleared.roles.map((r) => r.replace('_', ' ')).join(', ')})`);
-      if (cleared.filters) parts.push(`${cleared.filters} filter(s) on it`);
-      setNotice(parts.length ? `Removed ${original} and cleared ${parts.join(' and ')}.` : `Removed ${original}.`);
+      const what = clearedText(cleared);
+      setNotice(what ? `Removed ${original} and cleared ${what}.` : `Removed ${original}.`);
     } else {
       patch('data.tables', { ...spec.data.tables, [original]: value });
     }

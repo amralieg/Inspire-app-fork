@@ -345,6 +345,27 @@ test('a rolled back output shows the checklist of the version it rolled back to,
   }
 });
 
+test('a notebook rebuild that would read a swapped table that is gone is refused on its card with the table named, and nothing is written or started', async () => {
+  const gone = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`s`.`returns_old` cannot be found. Verify the spelling. SQLSTATE: 42P01';
+  const lost = versionRow(3, { outputs: V3_OUTPUTS, assets: V3_ASSETS, status: 'ready_with_warnings', top: { data: { ...builtSpec().data, tables: { 'main.s.returns': 'main.s.returns_old' } } } });
+  const ui = await openTower({ ...STATE, history: [lost, ...HISTORY.slice(1)], probeErrors: { '`main`.`s`.`returns_old`': gone } });
+  const { page, made } = ui;
+  try {
+    await pick(page, 'Notebook, Ready');
+    const card = picked(page, 'notebook');
+    await box(card).fill('Use only the last 90 days');
+    await card.getByRole('button', { name: 'Rebuild this', exact: true }).click();
+    const alert = card.getByRole('alert');
+    await alert.waitFor();
+    assert.equal((await alert.textContent()).trim(), 'the preview cannot run because these source tables are missing or not readable: main.s.returns_old (not found). '
+      + 'Open Edit, Data step, to swap each for a table with the same role or remove it');
+    assert.equal(made.jobs.length, 0);
+    assert.deepEqual(insertsOf(made), []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('an asset the build no longer has is refused with a clear message on its card, and nothing is written or started', async () => {
   const ui = await openTower();
   const { page, made } = ui;

@@ -1024,6 +1024,16 @@ test('the preview reads each involved table under its swap, never a removed one,
   assert.deepEqual(I.sourceTables({ data: { tables: ['bad'], removed_tables: 'main.s.items' } }, ['main.s.items']), ['main.s.items']);
 });
 
+test('the tables a rebuild checks are its source tables plus the use case\'s own table behind each live swap, once each', () => {
+  const spec = { data: { tables: { 'MAIN.S.ORDERS': 'main.s.orders_v2', 'main.s.items': 'main.s.items', 'main.s.returns': 'main.s.returns_old', 'main.s.unused': 'main.s.other' },
+    removed_tables: ['main.s.returns'] } };
+  assert.deepEqual(I.checkedSourceTables(spec, ['main.s.orders', 'main.s.returns', 'main.s.items']), ['main.s.orders_v2', 'main.s.items', 'main.s.orders']);
+  assert.deepEqual(I.checkedSourceTables({}, ['main.s.items', 'MAIN.S.ITEMS']), ['main.s.items']);
+  assert.deepEqual(I.checkedSourceTables({ data: { tables: { 'main.s.a': 'main.s.b', 'main.s.c': 'main.s.b' } } }, ['main.s.a', 'main.s.c']),
+    ['main.s.b', 'main.s.a', 'main.s.c']);
+  assert.deepEqual(I.checkedSourceTables(null, null), []);
+});
+
 test('a probe error counts as a lost table only when it says so and names that table\'s catalog', () => {
   const t = 'main.s.returns';
   assert.equal(I.tableAccessReason(t, '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`s`.`returns` cannot be found.'), 'not found');

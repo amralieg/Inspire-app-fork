@@ -315,6 +315,38 @@ export function restoreTable(spec, table) {
   return { ...spec, data: { ...spec.data, removed_tables: (spec.data.removed_tables || []).filter((r) => !sameTable(r, table)) } };
 }
 
+export function clearedText(cleared) {
+  const parts = [];
+  if (cleared?.roles?.length) parts.push(`its column roles (${cleared.roles.map((r) => r.replace('_', ' ')).join(', ')})`);
+  if (cleared?.filters) parts.push(`${cleared.filters} filter(s) on it`);
+  return parts.join(' and ');
+}
+
+export function revertLostSwaps(spec, uc, missing) {
+  const reasonOf = (table) => (missing || []).find((m) => sameTable(m.table, table))?.reason;
+  let next = spec;
+  const reverted = [];
+  for (const original of tablesOf(uc)) {
+    if ((next.data.removed_tables || []).some((r) => sameTable(r, original))) continue;
+    const key = Object.keys(next.data.tables || {}).find((k) => sameTable(k, original));
+    const chosen = key ? next.data.tables[key] : '';
+    const reason = reasonOf(chosen);
+    if (!chosen || sameTable(chosen, original) || !reason || reasonOf(original)) continue;
+    const { spec: removed, cleared } = removeTable(next, key);
+    next = restoreTable(removed, key);
+    reverted.push({ original, chosen, reason, cleared });
+  }
+  return { spec: next, reverted };
+}
+
+export function revertedSwapsText(reverted) {
+  return (reverted || []).map((r) => {
+    const cleared = clearedText(r.cleared);
+    return `${r.chosen} is missing or not readable (${r.reason}), so this version goes back to ${r.original}, the table Inspire picked`
+      + `${cleared ? `, and clears ${cleared}` : ''}.`;
+  }).concat(reverted?.length ? ['Use Change to pick another table.'] : []).join(' ');
+}
+
 export function removalBlocker(uc, spec, table) {
   if (sameTable(table, primaryTableOf(uc))) return 'the primary table can be swapped, not removed';
   const removed = spec.data.removed_tables || [];

@@ -690,6 +690,35 @@ test('the Implement page shows lost tables from a refused re-run first, else onl
   assert.equal(w.lostTablesText(undefined), '');
 });
 
+test('a rebuild that inherits a swap to a gone table goes back to the use case\'s own table, clears what pointed at the gone one, and says so', async () => {
+  const w = await load();
+  const uc = { primary_table: 'main.s.orders', tables_involved: 'main.s.orders,main.s.returns,main.s.items' };
+  const spec = w.defaultSpecFromUseCase({ ...UC, ...uc });
+  const inherited = { ...spec, data: { ...spec.data,
+    tables: { 'MAIN.S.RETURNS': 'main.s.returns_old', 'main.s.items': 'main.s.items_v2', 'main.s.orders': 'main.s.orders_v9' },
+    column_roles: { event_date: 'main.s.returns_old.returned_on', segment: 'main.s.items_v2.category' },
+    filters: [{ table: 'main.s.returns_old', column: 'reason', op: 'in', values: ['damaged'] }, { table: 'main.s.items_v2', column: 'kind', op: 'in', values: ['a'] }] } };
+  const lost = [{ table: 'main.s.returns_old', reason: 'not found' }, { table: 'main.s.orders_v9', reason: 'not found' }, { table: 'main.s.orders', reason: 'no read access' }];
+  const { spec: next, reverted } = w.revertLostSwaps(inherited, uc, lost);
+  assert.deepEqual(next.data.tables, { 'main.s.items': 'main.s.items_v2', 'main.s.orders': 'main.s.orders_v9' },
+    'the gone swap goes back; a live swap stays; a gone swap whose own table is gone too stays for the person to fix');
+  assert.deepEqual(next.data.column_roles, { segment: 'main.s.items_v2.category' });
+  assert.deepEqual(next.data.filters, [{ table: 'main.s.items_v2', column: 'kind', op: 'in', values: ['a'] }]);
+  assert.deepEqual(next.data.removed_tables, []);
+  assert.deepEqual(reverted, [{ original: 'main.s.returns', chosen: 'main.s.returns_old', reason: 'not found', cleared: { roles: ['event_date'], filters: 1 } }]);
+  assert.equal(w.revertedSwapsText(reverted), 'main.s.returns_old is missing or not readable (not found), so this version goes back to main.s.returns, '
+    + 'the table Inspire picked, and clears its column roles (event date) and 1 filter(s) on it. Use Change to pick another table.');
+  assert.equal(w.revertedSwapsText([{ original: 'a.b.c', chosen: 'a.b.d', reason: 'no read access', cleared: { roles: [], filters: 0 } }]),
+    'a.b.d is missing or not readable (no read access), so this version goes back to a.b.c, the table Inspire picked. Use Change to pick another table.');
+  assert.equal(w.revertedSwapsText([]), '');
+  const removedToo = { ...inherited, data: { ...inherited.data, removed_tables: ['main.s.returns'] } };
+  assert.deepEqual(w.revertLostSwaps(removedToo, uc, lost).reverted, [], 'a removed table is not brought back');
+  assert.equal(w.revertLostSwaps(inherited, uc, []).spec, inherited, 'with nothing lost the spec is untouched');
+  assert.equal(w.revertLostSwaps(inherited, uc, undefined).spec, inherited);
+  assert.equal(w.clearedText({ roles: ['event_date', 'segment'], filters: 2 }), 'its column roles (event date, segment) and 2 filter(s) on it');
+  assert.equal(w.clearedText({ roles: [], filters: 0 }), '');
+});
+
 test('Edit opens the wizard on the step it was asked for, and on Choose otherwise', async () => {
   const w = await load();
   assert.equal(w.initialStepIndex({ step: 'data' }), 1);

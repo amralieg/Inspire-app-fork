@@ -1232,6 +1232,69 @@ test('a dropped source table stops the re-run with its name, and Edit opens the 
   }
 });
 
+const GONE_OLD = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`s`.`returns_old` cannot be found. Verify the spelling. SQLSTATE: 42P01';
+const lostSwapVersions = () => {
+  const saved = builtSpec();
+  const spec = { ...saved, outputs: { ...saved.outputs, app_access: 'sp' }, data: { ...saved.data, tables: { 'main.s.returns': 'main.s.returns_old' } } };
+  return [
+    built({ spec_version: 2, status: 'failed', status_message: 'the preview cannot run', spec_json: JSON.stringify({ ...spec, data: { ...spec.data, notes: 'try again' } }) }),
+    built({ spec_json: JSON.stringify(spec) }),
+  ];
+};
+
+test('Edit of a version whose swapped table is gone goes back to the use case\'s own table, says so on the Data step, and Start builds on it', async () => {
+  const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' }, history: lostSwapVersions(),
+    probeErrors: { '`main`.`s`.`returns_old`': GONE_OLD } });
+  const { page, made } = ui;
+  try {
+    await toData(page);
+    const said = 'main.s.returns_old is missing or not readable (not found), so this version goes back to main.s.returns, the table Inspire picked. '
+      + 'Use Change to pick another table.';
+    await page.getByRole('dialog').getByText(said).waitFor();
+    const row = page.locator('[data-table="main.s.returns"]');
+    await row.getByText('main.s.returns', { exact: true }).waitFor();
+    assert.equal(await row.getByText('instead of', { exact: false }).count(), 0, 'the row shows the use case\'s own table');
+    assert.doesNotMatch(await row.getAttribute('class'), /border-error/);
+    await toDelivery(page);
+    await next(page);
+    await onStep(page, 'App access');
+    await next(page);
+    await onStep(page, 'App look');
+    await implementWhenReady(page);
+    await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
+    assert.deepEqual(submittedSpec(made).data.tables, {});
+    assert.equal(made.jobs.length, 1);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('Edit of a version whose swapped table and own table are both gone marks the table, and Start stays off with the table named', async () => {
+  const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' }, history: lostSwapVersions(),
+    probeErrors: { '`main`.`s`.`returns_old`': GONE_OLD, '`main`.`s`.`returns`': GONE } });
+  const { page, made } = ui;
+  try {
+    await toData(page);
+    await page.getByRole('dialog').getByText(lostTablesText([{ table: 'main.s.returns_old', reason: 'not found' }])).waitFor();
+    const row = page.locator('[data-table="main.s.returns"]');
+    await row.getByText('not found', { exact: true }).waitFor();
+    await page.getByLabel('Table to use for main.s.returns').waitFor();
+    await toDelivery(page);
+    await next(page);
+    await onStep(page, 'App access');
+    await next(page);
+    await onStep(page, 'App look');
+    const named = 'the preview cannot run because these source tables are missing or not readable: main.s.returns_old (not found).';
+    await page.waitForFunction((text) => [...document.querySelectorAll('[role="alert"] p')].some((p) => p.textContent.includes(text)), named, { timeout: 15000 });
+    assert.equal(await page.getByRole('button', { name: 'Start PoC/MVP', exact: true }).isDisabled(), true);
+    assert.equal(made.jobs.length, 0);
+    assert.equal(made.sqlCalls.some((c) => /INSERT INTO/.test(String(c.sql))), false);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('Use case details on the Implement page open the full use case in a drawer that closes with Escape and leaves the tabs alone', async () => {
   const ui = await openUi('implement', STUDIO_STATE);
   const { page } = ui;
