@@ -1162,7 +1162,7 @@ export function withFreshness(spec, id) {
   return { ...spec, schedule: { ...spec.schedule, enabled: true, cron: option.cron } };
 }
 
-export const IMPLEMENT_ACTIVE_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs'];
+export const IMPLEMENT_ACTIVE_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs', 'checking'];
 
 export function versionActive(latest, stalled = null) {
   return IMPLEMENT_ACTIVE_STATUSES.includes(String(latest?.status || '')) && !stalled;

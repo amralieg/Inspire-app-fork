@@ -4236,6 +4236,7 @@
       "filling",
       "previewing",
       "building_outputs",
+      "checking",
       "ready",
       "ready_with_warnings",
       "failed"

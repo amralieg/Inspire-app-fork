@@ -196,6 +196,7 @@ export function removeChanges(latest, output) {
 }
 
 const DONE = ['ready', 'ready_with_warnings'];
+const BUILD_STEP = { queued: 0, checking: 2 };
 const WARNING_START = /; (?=[A-Z][A-Za-z ]{0,40}: )/;
 const savedVibes = (row, id) => String(row?.spec_json?.outputs?.[vibesKey(id)] ?? '').trim();
 
@@ -316,7 +317,7 @@ export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
     return {
       id, output, name: '', versions: [], warnings: [], ...fields, live: liveAt(version), url: urlOf(output),
       what: String(entry?.what ?? entry?.description ?? '').trim() || ASSET_WHAT[kind], noun: ASSET_NOUNS[kind],
-      checks, checkedOn, state: assetPill(entry, checks, rebuilding), building: rebuilding ? { step: latest.status === 'queued' ? 0 : 1, asks, rollback } : null,
+      checks, checkedOn, state: assetPill(entry, checks, rebuilding), building: rebuilding ? { step: BUILD_STEP[latest.status] ?? 1, asks, rollback } : null,
     };
   };
   const parts = (output) => Object.entries(base.asset_status || {})

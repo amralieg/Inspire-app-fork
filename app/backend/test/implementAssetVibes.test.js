@@ -384,6 +384,9 @@ test('while a version builds, the assets it rebuilds read Rebuilding with the as
   assert.deepEqual([page.app, page['app:page:detail'], page[CHART], page.dashboard], ['Ready', 'Ready', 'Ready with warnings', 'Ready'], 'nothing else changes');
   const queued = states(building({ retry_outputs: [CHART], retry_asks: { [CHART]: ['A map by region'] } }, {}, { status: 'queued' }));
   assert.equal(queued[CHART], 'Rebuilding 0 1', 'Try again reads only the missing ask');
+  const checking = states(building({ retry_outputs: [PAGE] }, { [`${PAGE}_vibes`]: 'Rows first, then a map by region and a filter' }, { status: 'checking' }));
+  assert.equal(checking[PAGE], 'Rebuilding 2 3', 'while the notebook checks the asks, the third step is the one running');
+  assert.equal(checking[CHART], 'Ready with warnings', 'checking one asset leaves the others as they were');
   const wholeApp = states(building({}, { app_vibes: 'Dark header' }));
   assert.deepEqual([wholeApp.app, wholeApp[PAGE], wholeApp['app:page:detail'], wholeApp.alert], ['Rebuilding 1 1', 'Rebuilding 1 0', 'Rebuilding 1 0', 'Ready'],
     'new App vibes rebuild the App and its pages');

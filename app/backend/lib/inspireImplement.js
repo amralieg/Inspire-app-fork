@@ -3,8 +3,8 @@ const { IMPLEMENT_RUN_ID_PARAM } = require('./inspireJobParams');
 
 const IMPLEMENT_OPERATION = 'Implement Use Cases';
 const IMPLEMENT_TABLE = '__inspire_implement';
-const IMPLEMENT_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs', 'ready', 'ready_with_warnings', 'failed'];
-const IMPLEMENT_ACTIVE_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs'];
+const IMPLEMENT_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs', 'checking', 'ready', 'ready_with_warnings', 'failed'];
+const IMPLEMENT_ACTIVE_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs', 'checking'];
 const IMPLEMENT_DONE_STATUSES = ['ready', 'ready_with_warnings'];
 const IMPLEMENT_OUTPUTS = ['dashboard', 'genie_space', 'app', 'alert'];
 const IMPLEMENT_OUTPUT_LABELS = { dashboard: 'Dashboard', genie_space: 'Genie Agent', app: 'App', alert: 'Alert' };
