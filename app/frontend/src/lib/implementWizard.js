@@ -567,9 +567,10 @@ export function specFromLatest(latest, fallback, assets = {}) {
 }
 
 export const ROLE_RULES = {
-  keyNameSuffixes: ['_id', '_key', '_sk', '_pk', '_fk', '_nk', '_code', '_no', '_num', '_number', '_ref', '_uuid', '_guid'],
+  keyNameSuffixes: ['_id', '_key', '_sk', '_pk', '_fk', '_nk', '_code', '_no', '_num', '_number', '_ref', '_uuid', '_guid', '_zip', '_zipcode', '_postcode'],
   keyNamePrefixes: ['id_', 'fk_', 'sk_', 'pk_'],
   genericKeyNames: ['code', 'fk', 'guid', 'id', 'key', 'nk', 'no', 'num', 'number', 'pk', 'record_id', 'ref', 'row_id', 'rowid', 'sk', 'uuid'],
+  codeNames: ['postcode', 'zip', 'zipcode'],
   concatKeySuffixes: ['id', 'key', 'sk', 'code', 'num', 'number'],
   textNameTokens: ['text', 'comment', 'review', 'description', 'desc', 'note', 'feedback', 'transcript', 'body', 'message', 'title',
     'subject', 'content', 'reason', 'summary', 'narrative', 'remark'],
@@ -595,7 +596,7 @@ export function isKeyLikeColumn(name) {
   const raw = String(name || '').trim();
   const low = raw.toLowerCase();
   if (!low) return false;
-  if (ROLE_RULES.genericKeyNames.includes(low) || ROLE_RULES.keyNameSuffixes.some((s) => low.endsWith(s))
+  if (ROLE_RULES.genericKeyNames.includes(low) || ROLE_RULES.codeNames.includes(low) || ROLE_RULES.keyNameSuffixes.some((s) => low.endsWith(s))
     || ROLE_RULES.keyNamePrefixes.some((p) => low.startsWith(p))) return true;
   if (CAMEL_KEY_NAME_RE.test(raw)) return true;
   return ROLE_RULES.concatKeySuffixes.some((s) => low.endsWith(s) && low.length - s.length >= 4 && /^[a-z]+$/.test(low.slice(0, -s.length)));

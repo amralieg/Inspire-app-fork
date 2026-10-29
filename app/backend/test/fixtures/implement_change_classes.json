@@ -6995,7 +6995,10 @@
       "_number",
       "_ref",
       "_uuid",
-      "_guid"
+      "_guid",
+      "_zip",
+      "_zipcode",
+      "_postcode"
     ],
     "key_name_prefixes": [
       "id_",
@@ -7020,6 +7023,11 @@
       "rowid",
       "sk",
       "uuid"
+    ],
+    "code_names": [
+      "postcode",
+      "zip",
+      "zipcode"
     ],
     "concat_key_suffixes": [
       "id",
@@ -7178,6 +7186,41 @@
         "role": "segment",
         "column": "d_date",
         "type": "DATE",
+        "date_key": false,
+        "fits": false
+      },
+      {
+        "role": "measure",
+        "column": "pickup_zip",
+        "type": "INT",
+        "date_key": false,
+        "fits": false
+      },
+      {
+        "role": "label",
+        "column": "store_postcode",
+        "type": "INT",
+        "date_key": false,
+        "fits": false
+      },
+      {
+        "role": "entity_id",
+        "column": "pickup_zip",
+        "type": "INT",
+        "date_key": false,
+        "fits": true
+      },
+      {
+        "role": "segment",
+        "column": "zip",
+        "type": "INT",
+        "date_key": false,
+        "fits": true
+      },
+      {
+        "role": "measure",
+        "column": "zip",
+        "type": "INT",
         "date_key": false,
         "fits": false
       }

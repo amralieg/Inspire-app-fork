@@ -989,6 +989,7 @@ test('the wizard judges column roles by the rules and cases the agent shares', a
   assert.deepEqual(w.ROLE_RULES.keyNameSuffixes, rules.key_name_suffixes);
   assert.deepEqual(w.ROLE_RULES.keyNamePrefixes, rules.key_name_prefixes);
   assert.deepEqual(w.ROLE_RULES.genericKeyNames, rules.generic_key_names);
+  assert.deepEqual(w.ROLE_RULES.codeNames, rules.code_names);
   assert.deepEqual(w.ROLE_RULES.concatKeySuffixes, rules.concat_key_suffixes);
   assert.deepEqual(w.ROLE_RULES.textNameTokens, rules.text_name_tokens);
   assert.deepEqual(w.ROLE_RULES.personNameTokens, rules.person_name_tokens);
