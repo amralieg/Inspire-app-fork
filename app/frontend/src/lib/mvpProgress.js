@@ -263,6 +263,25 @@ export function feedTypesOut(item) {
   return ['message', 'stopped', 'error'].includes(String(item?.kind || ''));
 }
 
+const newestOf = (feed) => feed.reduce((most, item) => {
+  const at = Date.parse(item?.until || item?.at || '');
+  return Number.isFinite(at) && at > most ? at : most;
+}, -Infinity);
+
+const buildOf = (status) => {
+  const latest = status?.latest || {};
+  return [latest.session_id, latest.use_case_id, latest.spec_version, latest.implement_run_id].map((v) => String(v ?? '')).join('|');
+};
+
+export function steadyFeed(previous, next) {
+  const before = previous?.feed;
+  const after = next?.feed;
+  if (!next || !Array.isArray(before) || !before.length || buildOf(previous) !== buildOf(next)) return next;
+  const list = Array.isArray(after) ? after : [];
+  if (list.length >= before.length && newestOf(list) >= newestOf(before)) return next;
+  return { ...next, feed: before };
+}
+
 export function feedArrivals(previous, feed, at) {
   const next = new Map(previous || []);
   for (const item of Array.isArray(feed) ? feed : []) {

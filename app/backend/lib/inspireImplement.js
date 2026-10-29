@@ -1660,12 +1660,17 @@ function genieFeedItem(body, id) {
   return { kind: 'note', text: other[1].replace(new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: `), '').trim() };
 }
 
+function finishedLines(text) {
+  const value = str(text);
+  return value.endsWith('\n') ? value : value.slice(0, value.lastIndexOf('\n') + 1);
+}
+
 function genieFeed(text, useCaseId, since = '') {
   const id = str(useCaseId);
   const sinceMs = Date.parse(str(since));
   const floor = Number.isFinite(sinceMs) ? Math.floor(sinceMs / 1000) * 1000 : 0;
   const items = [];
-  for (const line of useCaseLogLines(text, id)) {
+  for (const line of useCaseLogLines(finishedLines(text), id)) {
     const parts = LOG_LINE_RE.exec(line.replace(/\r$/, ''));
     if (!parts) continue;
     const at = `${parts[1]}T${parts[2]}Z`;

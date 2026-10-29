@@ -771,6 +771,37 @@ const stepRow = (phase, status, time) => ({
 
 const genieLogLine = (second, words) => `2026-10-26 10:${String(Math.floor(second / 60)).padStart(2, '0')}:${String(second % 60).padStart(2, '0')}`
   + ` - inspire - INFO - [GENIE N01-U01] [build] Genie: ${words}`;
+const logText = (lines) => `${lines.join('\n')}\n`;
+
+test('while Genie builds, a log read mid-copy never empties the message box or shows cut-off words', async () => {
+  const said = (i) => `Check ${i}: I profiled the pickup zones and the hourly demand before the forecast.`;
+  const first = Array.from({ length: 6 }, (_, i) => genieLogLine(i, said(i)));
+  const building = built({ status: 'building_outputs', status_message: 'building outputs', implement_run_id: '5555555555555555', updated_at: new Date().toISOString() });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [building], liveLog: logText(first),
+    implementRun: { run_id: 5555555555555555, state: { life_cycle_state: 'RUNNING' } } });
+  const { page, made } = ui;
+  const box = page.getByRole('log', { name: "Genie's messages" });
+  const polled = () => page.waitForResponse((r) => r.url().includes('/api/inspire/implement/status'), { timeout: 20000 });
+  const twoPolls = async () => { await polled(); await polled(); await page.waitForTimeout(300); };
+  try {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await box.getByText(said(5)).waitFor();
+    made.state.liveLog = '';
+    await twoPolls();
+    for (let i = 0; i < 6; i += 1) assert.ok((await box.innerText()).includes(said(i)), `an empty read keeps message ${i}`);
+    const next = genieLogLine(20, 'Next I am writing the forecast table and its confidence band.');
+    made.state.liveLog = `${logText(first)}${next.slice(0, next.length - 25)}`;
+    await twoPolls();
+    const text = await box.innerText();
+    assert.ok(text.includes(said(5)), 'a cut-off read keeps what was there');
+    assert.ok(!text.includes('Next I am writing'), 'the line the agent is still writing waits for the next poll');
+    made.state.liveLog = logText([...first, next]);
+    await box.getByText('Next I am writing the forecast table and its confidence band.').waitFor({ timeout: 20000 });
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
 
 test('the Progress tab keeps Genie\'s messages in a tall box the person can drag taller, that scrolls as they arrive, types them out, and never shows log lines or JSON', async () => {
   const said = (i) => `Step ${i}: I'm checking the notebook instructions and the Databricks workflow before I build the dashboard.`;
@@ -780,7 +811,7 @@ test('the Progress tab keeps Genie\'s messages in a tall box the person can drag
   const building = built({ status: 'building_outputs', status_message: 'building outputs', implement_run_id: '5555555555555555', updated_at: new Date().toISOString() });
   const steps = [stepRow('Plan', 'ended_success', '10:01:00'), stepRow('Instruction', 'started', '10:01:05'),
     stepRow('Instruction', 'ended_success', '10:03:50'), stepRow('Genie build', 'started', '10:04:05')];
-  const ui = await openUi('implement', { ...STUDIO_STATE, history: [building], liveLog: first.join('\n'), steps,
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [building], liveLog: logText(first), steps,
     implementRun: { run_id: 5555555555555555, state: { life_cycle_state: 'RUNNING' } } });
   const { page, made } = ui;
   const box = page.getByRole('log', { name: "Genie's messages" });
@@ -809,7 +840,7 @@ test('the Progress tab keeps Genie\'s messages in a tall box the person can drag
     assert.ok(before.gap < 48, 'the box opens on the latest message');
 
     const later = Array.from({ length: 12 }, (_, i) => genieLogLine(40 + i, `Now wiring tile ${i} of the Drivers page with its own query and a short caption.`));
-    made.state.liveLog = [...first, ...later].join('\n');
+    made.state.liveLog = logText([...first, ...later]);
     await page.locator('[data-genie-feed] .animate-cursor-blink').waitFor({ timeout: 20000 });
     await box.getByText('Now wiring tile 11 of the Drivers page with its own query and a short caption.').waitFor({ timeout: 30000 });
     const after = await metrics();

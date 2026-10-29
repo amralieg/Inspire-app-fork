@@ -191,7 +191,7 @@ test('the Implement page progress shows only the steps of the latest version', a
 });
 
 test('the Genie feed reads the log of the run building the latest version, so another run of the session never replaces it', async () => {
-  const note = (text) => `2026-10-28 04:55:00 - DatabricksInspire - INFO - [IMPLEMENT N01-U01] ${text}`;
+  const note = (text) => `2026-10-28 04:55:00 - DatabricksInspire - INFO - [IMPLEMENT N01-U01] ${text}\n`;
   const history = [{ spec_version: 2, status: 'building_outputs', spec_json: SPEC, use_case_id: 'N01-U01', implement_run_id: '111122223333444',
     created_at: '2026-10-28T04:50:00Z', updated_at: new Date().toISOString() }];
   const notes = (got) => got.data.feed.filter((item) => item.kind === 'note').map((item) => item.text);
@@ -217,6 +217,19 @@ test('the Genie feed reads the log of the run building the latest version, so an
     const got = await call(url, `/api/inspire/implement/status?${Q}`);
     assert.equal(got.status, 200);
     assert.deepEqual(got.data.feed, []);
+  });
+  const cut = { 'log_implement_111122223333444.log': `${note('this run')}${note('this run is building the dashboard').slice(0, 90)}` };
+  await withApp({ history, liveLogs: cut }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/status?${Q}`);
+    assert.deepEqual(notes(got), ['this run'], 'a line the agent is still writing is left for the next poll');
+  });
+  const ended = { ...logs, 'log_implement_111122223333444.log': new TypeError('terminated') };
+  await withApp({ history, liveLogs: ended }, async (url, made) => {
+    const got = await call(url, `/api/inspire/implement/status?${Q}`);
+    assert.equal(got.status, 200, `a log read that ends early never fails the status: ${JSON.stringify(got.data)}`);
+    assert.deepEqual(got.data.feed, []);
+    assert.equal(got.data.latest.spec_version, 2, 'the rest of the status still arrives');
+    assert.ok(!made.fetches.some((f) => f.path.endsWith('/log.log')), 'a run log that ended early is not swapped for the session log');
   });
 });
 

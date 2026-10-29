@@ -531,6 +531,18 @@ test('the Genie feed carries Genie\'s own words, folds commands and edits, and n
   assert.deepEqual(I.genieFeed(text, ''), []);
 });
 
+test('the Genie feed shows only lines the agent finished writing, so a log read mid-copy never shows cut-off words', () => {
+  const done = `${logLine('10:05:01', '[GENIE N01-U01] [build] Genie: I checked the trips table.')}\n`;
+  const said = logLine('10:05:02', '[GENIE N01-U01] [build] Genie: Next I am profiling the pickup zones and their hourly demand.');
+  const words = (text) => I.genieFeed(text, 'N01-U01').map((item) => item.text);
+  for (const cut of [20, 70, 120, said.length - 30, said.length]) {
+    assert.deepEqual(words(done + said.slice(0, cut)), ['I checked the trips table.'], `cut at ${cut}`);
+  }
+  assert.deepEqual(words(`${done}${said}\n`), ['I checked the trips table.', 'Next I am profiling the pickup zones and their hourly demand.']);
+  assert.deepEqual(words(said.slice(0, 80)), [], 'a file holding only part of its first line shows nothing yet');
+  assert.deepEqual(words(`${done}\r\n`), ['I checked the trips table.']);
+});
+
 test('a Genie message is its words, a stop is its reason, and a cut-off JSON message still reads', () => {
   assert.deepEqual(I.genieMessage('I am  checking\nthe notebook'), { kind: 'message', text: 'I am checking the notebook' });
   assert.deepEqual(I.genieMessage('Stopped: History covers 0 windows'), { kind: 'stopped', text: 'History covers 0 windows' });

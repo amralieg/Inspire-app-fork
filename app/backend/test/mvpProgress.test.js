@@ -246,6 +246,35 @@ test('messages already there when the page opens show at once; later ones type o
   assert.equal(typingSchedule(null, null).end, 0);
 });
 
+test('a poll that read the log mid-copy never takes messages off the screen, and a new build or a growing log always shows', async () => {
+  const { steadyFeed } = await lib('mvpProgress.js');
+  const latest = { session_id: '42', use_case_id: 'N01-U01', spec_version: 3, implement_run_id: '777' };
+  const feed = [
+    { at: '2026-10-29T22:40:00Z', kind: 'message', text: 'I checked the trips table.' },
+    { at: '2026-10-29T22:40:05Z', kind: 'activity', commands: 4, failed: 0, files: [], until: '2026-10-29T22:41:00Z' },
+  ];
+  const shown = { latest, feed };
+  for (const [name, read] of [['empty', []], ['missing', undefined], ['shorter', feed.slice(0, 1)],
+    ['older', [feed[0], { ...feed[1], commands: 2, until: '2026-10-29T22:40:30Z' }]]]) {
+    const next = { latest: { ...latest }, feed: read, steps: ['fresh'] };
+    const kept = steadyFeed(shown, next);
+    assert.equal(kept.feed, feed, `${name} read keeps the messages already shown`);
+    assert.deepEqual(kept.steps, ['fresh'], `${name} read still takes the rest of the poll`);
+  }
+  const grown = [...feed, { at: '2026-10-29T22:41:10Z', kind: 'message', text: 'Building the dashboard now.' }];
+  assert.equal(steadyFeed(shown, { latest, feed: grown }).feed, grown, 'a longer log shows');
+  const merged = [feed[0], { ...feed[1], commands: 6, until: '2026-10-29T22:41:20Z' }];
+  assert.equal(steadyFeed(shown, { latest, feed: merged }).feed, merged, 'more commands folded into the last row show');
+  for (const [name, other] of [['version', { spec_version: 4 }], ['run', { implement_run_id: '888' }], ['use case', { use_case_id: 'N02-U01' }], ['session', { session_id: '43' }]]) {
+    const next = { latest: { ...latest, ...other }, feed: [] };
+    assert.equal(steadyFeed(shown, next), next, `another ${name} starts from its own log`);
+  }
+  const first = { latest, feed: [] };
+  assert.equal(steadyFeed(null, first), first);
+  assert.equal(steadyFeed({ latest, feed: [] }, first), first);
+  assert.equal(steadyFeed(shown, null), null);
+});
+
 test('the Progress tab shows the stepper and Genie\'s scrolling messages, never raw log lines or JSON', () => {
   const fs = require('node:fs');
   const src = (p) => fs.readFileSync(path.resolve(__dirname, '..', '..', 'frontend', 'src', p), 'utf8');

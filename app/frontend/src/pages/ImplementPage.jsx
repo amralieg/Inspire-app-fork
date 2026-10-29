@@ -32,7 +32,7 @@ import {
   globalVibeChanges, implementDefaultTab, keptVersions, lastVibe, liveVersion, missingAsks, removeChanges, removeKeptChanges, tryAgainChanges, uninstallChanges,
   vibeCards, vibeChanges, vibeOutputs, rollbackChanges,
 } from '../lib/implementControl';
-import { mvpStages, mvpProgressSummary, mvpRepairOf, feedArrivals } from '../lib/mvpProgress';
+import { mvpStages, mvpProgressSummary, mvpRepairOf, feedArrivals, steadyFeed } from '../lib/mvpProgress';
 import MvpProgress from '../components/MvpProgress';
 import GenieFeed from '../components/GenieFeed';
 import MoneyReview, { NothingToActCard } from '../components/MoneyReview';
@@ -715,7 +715,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
 
   const loadStatus = useCallback(async () => {
     const data = await apiFetch(`/api/inspire/implement/status?${qBase}&use_case_id=${encodeURIComponent(useCaseId)}`);
-    setStatus(data);
+    setStatus((prev) => steadyFeed(prev, data));
     setArrivals((prev) => feedArrivals(prev, data.feed, Date.now()));
   }, [apiFetch, qBase, useCaseId]);
 

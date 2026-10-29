@@ -843,11 +843,15 @@ function registerImplementRoutes(app, deps) {
       const sessionLog = I.liveLogPath(`${catalog}.${schema}`, session?.business_name, sid);
       let logPath = runLog;
       let feed = [];
+      const readLog = (path) => jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/fs/files${path}`).catch((err) => {
+        console.warn(`[implement] live log read ended early, the feed keeps its last messages: ${path}: ${err.message}`);
+        return { ok: false, status: 0, data: {} };
+      });
       if (runLog) {
-        let got = await jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/fs/files${runLog}`);
+        let got = await readLog(runLog);
         if (!got.ok && got.status === 404 && runLog !== sessionLog) {
           logPath = sessionLog;
-          got = await jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/fs/files${sessionLog}`);
+          got = await readLog(sessionLog);
         }
         if (got.ok) {
           const text = typeof got.data === 'string' ? got.data : (got.data.raw || '');

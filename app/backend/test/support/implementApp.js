@@ -137,6 +137,7 @@ function makeApp(overrides = {}, { mount } = {}) {
       if (path.includes('/serving-endpoints')) return json({ endpoints: [{ name: 'databricks-meta-llama-3-3-70b-instruct' }] });
       if (path.includes('/fs/files') && state.liveLogs) {
         const log = state.liveLogs[path.split('/').pop()];
+        if (log instanceof Error) return { ok: true, status: 200, text: async () => { throw log; } };
         return log === undefined ? json('raw', 404) : json(log);
       }
       if (path.includes('/fs/files')) return state.liveLog === undefined ? json('raw', 404) : json(state.liveLog);
