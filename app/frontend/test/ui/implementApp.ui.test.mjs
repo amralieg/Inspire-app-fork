@@ -390,6 +390,11 @@ test('every wizard step fits a 1440x900 screen with nothing to scroll, the App s
     await page.getByRole('region', { name: 'Where the result table lives' }).getByLabel('Catalog').locator('option[value="main"]').waitFor({ state: 'attached' });
     await fits('3-results');
     await readable('results');
+    const holdout = page.getByRole('group', { name: 'Measure impact' }).getByRole('checkbox', { name: /^Hold back a share of records/ });
+    await holdout.check();
+    await fits('3-results-holdout');
+    await readable('results with the holdout on');
+    await holdout.uncheck();
     await next(page);
     await onStep(page, 'Delivery');
     for (const name of [/^App /, /^Alert/]) await page.getByRole('checkbox', { name }).check();

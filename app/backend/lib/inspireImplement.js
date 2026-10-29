@@ -15,7 +15,9 @@ const IMPLEMENT_OUTPUT_ID_COLUMNS = { dashboard: 'dashboard_id', genie_space: 'g
 const IMPLEMENT_STOPPED_STATES = ['deleted', 'released'];
 const IMPLEMENT_RUN_ENDED_STATES = ['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR'];
 const IMPLEMENT_STALE_AFTER_MS = 4 * 3600 * 1000;
-const IMPLEMENT_CHANGE_CLASSES = ['initial', 'data', 'config', 'schedule', 'outputs', 'deselect', 'sharing', 'retry', 'rollback'];
+const IMPLEMENT_CHANGE_CLASSES = ['initial', 'data', 'config', 'schedule', 'holdout', 'outputs', 'deselect', 'sharing', 'retry', 'rollback'];
+const IMPLEMENT_HOLDOUT_SHARE = 0.1;
+const IMPLEMENT_HOLDOUT_MAX_SHARE = 0.5;
 const IMPLEMENT_RUN_PROFILES = ['preview', 'full'];
 const IMPLEMENT_FILTER_OPS = ['=', '!=', '>', '>=', '<', '<=', 'in', 'not in', 'between'];
 const IMPLEMENT_COLUMN_ROLES = ['entity_id', 'event_date', 'measure', 'label', 'segment'];
@@ -26,7 +28,7 @@ const IMPLEMENT_PART_STATES = ['ready', 'ready_with_warnings', 'failed'];
 const IMPLEMENT_OUTPUT_OPTIONS = {
   dashboard: ['dashboard_name', 'dashboard_filters', 'dashboard_vibes'],
   genie_space: ['genie_space_name', 'genie_questions', 'genie_space_vibes'],
-  app: ['app_purpose', 'app_access', 'app_look', 'app_options', 'app_backend', 'app_vibes'],
+  app: ['app_purpose', 'app_access', 'app_look', 'app_options', 'app_backend', 'app_vibes', 'app_owners'],
   alert: ['alert_name', 'alert_tiers', 'alert_operator', 'alert_threshold', 'alert_threshold_basis', 'alert_condition_text',
     'alert_recipients', 'alert_destinations', 'alert_vibes'],
 };
@@ -46,6 +48,8 @@ const IMPLEMENT_ALERT_OPERATORS = ['>=', '>', '=', '!=', '<', '<='];
 const IMPLEMENT_ALERT_THRESHOLD_BASES = ['fixed', 'baseline'];
 const IMPLEMENT_ALERT_BASELINE_DIRECTIONS = { '>=': '+', '>': '+', '<=': '-', '<': '-' };
 const IMPLEMENT_ALERT_MAX_SUBSCRIBERS = 100;
+const IMPLEMENT_APP_OWNERS_MAX = 50;
+const IMPLEMENT_EMAIL_MAX_CHARS = 254;
 const IMPLEMENT_NOTEBOOK_TASK_KEY = 'inspire_task';
 const IMPLEMENT_PRINCIPAL_TYPES = ['user', 'group', 'service_principal'];
 const IMPLEMENT_USE_CASE_PARAM = 'inspire_implement_use_case';
@@ -413,6 +417,7 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
     else if (!emails.some((e) => e.toLowerCase() === email.toLowerCase())) emails.push(email);
   }
   out.schedule = { enabled, cron, timezone: textField(schedule.timezone, 'schedule.timezone', errors) || 'UTC', failure_emails: emails };
+  if (spec.holdout != null) out.holdout = holdoutSetting(spec.holdout, errors);
 
   const outputs = objectField(spec.outputs, 'outputs', errors);
   const chosen = {};
@@ -452,6 +457,7 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
     app_look: app.look,
     app_options: app.options,
     app_backend: app.backend,
+    app_owners: appOwners(outputs, chosen.app, errors),
     merge,
     ...alert.options,
     ...outputVibes(outputs, chosen, errors),
@@ -645,6 +651,37 @@ function alertOptions(given, on) {
   };
 }
 
+function holdoutSetting(raw, errors) {
+  const holdout = objectField(raw, 'holdout', errors);
+  const given = holdout.share;
+  let share = given == null || given === '' ? IMPLEMENT_HOLDOUT_SHARE : decimalNumber(given);
+  if (share == null || share <= 0 || share > IMPLEMENT_HOLDOUT_MAX_SHARE) {
+    errors.push(`holdout share ${shownValue(given)} must be a share above 0 and at most ${IMPLEMENT_HOLDOUT_MAX_SHARE}, such as `
+      + `${IMPLEMENT_HOLDOUT_SHARE} for ${Math.round(IMPLEMENT_HOLDOUT_SHARE * 100)}% of the records`);
+    share = IMPLEMENT_HOLDOUT_SHARE;
+  }
+  return { enabled: flagField(holdout.enabled, 'holdout.enabled', errors), share };
+}
+
+function implementHoldoutShare(holdout) {
+  return isPlainObject(holdout) && holdout.enabled === true ? Number(holdout.share) || 0 : 0;
+}
+
+function appOwners(outputs, on, errors) {
+  if (!on) return [];
+  const owners = [];
+  for (const raw of listField(outputs.app_owners, 'outputs.app_owners', errors)) {
+    const email = textValue(raw);
+    if (email === null || email.length > IMPLEMENT_EMAIL_MAX_CHARS || !IMPLEMENT_EMAIL_RE.test(email)) {
+      errors.push(`App owner ${shownValue(email === null ? raw : email)} is not an email address`);
+    } else if (!owners.some((o) => o.toLowerCase() === email.toLowerCase())) owners.push(email);
+  }
+  if (owners.length > IMPLEMENT_APP_OWNERS_MAX) {
+    errors.push(`an App can name at most ${IMPLEMENT_APP_OWNERS_MAX} owners, the people who may change its money at stake assumptions`);
+  }
+  return owners;
+}
+
 function appSettings(outputs, on, shell, errors, legacyAccess = '') {
   const look = { ...IMPLEMENT_APP_LOOK_DEFAULT };
   const options = Object.fromEntries(IMPLEMENT_APP_OPTION_KEYS.map((key) => [key, false]));
@@ -752,6 +789,7 @@ function classifyImplementChange(previous, current) {
   if (section(previous, 'sharing') !== section(current, 'sharing')) classes.add('sharing');
   if ((current.retry_outputs || []).length) classes.add('retry');
   if (Object.keys(current.rollback_outputs || {}).length) classes.add('rollback');
+  if (implementHoldoutShare(previous.holdout) !== implementHoldoutShare(current.holdout)) classes.add('holdout');
   return IMPLEMENT_CHANGE_CLASSES.filter((c) => classes.has(c));
 }
 
@@ -2022,6 +2060,11 @@ module.exports = {
   IMPLEMENT_ALERT_THRESHOLD_BASES,
   IMPLEMENT_ALERT_BASELINE_DIRECTIONS,
   IMPLEMENT_ALERT_MAX_SUBSCRIBERS,
+  IMPLEMENT_APP_OWNERS_MAX,
+  IMPLEMENT_EMAIL_MAX_CHARS,
+  IMPLEMENT_HOLDOUT_SHARE,
+  IMPLEMENT_HOLDOUT_MAX_SHARE,
+  implementHoldoutShare,
   IMPLEMENT_CONTRACT_OUTPUTS,
   IMPLEMENT_RUN_PROFILES,
   IMPLEMENT_MERGE_LABELS,

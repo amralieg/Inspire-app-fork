@@ -1593,6 +1593,21 @@ test('the control tower shows each asset live, stops the App through Inspire, an
   }
 });
 
+test('the control tower job row shows the share of records the built version holds back to measure impact', async () => {
+  const pocJob = { job_id: 77, settings: { tags: { dbx_inspire_ai_run_type: 'implement', dbx_inspire_ai_session_id: '42', dbx_inspire_ai_usecase_id: 'N01-U01' },
+    schedule: { quartz_cron_expression: '0 0 6 * * ?', timezone_id: 'UTC', pause_status: 'UNPAUSED' } } };
+  const held = built({ spec_json: JSON.stringify({ ...builtSpec(), holdout: { enabled: true, share: 0.15 } }) });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [held], job: pocJob, spacesOk: true, alertsOk: true });
+  const { page } = ui;
+  try {
+    const job = towerOf(page).locator('[data-control="job"]');
+    await job.getByText('Scheduled: 0 0 6 * * ? (UTC). Holds back 15% of the records to measure impact', { exact: true }).waitFor();
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('while its status loads, the Build page shows the built version from the rail, never an empty one', async () => {
   let release;
   const held = new Promise((resolve) => { release = resolve; });

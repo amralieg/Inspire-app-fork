@@ -1,5 +1,5 @@
 import {
-  BUILT_ASSET_STATES, IMPLEMENT_OUTPUTS, partLabel, partOf, rebuildableOutputs, statusChip, versionActive, vibesKey,
+  BUILT_ASSET_STATES, IMPLEMENT_OUTPUTS, holdoutText, partLabel, partOf, rebuildableOutputs, statusChip, versionActive, vibesKey,
 } from './implementWizard.js';
 import { formatWhen } from './formatWhen.js';
 
@@ -80,10 +80,14 @@ const OUTPUT_NAMES = { dashboard: (a) => a?.name, genie_space: (a) => a?.title, 
 function jobRow(entry, spec) {
   const scheduled = Boolean(spec?.schedule?.enabled);
   const schedule = { label: scheduled ? 'Pause the schedule' : 'Resume the schedule', on: scheduled };
-  if (!entry?.ok) return { ...unreadable(entry), schedule };
-  const plan = entry.schedule
+  const withHoldout = (detail) => [detail, holdoutText(spec)].filter(Boolean).join('. ');
+  if (!entry?.ok) {
+    const row = unreadable(entry);
+    return { ...row, detail: withHoldout(row.detail), schedule };
+  }
+  const plan = withHoldout(entry.schedule
     ? `${entry.schedule.paused ? 'Schedule paused' : 'Scheduled'}: ${entry.schedule.cron} (${entry.schedule.timezone})`
-    : 'No schedule';
+    : 'No schedule');
   const runs = entry.active_runs;
   if (runs == null) {
     return { state: { label: 'Runs unknown', tone: 'error' }, detail: `${plan}. Inspire cannot read its runs: ${entry.runs_error || 'no answer'}`, actions: [], schedule };

@@ -10,8 +10,8 @@ const CHOOSE_STEP = { id: 'choose', label: 'Choose', sections: [], advanced: [] 
 export const IMPLEMENT_STEPS = [
   CHOOSE_STEP,
   { id: 'data', label: 'Data', sections: ['use_case', 'data', 'configure'], advanced: ['use_case', 'data', 'configure'] },
-  { id: 'results', label: 'Results', sections: ['results'], advanced: [] },
-  { id: 'delivery', label: 'Delivery', sections: ['use_it', 'alert', 'schedule'], advanced: ['alert', 'schedule'] },
+  { id: 'results', label: 'Results', sections: ['results', 'holdout'], advanced: [] },
+  { id: 'delivery', label: 'Delivery', sections: ['use_it', 'app_owners', 'alert', 'schedule'], advanced: ['app_owners', 'alert', 'schedule'] },
 ];
 
 export const APP_STEPS = [
@@ -93,6 +93,17 @@ export const REPLACE_EDITS_CHOICES = [
 ];
 export const PER_USER_REASON = 'Each person signs in as themselves, so the App keeps every row inside their own access: '
   + 'it offers no recorded decisions, no alerts and no chart image export.';
+export const APP_OWNERS_MAX = 50;
+const APP_OWNER_MAX_CHARS = 254;
+export const APP_OWNERS_LABEL = 'App owners (comma separated)';
+export const APP_OWNERS_HELP = 'You can always change the money at stake assumptions in the App. Add the work emails of other people who may change them too.';
+
+export const HOLDOUT_SHARE_DEFAULT = 0.1;
+export const HOLDOUT_MIN_PERCENT = 1;
+export const HOLDOUT_MAX_PERCENT = 50;
+export const HOLDOUT_LABEL = 'Hold back a share of records to measure impact';
+export const HOLDOUT_BLURB = 'Inspire leaves the held-back records alone, so it can compare their results with the records people acted on.';
+export const HOLDOUT_PERCENT_PROBLEM = `the share of records to hold back must be ${HOLDOUT_MIN_PERCENT}% to ${HOLDOUT_MAX_PERCENT}%`;
 
 export const APP_LOOK_DEFAULT = { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' };
 export const APP_STYLES = [
@@ -454,6 +465,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
       app_look: { ...APP_LOOK_DEFAULT },
       app_options: Object.fromEntries(APP_OPTION_KEYS.map((key) => [key, false])),
       app_backend: '',
+      app_owners: [],
       app_vibes: '',
       merge: Object.fromEntries(MERGE_OUTPUTS.map((name) => [name, ''])),
       alert: false,
@@ -490,6 +502,7 @@ export function specFromLatest(latest, fallback, assets = {}) {
   for (const key of ['app_look', 'app_options', 'merge']) {
     outputs[key] = { ...fallback.outputs[key], ...(saved[key] && typeof saved[key] === 'object' && !Array.isArray(saved[key]) ? saved[key] : {}) };
   }
+  if (!Array.isArray(outputs.app_owners)) outputs.app_owners = fallback.outputs.app_owners;
   if (saved.app && assets?.app && !Object.prototype.hasOwnProperty.call(saved, 'app_access')) outputs.app_access = 'sp';
   if (saved.app && assets?.app && !Object.prototype.hasOwnProperty.call(saved, 'app_backend')) outputs.app_backend = 'delta';
   const idDefault = !assets?.app && outputs.app_name === idAppNameOf(fallback.use_case_id);
@@ -1046,6 +1059,8 @@ export function sectionErrors(section, spec, extras = {}) {
       }
     }
   }
+  if (section === 'holdout') errors.push(...holdoutProblems(spec));
+  if (section === 'app_owners' && spec.outputs.app) errors.push(...appOwnerProblems(spec.outputs.app_owners));
   if (section === 'alert' && spec.outputs.alert) {
     const recipients = spec.outputs.alert_recipients || [];
     const bad = recipients.filter((e) => !EMAIL_RE.test(String(e || '').trim()));
@@ -1149,6 +1164,68 @@ export function mergeTargetText(target) {
   const held = (target?.use_cases || []).map((u) => u.name || u.use_case_id);
   const shown = held.slice(0, 3).join(', ');
   return held.length > 3 ? `${shown} and ${held.length - 3} more` : shown;
+}
+
+export function splitList(text, separator) {
+  return String(text ?? '').split(separator).map((item) => item.trim()).filter(Boolean);
+}
+
+function appOwnerOk(email) {
+  const text = String(email ?? '').trim();
+  return text.length <= APP_OWNER_MAX_CHARS && EMAIL_RE.test(text);
+}
+
+function appOwnerProblems(owners) {
+  const list = Array.isArray(owners) ? owners : [];
+  const errors = [];
+  const bad = list.filter((e) => !appOwnerOk(e));
+  if (bad.length) errors.push(`App owners must be email addresses: ${bad.join(', ')}`);
+  if (new Set(list.filter(appOwnerOk).map((e) => String(e).trim().toLowerCase())).size > APP_OWNERS_MAX) {
+    errors.push(`name at most ${APP_OWNERS_MAX} App owners`);
+  }
+  return errors;
+}
+
+export function holdoutOf(spec) {
+  const holdout = spec?.holdout;
+  if (!holdout || typeof holdout !== 'object' || Array.isArray(holdout)) return { enabled: false, share: HOLDOUT_SHARE_DEFAULT };
+  return { enabled: holdout.enabled === true, share: holdout.share ?? HOLDOUT_SHARE_DEFAULT };
+}
+
+function holdoutPercent(share) {
+  if (share === '' || share == null || typeof share === 'boolean') return null;
+  const percent = Math.round(Number(share) * 10000) / 100;
+  return Number.isFinite(percent) ? percent : null;
+}
+
+function holdoutPercentOk(share) {
+  const percent = holdoutPercent(share);
+  return percent != null && percent >= HOLDOUT_MIN_PERCENT && percent <= HOLDOUT_MAX_PERCENT;
+}
+
+export function holdoutPercentText(spec) {
+  const percent = holdoutPercent(holdoutOf(spec).share);
+  return percent == null ? '' : String(percent);
+}
+
+export function withHoldout(spec, enabled) {
+  const { share } = holdoutOf(spec);
+  return { ...spec, holdout: { enabled: Boolean(enabled), share: holdoutPercentOk(share) ? Number(share) : HOLDOUT_SHARE_DEFAULT } };
+}
+
+export function withHoldoutPercent(spec, text) {
+  const typed = String(text ?? '').trim();
+  const number = Number(typed);
+  return { ...spec, holdout: { ...holdoutOf(spec), share: typed === '' || !Number.isFinite(number) ? '' : number / 100 } };
+}
+
+export function holdoutProblems(spec) {
+  return spec?.holdout == null || holdoutPercentOk(holdoutOf(spec).share) ? [] : [HOLDOUT_PERCENT_PROBLEM];
+}
+
+export function holdoutText(spec) {
+  const { enabled, share } = holdoutOf(spec);
+  return enabled && holdoutPercentOk(share) ? `Holds back ${holdoutPercent(share)}% of the records to measure impact` : '';
 }
 
 export function freshnessOf(schedule) {

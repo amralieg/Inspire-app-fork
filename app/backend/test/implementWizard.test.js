@@ -187,7 +187,7 @@ test('each Full PoC step runs the checks of every section it shows, and only tho
   assert.deepEqual(w.IMPLEMENT_STEPS.map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['results', 'Results'], ['delivery', 'Delivery']]);
   assert.deepEqual(w.APP_STEPS.map((s) => [s.id, s.label]), [['app_access', 'App access'], ['app_look', 'App look']]);
   const shown = [...w.IMPLEMENT_STEPS, ...w.APP_STEPS].flatMap((s) => s.sections);
-  assert.deepEqual([...shown].sort(), ['alert', 'app_access', 'app_look', 'configure', 'data', 'results', 'schedule', 'use_case', 'use_it']);
+  assert.deepEqual([...shown].sort(), ['alert', 'app_access', 'app_look', 'app_owners', 'configure', 'data', 'holdout', 'results', 'schedule', 'use_case', 'use_it']);
   for (const s of [...w.IMPLEMENT_STEPS, ...w.APP_STEPS]) assert.ok(s.advanced.every((a) => s.sections.includes(a)), s.id);
   const spec = w.defaultSpecFromUseCase(UC, { warehouseId: '', inspireDatabase: 'main.inspire' });
   const bad = { ...spec, use_case: { ...spec.use_case, decision_owner: '' }, schedule: { ...spec.schedule, enabled: true, cron: '0 0 25 * * ?' },

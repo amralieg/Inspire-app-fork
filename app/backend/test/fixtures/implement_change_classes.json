@@ -2384,6 +2384,392 @@
       "classes": [
         "outputs"
       ]
+    },
+    {
+      "name": "holdout turned on",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "holdout": {
+          "enabled": true,
+          "share": 0.1
+        }
+      },
+      "classes": [
+        "holdout"
+      ]
+    },
+    {
+      "name": "holdout sent but off is no change",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "holdout": {
+          "enabled": false,
+          "share": 0.25
+        }
+      },
+      "classes": []
+    },
+    {
+      "name": "holdout share raised",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "holdout": {
+          "enabled": true,
+          "share": 0.1
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "holdout": {
+          "enabled": true,
+          "share": 0.2
+        }
+      },
+      "classes": [
+        "holdout"
+      ]
+    },
+    {
+      "name": "holdout turned off",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "holdout": {
+          "enabled": true,
+          "share": 0.1
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": false,
+          "app_name": ""
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        },
+        "holdout": {
+          "enabled": false,
+          "share": 0.1
+        }
+      },
+      "classes": [
+        "holdout"
+      ]
+    },
+    {
+      "name": "app owners added",
+      "previous": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": true,
+          "app_name": "churn-desk",
+          "app_access": "user",
+          "app_look": {
+            "palette": "ocean",
+            "theme": "dark"
+          },
+          "app_owners": []
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "current": {
+        "use_case_id": "N01-U01",
+        "data": {
+          "tables": {},
+          "filters": [],
+          "run_profile": "preview",
+          "notes": ""
+        },
+        "config": {
+          "widgets": {
+            "top_k": "10"
+          },
+          "result_table": "",
+          "ai_endpoint": "",
+          "warehouse_id": "wh1"
+        },
+        "schedule": {
+          "enabled": false,
+          "cron": "0 0 6 ? * MON",
+          "timezone": "UTC"
+        },
+        "outputs": {
+          "dashboard": true,
+          "genie_space": false,
+          "app": true,
+          "app_name": "churn-desk",
+          "app_access": "user",
+          "app_look": {
+            "palette": "ocean",
+            "theme": "dark"
+          },
+          "app_owners": [
+            "a@b.co"
+          ]
+        },
+        "removed_outputs": {},
+        "sharing": {
+          "principals": []
+        }
+      },
+      "classes": [
+        "outputs"
+      ]
     }
   ],
   "columns": [
@@ -4276,6 +4662,7 @@
       "data",
       "config",
       "schedule",
+      "holdout",
       "outputs",
       "deselect",
       "sharing",
@@ -4322,7 +4709,8 @@
         "app_look",
         "app_options",
         "app_backend",
-        "app_vibes"
+        "app_vibes",
+        "app_owners"
       ],
       "alert": [
         "alert_name",

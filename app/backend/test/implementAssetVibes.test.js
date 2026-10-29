@@ -410,7 +410,8 @@ test('an output whose options an edit changed reads Rebuilding with its parts wh
   };
   const partsOf = { dashboard: ['dashboard', CHART], genie_space: ['genie_space'], app: ['app', PAGE, 'app:page:detail'], alert: ['alert'] };
   const changed = { dashboard_name: 'Churn board', dashboard_filters: ['region'], genie_space_name: 'Churn agent', genie_questions: ['Who left?'], app_purpose: 'Act on churn',
-    app_access: 'user', app_look: { style: 'b' }, app_options: { modify: true }, app_backend: 'lakebase', alert_name: 'Churn alert', alert_tiers: 'act_now_review',
+    app_access: 'user', app_look: { style: 'b' }, app_options: { modify: true }, app_backend: 'lakebase', app_owners: ['b@example.com'],
+    alert_name: 'Churn alert', alert_tiers: 'act_now_review',
     alert_operator: '>', alert_threshold: 9, alert_threshold_basis: 'baseline', alert_condition_text: 'more than nine', alert_recipients: ['b@example.com'],
     alert_destinations: [{ id: 'abcdef12', name: 'Ops' }], dashboard_vibes: 'x', genie_space_vibes: 'x', app_vibes: 'x', alert_vibes: 'x' };
   for (const name of I.IMPLEMENT_OUTPUTS) {

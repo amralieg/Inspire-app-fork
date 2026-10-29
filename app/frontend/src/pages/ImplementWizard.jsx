@@ -92,6 +92,18 @@ import {
   VIBES_HELP,
   VIBES_MAX,
   modelNameOf,
+  splitList,
+  APP_OWNERS_LABEL,
+  APP_OWNERS_HELP,
+  HOLDOUT_LABEL,
+  HOLDOUT_BLURB,
+  HOLDOUT_MIN_PERCENT,
+  HOLDOUT_MAX_PERCENT,
+  holdoutOf,
+  holdoutPercentText,
+  holdoutProblems,
+  withHoldout,
+  withHoldoutPercent,
 } from '../lib/implementWizard';
 
 const ICONS = { notebook: NotebookPen, dashboard: LayoutDashboard, genie_space: Sparkles, app: AppWindow, alert: Bell };
@@ -115,7 +127,20 @@ function Field({ label, children }) {
   );
 }
 
-const inputCls = 'w-full px-2.5 py-2 text-sm border border-border rounded-md bg-surface text-text-primary glow-focus';
+const inputBase = 'px-2.5 py-2 text-sm border border-border rounded-md bg-surface text-text-primary glow-focus';
+const inputCls = `w-full ${inputBase}`;
+
+function ListInput({ value, separator, onChange, multiline = false, ...props }) {
+  const list = Array.isArray(value) ? value : [];
+  const joined = list.join(separator === ',' ? ', ' : separator);
+  const [text, setText] = useState(joined);
+  const shown = JSON.stringify(splitList(text, separator)) === JSON.stringify(list) ? text : joined;
+  const change = (e) => {
+    setText(e.target.value);
+    onChange(splitList(e.target.value, separator));
+  };
+  return multiline ? <textarea {...props} value={shown} onChange={change} /> : <input {...props} value={shown} onChange={change} />;
+}
 
 function ProfileInput({ spec, path, onChange }) {
   const [section, name] = path.split('.');
@@ -946,16 +971,23 @@ export default function ImplementWizard({
         )}
 
         {stepId === 'results' && (
-          <ResultTableStep
-            parts={resultParts}
-            table={spec.config.result_table}
-            defaultTable={defaultSpecFromUseCase(ucRow, { inspireDatabase }).config.result_table}
-            catalogs={catalogs}
-            catalogsError={catalogsError}
-            schemas={schemas[resultParts.catalog]}
-            outputCheck={outputCheck}
-            onChange={(parts) => { setSpec((prev) => withResultTable(prev, parts)); setOutputCheck(null); }}
-          />
+          <>
+            <ResultTableStep
+              parts={resultParts}
+              table={spec.config.result_table}
+              defaultTable={defaultSpecFromUseCase(ucRow, { inspireDatabase }).config.result_table}
+              catalogs={catalogs}
+              catalogsError={catalogsError}
+              schemas={schemas[resultParts.catalog]}
+              outputCheck={outputCheck}
+              onChange={(parts) => { setSpec((prev) => withResultTable(prev, parts)); setOutputCheck(null); }}
+            />
+            <HoldoutSetting
+              spec={spec}
+              onEnabled={(on) => setSpec((prev) => withHoldout(prev, on))}
+              onPercent={(text) => setSpec((prev) => withHoldoutPercent(prev, text))}
+            />
+          </>
         )}
 
         {stepId === 'delivery' && (
@@ -1110,20 +1142,24 @@ export default function ImplementWizard({
                 <div className="space-y-2">
                   <h4 className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Dashboard</h4>
                   <input className={inputCls} placeholder="Dashboard name" value={spec.outputs.dashboard_name} onChange={(e) => patch('outputs.dashboard_name', e.target.value)} />
-                  <input className={inputCls} placeholder="Filter widgets, comma separated" value={(spec.outputs.dashboard_filters || []).join(', ')} onChange={(e) => patch('outputs.dashboard_filters', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))} />
+                  <ListInput className={inputCls} placeholder="Filter widgets, comma separated" separator="," value={spec.outputs.dashboard_filters} onChange={(list) => patch('outputs.dashboard_filters', list)} />
                 </div>
               )}
               {spec.outputs.genie_space && (
                 <div className="space-y-2">
                   <h4 className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Genie Agent</h4>
                   <input className={inputCls} placeholder="Agent name" value={spec.outputs.genie_space_name} onChange={(e) => patch('outputs.genie_space_name', e.target.value)} />
-                  <textarea className={inputCls} rows={4} placeholder="Up to 5 questions, one per line" value={(spec.outputs.genie_questions || []).join('\n')} onChange={(e) => patch('outputs.genie_questions', e.target.value.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 5))} />
+                  <ListInput multiline className={inputCls} rows={4} placeholder="Up to 5 questions, one per line" separator={'\n'} value={spec.outputs.genie_questions} onChange={(list) => patch('outputs.genie_questions', list.slice(0, 5))} />
                 </div>
               )}
               {spec.outputs.app && (
                 <div className="space-y-2">
                   <h4 className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">App</h4>
                   <textarea className={inputCls} rows={3} placeholder="What the App should let people do" value={spec.outputs.app_purpose} onChange={(e) => patch('outputs.app_purpose', e.target.value)} />
+                  <Field label={APP_OWNERS_LABEL}>
+                    <ListInput className={inputCls} separator="," value={spec.outputs.app_owners} onChange={(list) => patch('outputs.app_owners', list)} />
+                  </Field>
+                  <p className="text-[11px] text-text-tertiary">{APP_OWNERS_HELP}</p>
                 </div>
               )}
               {spec.outputs.alert && (
@@ -1132,17 +1168,17 @@ export default function ImplementWizard({
                   <input className={inputCls} placeholder="Alert name" value={spec.outputs.alert_name} onChange={(e) => patch('outputs.alert_name', e.target.value)} />
                   <div className="flex flex-wrap items-center gap-2 text-[12px] text-text-secondary">
                     <span>Fire when</span>
-                    <select className={`${inputCls} w-auto`} value={spec.outputs.alert_tiers} onChange={(e) => patch('outputs.alert_tiers', e.target.value)}>
+                    <select className={`${inputBase} w-auto`} value={spec.outputs.alert_tiers} onChange={(e) => patch('outputs.alert_tiers', e.target.value)}>
                       {ALERT_TIER_OPTIONS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                     </select>
                     <span>rows in the latest run are</span>
-                    <select className={`${inputCls} w-auto`} value={spec.outputs.alert_operator} onChange={(e) => patch('outputs.alert_operator', e.target.value)}>
+                    <select className={`${inputBase} w-auto`} value={spec.outputs.alert_operator} onChange={(e) => patch('outputs.alert_operator', e.target.value)}>
                       {(spec.outputs.alert_threshold_basis === 'baseline' ? Object.keys(ALERT_BASELINE_DIRECTIONS) : ALERT_OPERATORS).map((op) => <option key={op} value={op}>{op}</option>)}
                     </select>
-                    <input type="number" min="0" step="1" className={`${inputCls} w-24`} value={spec.outputs.alert_threshold} onChange={(e) => patch('outputs.alert_threshold', e.target.value)} />
+                    <input type="number" min="0" step="1" className={`${inputBase} w-24`} value={spec.outputs.alert_threshold} onChange={(e) => patch('outputs.alert_threshold', e.target.value)} />
                     <span>compared with</span>
                     <select
-                      className={`${inputCls} w-auto`}
+                      className={`${inputBase} w-auto`}
                       value={spec.outputs.alert_threshold_basis || 'fixed'}
                       onChange={(e) => {
                         patch('outputs.alert_threshold_basis', e.target.value);
@@ -1163,11 +1199,7 @@ export default function ImplementWizard({
                     onChange={(e) => patch('outputs.alert_condition_text', e.target.value)}
                   />
                   <Field label="Email recipients (comma separated)">
-                    <input
-                      className={inputCls}
-                      value={(spec.outputs.alert_recipients || []).join(', ')}
-                      onChange={(e) => patch('outputs.alert_recipients', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
-                    />
+                    <ListInput className={inputCls} separator="," value={spec.outputs.alert_recipients} onChange={(list) => patch('outputs.alert_recipients', list)} />
                   </Field>
                   <div className="space-y-1">
                     <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">Slack, Teams and other destinations</span>
@@ -1211,11 +1243,7 @@ export default function ImplementWizard({
                   <input className={inputCls} value={spec.schedule.timezone} onChange={(e) => patch('schedule.timezone', e.target.value)} />
                 </Field>
                 <Field label="Failure emails (comma separated; default: the decision owner)">
-                  <input
-                    className={inputCls}
-                    value={(spec.schedule.failure_emails || []).join(', ')}
-                    onChange={(e) => patch('schedule.failure_emails', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
-                  />
+                  <ListInput className={inputCls} separator="," value={spec.schedule.failure_emails} onChange={(list) => patch('schedule.failure_emails', list)} />
                 </Field>
                 {trainsModel && (
                   <div className="grid grid-cols-2 gap-2">
@@ -1532,6 +1560,40 @@ function ResultTableStep({ parts, table, defaultTable, catalogs, catalogsError, 
       )}
       <p role="note" aria-label="Moving the result table" className="text-[11px] text-text-secondary">{RESULT_TABLE_MOVE_NOTE}</p>
     </section>
+  );
+}
+
+function HoldoutSetting({ spec, onEnabled, onPercent }) {
+  const { enabled } = holdoutOf(spec);
+  const problem = holdoutProblems(spec)[0] || '';
+  return (
+    <fieldset className="space-y-2" aria-label="Measure impact">
+      <legend className="text-sm font-semibold text-text-primary">Measure impact</legend>
+      <label className="flex items-start gap-2.5 cursor-pointer pt-1">
+        <input type="checkbox" className="mt-0.5" checked={enabled} onChange={(e) => onEnabled(e.target.checked)} />
+        <span className="text-[11px] text-text-secondary">
+          <span className="text-[12px] font-medium text-text-primary">{HOLDOUT_LABEL}</span>. {HOLDOUT_BLURB}
+        </span>
+      </label>
+      {enabled && (
+        <label className="ml-6 flex flex-wrap items-center gap-2 text-[12px] text-text-secondary">
+          Hold back
+          <input
+            type="number"
+            inputMode="numeric"
+            min={HOLDOUT_MIN_PERCENT}
+            max={HOLDOUT_MAX_PERCENT}
+            step="1"
+            aria-label="Share of records held back, in percent"
+            className={`${inputBase} w-20`}
+            value={holdoutPercentText(spec)}
+            onChange={(e) => onPercent(e.target.value)}
+          />
+          % of the records ({HOLDOUT_MIN_PERCENT} to {HOLDOUT_MAX_PERCENT}), picked at random and kept the same on every run
+        </label>
+      )}
+      {problem && <p className="ml-6 text-[11px] text-error-fg">{problem}</p>}
+    </fieldset>
   );
 }
 
