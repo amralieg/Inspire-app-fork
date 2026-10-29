@@ -879,6 +879,87 @@ test('an Implement page re-run checks the swapped table, skips removed ones, and
   });
 });
 
+const LOST_SWAP = { ...SPEC, data: { tables: { 'main.s.returns': 'main.s.returns_old' } } };
+const GONE_OLD = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`s`.`returns_old` cannot be found. Verify the spelling. SQLSTATE: 42P01';
+const LOST_HISTORY = [
+  BUILT({ spec_version: 2, status: 'failed', spec_json: JSON.stringify({ ...LOST_SWAP, data: { ...LOST_SWAP.data, notes: 'try again' } }) }),
+  BUILT({ spec_version: 1, status: 'ready_with_warnings', spec_json: JSON.stringify(LOST_SWAP) }),
+];
+const probesOf = (made) => made.sqlCalls.filter((c) => String(c.sql).endsWith('LIMIT 0')).map((c) => c.sql).sort();
+
+test('plan and submit refuse a rebuild that inherits a swap to a dropped table, name the table, and never write a version or start a job', async () => {
+  await withApp({ history: LOST_HISTORY, useCase: TWO_TABLES, probeErrors: { '`main`.`s`.`returns_old`': GONE_OLD } }, async (url, made) => {
+    const spec = { ...LOST_SWAP, based_on_version: 2, data: { ...LOST_SWAP.data, notes: 'try again' } };
+    for (const route of ['plan', 'submit']) {
+      const got = await call(url, `/api/inspire/implement/${route}`, { method: 'POST', body: { ...SUBMIT, spec } });
+      assert.equal(got.status, 409, `${route}: ${JSON.stringify(got.data)}`);
+      assert.equal(got.data.error, 'the preview cannot run because these source tables are missing or not readable: main.s.returns_old '
+        + '(not found). Open Edit, Data step, to swap each for a table with the same role or remove it');
+      assert.deepEqual(got.data.missing_tables, [{ table: 'main.s.returns_old', reason: 'not found', error: GONE_OLD }]);
+    }
+    assert.deepEqual(probesOf(made), ['SELECT * FROM `main`.`s`.`orders` LIMIT 0', 'SELECT * FROM `main`.`s`.`orders` LIMIT 0',
+      'SELECT * FROM `main`.`s`.`returns_old` LIMIT 0', 'SELECT * FROM `main`.`s`.`returns_old` LIMIT 0']);
+    assert.equal(made.sqlCalls.some((c) => /INSERT INTO/.test(String(c.sql))), false, 'no version row is written');
+    assert.equal(made.jobs.length, 0, 'no job starts');
+  });
+});
+
+test('a rebuild back on the use case\'s own table plans and starts, and a rebuild that reads no source table is never probed', async () => {
+  await withApp({ history: LOST_HISTORY, useCase: TWO_TABLES, probeErrors: { '`main`.`s`.`returns_old`': GONE_OLD } }, async (url, made) => {
+    const spec = { ...SPEC, based_on_version: 2, data: { tables: {}, notes: 'try again' } };
+    const got = await call(url, '/api/inspire/implement/submit', { method: 'POST', body: { ...SUBMIT, spec } });
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.deepEqual(probesOf(made), ['SELECT * FROM `main`.`s`.`orders` LIMIT 0', 'SELECT * FROM `main`.`s`.`returns` LIMIT 0']);
+    assert.equal(made.jobs.length, 1);
+  });
+  await withApp({ history: LOST_HISTORY, useCase: TWO_TABLES, probeErrors: { '`main`.`s`.`returns_old`': GONE_OLD } }, async (url, made) => {
+    const spec = { ...LOST_SWAP, based_on_version: 2, outputs: { dashboard: true, dashboard_vibes: 'Put the biggest records first' } };
+    const got = await call(url, '/api/inspire/implement/plan', { method: 'POST', body: { ...SUBMIT, spec } });
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.equal(got.data.summary.refill, false);
+    assert.deepEqual(probesOf(made), [], 'a dashboard-only rebuild reads the result table, not the source tables');
+  });
+});
+
+test('context names each source table that is gone, checking the use case\'s own table behind a swap too', async () => {
+  await withApp({ history: LOST_HISTORY, useCase: TWO_TABLES, probeErrors: { '`main`.`s`.`returns_old`': GONE_OLD } }, async (url, made) => {
+    const got = await call(url, `/api/inspire/implement/context?${Q}`);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.deepEqual(got.data.missing_tables, [{ table: 'main.s.returns_old', reason: 'not found', error: GONE_OLD }]);
+    assert.deepEqual(probesOf(made), ['SELECT * FROM `main`.`s`.`orders` LIMIT 0', 'SELECT * FROM `main`.`s`.`returns_old` LIMIT 0',
+      'SELECT * FROM `main`.`s`.`returns` LIMIT 0']);
+  });
+  await withApp({ useCase: TWO_TABLES }, async (url, made) => {
+    const got = await call(url, `/api/inspire/implement/context?${Q}`);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.deepEqual(got.data.missing_tables, []);
+    assert.deepEqual(probesOf(made), ['SELECT * FROM `main`.`s`.`orders` LIMIT 0', 'SELECT * FROM `main`.`s`.`returns` LIMIT 0']);
+  });
+});
+
+test('context names each output the use case had that no longer exists, and only those', async () => {
+  const history = [BUILT({ app_name: 'old-desk', dashboard_id: 'd1', genie_space_id: 'g1' })];
+  await withApp({ history, appsByName: {}, responses: { 'GET /api/2.0/lakeview/dashboards/d1': [{ error_code: 'RESOURCE_DOES_NOT_EXIST' }, 404] } }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/context?${Q}`);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.deepEqual(got.data.assets, { dashboard: 'd1', genie_space: 'g1', app: 'old-desk' });
+    assert.deepEqual(got.data.gone_assets, ['dashboard', 'app']);
+  });
+  await withApp({ history, appsByName: { 'old-desk': { name: 'old-desk' } } }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/context?${Q}`);
+    assert.deepEqual(got.data.gone_assets, []);
+  });
+  await withApp({ history, appsByName: { 'old-desk': { name: 'old-desk' } }, fetchThrows: { 'GET /api/2.0/genie/spaces/g1': 'socket hang up' } }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/context?${Q}`);
+    assert.equal(got.status, 200);
+    assert.deepEqual(got.data.gone_assets, [], 'an output Inspire could not check is not called gone');
+  });
+  await withApp({}, async (url) => {
+    const got = await call(url, `/api/inspire/implement/context?${Q}`);
+    assert.deepEqual(got.data.gone_assets, []);
+  });
+});
+
 test('an Implement page re-run refuses to override the result table and drops blank overrides', async () => {
   await withApp({ history: [BUILT()] }, async (url, made) => {
     for (const name of ['result_table', 'RESULT_TABLE']) {

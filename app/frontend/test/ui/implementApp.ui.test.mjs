@@ -331,6 +331,54 @@ test('each asset can be built new or added to one Inspire built, the list shows 
   }
 });
 
+test('a ticked App goes into the business Hub by default, Create new stays put once chosen, and with no Hub the new App takes the Hub name', async () => {
+  const hubState = {
+    ...MERGE_STATE,
+    registry: [...MERGE_STATE.registry, { ...target('42', 'N01-U05', 'Price promos', { app: true, app_access: 'sp' }), app_name: 'inspire-hub-acme' }],
+    appsByName: { ...MERGE_STATE.appsByName, 'inspire-hub-acme': { name: 'inspire-hub-acme', description: 'Inspire use case N01-U05 (session 42): Price promos' } },
+  };
+  const ui = await openUi('wizard', hubState);
+  const { page, made } = ui;
+  try {
+    await toDelivery(page);
+    await page.getByRole('checkbox', { name: /^App / }).check();
+    const app = page.locator('[data-merge="app"]');
+    await app.getByText('Adds this use case to inspire-hub-acme, which holds Price promos; it signs in with its own service principal.').waitFor();
+    assert.equal(await app.getByRole('button', { name: 'Add to an existing one' }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await app.getByLabel('App to add this use case to').inputValue(), 'inspire-hub-acme');
+    await app.getByRole('button', { name: 'Create new' }).click();
+    await page.getByLabel('App name').waitFor();
+    await page.waitForTimeout(800);
+    assert.equal(await app.getByRole('button', { name: 'Create new' }).getAttribute('aria-pressed'), 'true', 'the person chose Create new, so the Hub default does not come back');
+    await app.getByRole('button', { name: 'Add to an existing one' }).click();
+    await app.getByLabel('App to add this use case to').selectOption('inspire-hub-acme');
+    await next(page);
+    await onStep(page, 'App access');
+    await page.getByRole('region', { name: 'App access' }).getByRole('radio', { name: /^Internal data/ }).check();
+    await next(page);
+    await onStep(page, 'App look');
+    await startWhenReady(page);
+    const spec = submittedSpec(made);
+    assert.deepEqual([spec.outputs.app_name, spec.outputs.merge.app], ['inspire-hub-acme', 'inspire-hub-acme']);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+  const fresh = await openUi('wizard', MERGE_STATE);
+  try {
+    await toDelivery(fresh.page);
+    await fresh.page.getByRole('checkbox', { name: /^App / }).check();
+    const app = fresh.page.locator('[data-merge="app"]');
+    await app.getByRole('button', { name: 'Add to an existing one' }).waitFor();
+    await fresh.page.waitForTimeout(800);
+    assert.equal(await app.getByRole('button', { name: 'Create new' }).getAttribute('aria-pressed'), 'true', 'an App Inspire built for one use case is not the Hub');
+    assert.equal(await fresh.page.getByLabel('App name').inputValue(), 'inspire-hub-acme');
+    assert.deepEqual(fresh.pageErrors, []);
+  } finally {
+    await fresh.close();
+  }
+});
+
 async function measure(page, name) {
   await page.waitForTimeout(250);
   const box = await page.evaluate(() => {

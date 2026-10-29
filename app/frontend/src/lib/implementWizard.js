@@ -240,6 +240,14 @@ export function appNameOf(name, id) {
   return '';
 }
 
+export const HUB_APP_PREFIX = 'inspire-hub';
+
+export function hubAppName(businessName) {
+  const business = fitAppName(dashed(businessName), APP_NAME_MAX - HUB_APP_PREFIX.length - 1);
+  const name = business ? `${HUB_APP_PREFIX}-${business}` : '';
+  return APP_NAME_RE.test(name) ? name : '';
+}
+
 export function nextAppName(name) {
   const counted = /^(.+)-(\d{1,2})$/.exec(String(name || ''));
   const [base, n] = counted && Number(counted[2]) >= 2 ? [counted[1], Number(counted[2]) + 1] : [String(name || ''), 2];
@@ -313,6 +321,38 @@ export function removeTable(spec, table) {
 
 export function restoreTable(spec, table) {
   return { ...spec, data: { ...spec.data, removed_tables: (spec.data.removed_tables || []).filter((r) => !sameTable(r, table)) } };
+}
+
+export function clearedText(cleared) {
+  const parts = [];
+  if (cleared?.roles?.length) parts.push(`its column roles (${cleared.roles.map((r) => r.replace('_', ' ')).join(', ')})`);
+  if (cleared?.filters) parts.push(`${cleared.filters} filter(s) on it`);
+  return parts.join(' and ');
+}
+
+export function revertLostSwaps(spec, uc, missing) {
+  const reasonOf = (table) => (missing || []).find((m) => sameTable(m.table, table))?.reason;
+  let next = spec;
+  const reverted = [];
+  for (const original of tablesOf(uc)) {
+    if ((next.data.removed_tables || []).some((r) => sameTable(r, original))) continue;
+    const key = Object.keys(next.data.tables || {}).find((k) => sameTable(k, original));
+    const chosen = key ? next.data.tables[key] : '';
+    const reason = reasonOf(chosen);
+    if (!chosen || sameTable(chosen, original) || !reason || reasonOf(original)) continue;
+    const { spec: removed, cleared } = removeTable(next, key);
+    next = restoreTable(removed, key);
+    reverted.push({ original, chosen, reason, cleared });
+  }
+  return { spec: next, reverted };
+}
+
+export function revertedSwapsText(reverted) {
+  return (reverted || []).map((r) => {
+    const cleared = clearedText(r.cleared);
+    return `${r.chosen} is missing or not readable (${r.reason}), so this version goes back to ${r.original}, the table Inspire picked`
+      + `${cleared ? `, and clears ${cleared}` : ''}.`;
+  }).concat(reverted?.length ? ['Use Change to pick another table.'] : []).join(' ');
 }
 
 export function removalBlocker(uc, spec, table) {
@@ -404,7 +444,7 @@ export function slugOf(id) {
   return String(id || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
 }
 
-export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner } = {}) {
+export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner, businessName } = {}) {
   const id = caseIdOf(uc);
   const slug = slugOf(id);
   const resultTable = inspireDatabase && slug ? `${inspireDatabase}.${slug}_out` : '';
@@ -459,7 +499,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
       genie_space_name: '',
       genie_questions: [],
       genie_space_vibes: '',
-      app_name: appNameOf(uc?.short_name || useCaseName, id),
+      app_name: hubAppName(businessName) || appNameOf(uc?.short_name || useCaseName, id),
       app_purpose: '',
       app_access: '',
       app_look: { ...APP_LOOK_DEFAULT },
@@ -1158,6 +1198,20 @@ export function withMergeTarget(spec, name, target, freshAppName = '') {
     outputs.app_look = { ...APP_LOOK_DEFAULT, ...((target && target.look) || {}) };
   }
   return { ...spec, outputs };
+}
+
+export function heldAssets(assets, gone) {
+  return Object.fromEntries(Object.entries(assets || {}).filter(([name]) => !(gone || []).includes(name)));
+}
+
+export function goneAssetText(label, id) {
+  return `The ${label} this use case had, ${id}, no longer exists, so Genie can add the use case to one Inspire built or create a new one.`;
+}
+
+export function withHubDefault(spec, targets, businessName, held = {}) {
+  if (!spec.outputs.app || held?.app || spec.outputs.merge?.app) return spec;
+  const hub = mergeTargetOf(targets, 'app', hubAppName(businessName));
+  return hub && !appMergeBlock(spec, hub) ? withMergeTarget(spec, 'app', hub) : spec;
 }
 
 export function mergeTargetText(target) {

@@ -1409,19 +1409,28 @@ function rerunParams(widgetNames, overrides) {
   return params;
 }
 
-function sourceTables(spec, involved) {
+function sourcePicks(spec, involved) {
   const data = (spec && spec.data) || {};
   const swaps = Object.fromEntries(Object.entries(isPlainObject(data.tables) ? data.tables : {})
     .map(([original, chosen]) => [plainTable(original).toLowerCase(), plainTable(chosen)]));
   const gone = new Set((Array.isArray(data.removed_tables) ? data.removed_tables : []).map((t) => plainTable(t).toLowerCase()));
+  return (involved || []).filter((table) => !gone.has(plainTable(table).toLowerCase()))
+    .map((table) => ({ original: plainTable(table), chosen: swaps[plainTable(table).toLowerCase()] || plainTable(table) }));
+}
+
+function uniqueTables(names) {
   const out = [];
-  for (const table of involved || []) {
-    const key = plainTable(table).toLowerCase();
-    if (gone.has(key)) continue;
-    const chosen = swaps[key] || plainTable(table);
-    if (!out.some((t) => t.toLowerCase() === chosen.toLowerCase())) out.push(chosen);
-  }
+  for (const name of names) if (!out.some((t) => t.toLowerCase() === name.toLowerCase())) out.push(name);
   return out;
+}
+
+function sourceTables(spec, involved) {
+  return uniqueTables(sourcePicks(spec, involved).map((p) => p.chosen));
+}
+
+function checkedSourceTables(spec, involved) {
+  const picks = sourcePicks(spec, involved);
+  return uniqueTables([...picks.map((p) => p.chosen), ...picks.filter((p) => p.chosen.toLowerCase() !== p.original.toLowerCase()).map((p) => p.original)]);
 }
 
 function tableProbeStatement(name) {
@@ -2125,6 +2134,7 @@ module.exports = {
   rerunWidgets,
   rerunOverrides,
   sourceTables,
+  checkedSourceTables,
   tableProbeStatement,
   tableAccessReason,
   missingTablesMessage,

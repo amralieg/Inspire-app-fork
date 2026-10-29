@@ -389,8 +389,10 @@ function registerImplementRoutes(app, deps) {
       ]);
       if (!useCase) return res.status(404).json({ error: `No use case ${useCaseId} in this session.` });
       const latest = history[0] || null;
+      const missing = await missingTables(req, warehouseId, I.checkedSourceTables(latest && latest.spec_json, I.useCaseTables(useCase)));
       const widgets = I.implementWidgets(history, useCase.genie_instruction || useCase.generate_genie_code_instruction || '');
       const assets = I.carriedAssets(history);
+      const goneAssets = await goneMergeAssets(req, assets);
       const family = I.executionFamily(useCase.code_structure_mandate);
       res.json({
         session_id: sid,
@@ -402,6 +404,7 @@ function registerImplementRoutes(app, deps) {
         history,
         latest,
         assets,
+        gone_assets: goneAssets,
         family,
         trains_model: I.trainsModel(useCase),
         evidence: I.parseEvidence(useCase.data_evidence),
@@ -410,6 +413,7 @@ function registerImplementRoutes(app, deps) {
         widget_source: widgets.source,
         widget_groups: I.groupWidgets(widgets.widgets),
         inspire_database: `${catalog}.${schema}`,
+        missing_tables: missing,
       });
     } catch (err) {
       sendError(res, err);
@@ -668,6 +672,30 @@ function registerImplementRoutes(app, deps) {
     }
   });
 
+  async function goneMergeAssets(req, assets) {
+    const names = I.IMPLEMENT_MERGE_OUTPUTS.filter((name) => assets[name]);
+    const got = await Promise.all(names.map((name) => jsonOf(dbFetch, req.dbHost, req.dbToken, I.mergeTargetPath(name, assets[name])).catch(() => null)));
+    return names.filter((_name, i) => got[i] && got[i].status === 404);
+  }
+
+  async function missingTables(req, warehouseId, tables) {
+    const probes = await Promise.all(tables.map((table) => sqlRows(req.dbHost, req.dbToken, warehouseId, I.tableProbeStatement(table))
+      .then(() => null)
+      .catch((err) => {
+        const reason = I.tableAccessReason(table, err && err.message);
+        return reason ? { table, reason, error: String(err.message || '').slice(0, 300) } : null;
+      })));
+    return probes.filter(Boolean);
+  }
+
+  async function refuseMissingSources(req, warehouseId, spec, useCase) {
+    const missing = await missingTables(req, warehouseId, I.sourceTables(spec, I.useCaseTables(useCase)));
+    if (!missing.length) return;
+    const err = I.badRequest(I.missingTablesMessage(missing), 409);
+    err.details = { missing_tables: missing };
+    throw err;
+  }
+
   async function stalledOf(req, row) {
     if (!row || !I.IMPLEMENT_ACTIVE_STATUSES.includes(row.status)) return null;
     const runId = String(row.implement_run_id ?? '');
@@ -707,8 +735,9 @@ function registerImplementRoutes(app, deps) {
       if (mergeIssues.length) throw I.badRequest(mergeIssues.join('; '));
     }
     const stalled = await stalledOf(req, history[0]);
-    return { sid, warehouseId, inspire_database, catalog, schema, spec, useCaseId, session, history,
-      plan: I.planSubmission(history, spec, stalled) };
+    const plan = I.planSubmission(history, spec, stalled);
+    if (plan.summary.refill) await refuseMissingSources(req, warehouseId, spec, useCase);
+    return { sid, warehouseId, inspire_database, catalog, schema, spec, useCaseId, session, history, plan };
   }
 
   app.post('/api/inspire/implement/plan', requireToken, async (req, res) => {
@@ -991,19 +1020,7 @@ function registerImplementRoutes(app, deps) {
       const overrideIssues = I.widgetProblems(widgets, overrides);
       if (overrideIssues.length) throw I.badRequest(`widget values are out of range: ${overrideIssues.join('; ')}`);
       const useCase = await loadUseCase(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId);
-      const sources = I.sourceTables(latest.spec_json, I.useCaseTables(useCase));
-      const probes = await Promise.all(sources.map((table) => sqlRows(req.dbHost, req.dbToken, warehouseId, I.tableProbeStatement(table))
-        .then(() => null)
-        .catch((err) => {
-          const reason = I.tableAccessReason(table, err && err.message);
-          return reason ? { table, reason, error: String(err.message || '').slice(0, 300) } : null;
-        })));
-      const missing = probes.filter(Boolean);
-      if (missing.length) {
-        const err = I.badRequest(I.missingTablesMessage(missing), 409);
-        err.details = { missing_tables: missing };
-        throw err;
-      }
+      await refuseMissingSources(req, warehouseId, latest.spec_json, useCase);
       const resp = await dbFetch(req.dbHost, req.dbToken, '/api/2.1/jobs/run-now', {
         method: 'POST',
         body: JSON.stringify({ job_id: Number(latest.job_id), notebook_params: notebookParams, only: [I.IMPLEMENT_NOTEBOOK_TASK_KEY] }),
