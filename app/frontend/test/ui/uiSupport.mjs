@@ -70,6 +70,23 @@ export async function startMvp(page) {
   await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
 }
 
+export async function clippedExamples(page, boxes) {
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  const count = await boxes.count();
+  if (!count) throw new Error('no vibes box to check');
+  const clipped = [];
+  for (let i = 0; i < count; i += 1) {
+    const box = boxes.nth(i);
+    const example = await box.getAttribute('placeholder');
+    if (!example) throw new Error(`${await box.getAttribute('aria-label')} has no gray example`);
+    await box.fill(example);
+    const size = await box.evaluate((el) => ({ scroll: el.scrollHeight, client: el.clientHeight }));
+    if (size.scroll > size.client + 1) clipped.push(`${await box.getAttribute('aria-label')}: ${size.scroll}px of text in ${size.client}px`);
+    await box.fill('');
+  }
+  return clipped;
+}
+
 export async function until(check, what, timeout = 10000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {

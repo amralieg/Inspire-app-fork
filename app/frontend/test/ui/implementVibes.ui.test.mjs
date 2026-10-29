@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaultSpecFromUseCase } from '../../src/lib/implementWizard.js';
 import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
-import { closeBrowser, lowContrast, openUi, onStep, startMvp, toVibes, until } from './uiSupport.mjs';
+import { clippedExamples, closeBrowser, lowContrast, openUi, onStep, startMvp, toVibes, until } from './uiSupport.mjs';
 
 const OWNER = ['owner', 'example.com'].join('@');
 const SHOTS = process.env.VIBES_SHOTS || '';
@@ -108,6 +108,26 @@ test('Vibes is the last step: Delivery asks for no vibes, each picked output get
     assert.deepEqual(await boxLabels(panel), ['Notebook vibes', 'Vibes for the Dashboard', 'Vibes for the Genie Agent', 'App vibes', 'Vibes for the Alert']);
     assert.equal(await panel.locator('[data-vibes-skipped]').count(), 0, 'every output picked, nothing to name');
     assertGray(await grayExamples(page, panel), 'every output');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('every gray example on the Vibes step shows in full, on a desktop and on a phone', async () => {
+  const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
+  const { page } = ui;
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await toDelivery(page);
+    await page.getByRole('checkbox', { name: /^Alert/ }).check();
+    await page.getByText(`Emails ${OWNER} when`, { exact: false }).waitFor();
+    await toVibes(page);
+    const boxes = page.getByRole('region', { name: 'Vibes', exact: true }).getByRole('textbox');
+    assert.equal(await boxes.count(), 5, 'the notebook and the 4 outputs');
+    assert.deepEqual(await clippedExamples(page, boxes), [], 'desktop');
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.deepEqual(await clippedExamples(page, boxes), [], 'phone');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -271,6 +291,25 @@ const cardIds = (scope) => scope.locator('[data-vibe-card]').evaluateAll((cards)
 const askBox = (scope) => scope.getByRole('textbox', { name: 'How should it work?', exact: true });
 const rebuildThis = (scope) => scope.getByRole('button', { name: 'Rebuild this', exact: true });
 const versionIds = (scope) => scope.getByRole('region', { name: 'Versions' }).locator('[data-version]').evaluateAll((rows) => rows.map((r) => r.dataset.version));
+
+test('the gray example in each Details drawer\'s ask box shows in full, on a desktop and on a phone', async () => {
+  const ui = await openVibes();
+  const { page } = ui;
+  try {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const id of OUTPUTS) {
+        const drawer = await openDrawer(page, id);
+        await card(drawer, id).waitFor();
+        assert.deepEqual(await clippedExamples(page, askBox(card(drawer, id))), [], `${id} at ${width}px`);
+        await closeDrawer(page, drawer);
+      }
+    }
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
 
 test('each Details drawer holds only its own output\'s card, starts from the live asks, a changed ask rebuilds only that output, an unchanged one is a retry, and a draft survives the drawer and the tabs', async () => {
   const ui = await openVibes();

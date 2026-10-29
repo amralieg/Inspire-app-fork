@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaultSpecFromUseCase } from '../../src/lib/implementWizard.js';
 import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
-import { closeBrowser, lowContrast, openUi, until } from './uiSupport.mjs';
+import { clippedExamples, closeBrowser, lowContrast, openUi, until } from './uiSupport.mjs';
 
 const OWNER = ['owner', 'example.com'].join('@');
 const START = 'Start Use Case MVP with Genie';
@@ -64,6 +64,28 @@ async function toTower(page) {
 
 const vibeBox = (page) => page.getByRole('region', { name: 'Vibe these assets' });
 const tower = (page) => page.getByRole('region', { name: 'Control tower' });
+
+test('the gray example in Vibe these assets shows in full on a desktop and a laptop, and a squeezed box never grows past 8 lines', async () => {
+  const ui = await openBuild();
+  const { page } = ui;
+  try {
+    await toTower(page);
+    const box = vibeBox(page).getByRole('textbox', { name: 'Vibes for the MVP', exact: true });
+    assert.deepEqual(await clippedExamples(page, box), [], 'desktop');
+    await page.setViewportSize({ width: 1024, height: 900 });
+    assert.deepEqual(await clippedExamples(page, box), [], 'laptop');
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    const squeezed = await box.evaluate((el) => {
+      const lines = parseFloat(getComputedStyle(el).lineHeight);
+      return { height: el.offsetHeight, most: lines * 8 + el.offsetHeight - el.clientHeight + parseFloat(getComputedStyle(el).paddingTop) + parseFloat(getComputedStyle(el).paddingBottom) };
+    });
+    assert.ok(squeezed.height <= squeezed.most + 2, `a squeezed box stays at most 8 lines tall ${JSON.stringify(squeezed)}`);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
 
 test('Vibe these assets names the live outputs in its grey text, waits for text, asks what happens to the live version with no default, and sends the vibe as the next version', async () => {
   const ui = await openBuild();

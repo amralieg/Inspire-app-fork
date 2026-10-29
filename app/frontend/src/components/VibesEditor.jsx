@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, useLayoutEffect, useRef } from 'react';
 import { VIBES_MAX, partOf, vibesLabel, vibesLength, vibesProblem } from '../lib/implementWizard';
 
 const PLACEHOLDERS = {
@@ -13,14 +13,53 @@ const PLACEHOLDERS = {
   value_formula: 'For example: price each row at its open order value times the chance it is lost',
 };
 
+const EXAMPLE_MAX_ROWS = 8;
+
+function heightOfText(el, text) {
+  const probe = el.cloneNode(false);
+  probe.removeAttribute('id');
+  probe.value = text;
+  probe.rows = 1;
+  Object.assign(probe.style, { position: 'absolute', visibility: 'hidden', height: 'auto', minHeight: '0', width: `${el.offsetWidth}px` });
+  el.parentNode.appendChild(probe);
+  const need = probe.scrollHeight + probe.offsetHeight - probe.clientHeight;
+  probe.value = '';
+  probe.rows = EXAMPLE_MAX_ROWS;
+  const most = probe.offsetHeight;
+  probe.remove();
+  return Math.min(need, most);
+}
+
 export default function VibesEditor({ id, value, onChange, autoFocus = false, label = '', heading = '', rows = 3, disabled = false, placeholder = '' }) {
   const hint = useId();
   const box = useId();
+  const ref = useRef(null);
   const problem = vibesProblem(id, value, label);
+  const example = placeholder || PLACEHOLDERS[partOf(id)?.kind || id];
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !example) return undefined;
+    let frame = 0;
+    const fit = () => {
+      if (el.offsetWidth) el.style.minHeight = `${heightOfText(el, example)}px`;
+    };
+    fit();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const watch = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(fit);
+    });
+    watch.observe(el);
+    return () => {
+      cancelAnimationFrame(frame);
+      watch.disconnect();
+    };
+  }, [example]);
   return (
     <div className="space-y-1">
       {heading && <label htmlFor={box} className="block text-[13px] font-semibold text-text-primary">{heading}</label>}
       <textarea
+        ref={ref}
         id={box}
         aria-label={heading ? undefined : label ? `Vibes for the ${label}` : vibesLabel(id)}
         aria-describedby={hint}
@@ -29,7 +68,7 @@ export default function VibesEditor({ id, value, onChange, autoFocus = false, la
         disabled={disabled}
         rows={rows}
         value={value}
-        placeholder={placeholder || PLACEHOLDERS[partOf(id)?.kind || id]}
+        placeholder={example}
         onChange={(e) => onChange(e.target.value)}
         className={`w-full px-2.5 py-2 text-sm leading-snug border rounded-md bg-surface text-text-primary glow-focus resize-none disabled:opacity-60 ${problem ? 'border-error' : 'border-border'}`}
       />
