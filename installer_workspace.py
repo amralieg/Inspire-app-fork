@@ -982,6 +982,24 @@ def _lakebase_project_access(api, sp, project):
     )
 
 
+def _app_folder_access(api, app_name, sp):
+    folder = f"/Shared/{app_name}"
+    found = api("GET", f"/api/2.0/workspace/get-status?path={folder}")
+    object_id = found.json().get("object_id") if found.status_code == 200 else None
+    if not object_id:
+        return (f"⚠️ Could not find {folder} ({found.text[:160]}), so {sp} may not be able to save MVPs there. "
+                f"A workspace admin can give {sp} Can Manage on that folder")
+    resp = api(
+        "PATCH",
+        f"/api/2.0/permissions/directories/{object_id}",
+        {"access_control_list": [{"service_principal_name": sp, "permission_level": "CAN_MANAGE"}]},
+    )
+    if resp.status_code == 200:
+        return f"CAN_MANAGE on {folder}, so Implement can save every MVP there: ✅"
+    return (f"⚠️ {sp} cannot save MVPs in {folder} yet ({resp.text[:160]}). "
+            f"A workspace admin can give {sp} Can Manage on that folder")
+
+
 def step_grant_permissions(ctx):
     new_sp_app_id = ctx.get("NEW_SP_APP_ID")
     warehouse_id = ctx["WAREHOUSE_ID"]
@@ -1049,6 +1067,7 @@ def step_grant_permissions(ctx):
             f"{'✅' if resp.status_code == 200 else '⚠️ ' + resp.text[:100]}"
         )
         print(f"  {_lakebase_project_access(api, sp, LAKEBASE_PROJECT)}")
+        print(f"  {_app_folder_access(api, ctx['APP_NAME'], sp)}")
     elif not new_sp_app_id:
         print("⚠️ Skipped — SP not found. Grant manually after checking /api/health.")
     elif not warehouse_id:

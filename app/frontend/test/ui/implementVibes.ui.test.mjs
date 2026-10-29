@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaultSpecFromUseCase } from '../../src/lib/implementWizard.js';
 import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
-import { closeBrowser, lowContrast, openUi, until } from './uiSupport.mjs';
+import { closeBrowser, lowContrast, openUi, startMvp, until } from './uiSupport.mjs';
 
 const OWNER = ['owner', 'example.com'].join('@');
 const SHOTS = process.env.VIBES_SHOTS || '';
@@ -64,9 +64,10 @@ test('each ticked output gets its own vibes with a live counter, over 2000 chara
   try {
     await toDelivery(page);
     await page.getByRole('button', { name: 'Add vibes for the Dashboard' }).waitFor();
-    for (const label of ['Genie Agent', 'App', 'Alert']) {
-      assert.equal(await page.getByRole('button', { name: `Add vibes for the ${label}` }).count(), 0, `an unticked ${label} has no vibes`);
-    }
+    for (const label of ['Genie Agent', 'App']) await page.getByRole('button', { name: `Add vibes for the ${label}` }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Add vibes for the Alert' }).count(), 0, 'an unticked Alert has no vibes');
+    await page.getByRole('checkbox', { name: /^App / }).uncheck();
+    assert.equal(await page.getByRole('button', { name: 'Add vibes for the App' }).count(), 0, 'an unticked App has no vibes');
     await page.getByRole('checkbox', { name: /^App / }).check();
     await page.getByRole('button', { name: 'Add vibes for the Genie Agent' }).waitFor();
     await page.getByRole('button', { name: 'Add vibes for the Dashboard' }).click();
@@ -110,9 +111,7 @@ test('each ticked output gets its own vibes with a live counter, over 2000 chara
     await page.getByRole('radio', { name: /^Internal data/ }).check();
     await next(page);
     await onStep(page, 'App look');
-    await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Start MVP' && !b.disabled),
-      null, { timeout: 15000 });
-    await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
+    await startMvp(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     const [{ spec }] = insertsOf(made);
     assert.deepEqual([spec.outputs.dashboard_vibes, spec.outputs.genie_space_vibes.length, spec.outputs.app_vibes, spec.outputs.alert_vibes],

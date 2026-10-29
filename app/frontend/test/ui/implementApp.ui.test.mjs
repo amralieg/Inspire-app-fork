@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { closeBrowser, lowContrast, openUi } from './uiSupport.mjs';
+import { closeBrowser, lowContrast, openUi, startMvp } from './uiSupport.mjs';
 
 const { appShellCatalog } = createRequire(import.meta.url)('../../../backend/lib/appShell.js');
 const SHELL = appShellCatalog();
@@ -35,9 +35,7 @@ async function toDelivery(page) {
 }
 
 async function startWhenReady(page) {
-  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Start MVP' && !b.disabled),
-    null, { timeout: 15000 });
-  await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
+  await startMvp(page);
   await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
 }
 
@@ -53,23 +51,24 @@ const rgb = (hex) => {
   return `rgb(${parseInt(full.slice(0, 2), 16)}, ${parseInt(full.slice(2, 4), 16)}, ${parseInt(full.slice(4, 6), 16)})`;
 };
 
-test('ticking the App locks the Genie Agent on, App access must be chosen, per-user hides record decisions, and App look previews every style, layout and palette', async () => {
+test('the App starts on with its Genie Agent locked on and the alert off, App access starts on the App\'s service principal, per-user hides record decisions, and App look previews every style, layout and palette', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
     await toDelivery(page);
     const genie = page.getByRole('checkbox', { name: /^Genie Agent/ });
-    assert.equal(await genie.isChecked(), false);
-    await page.getByRole('checkbox', { name: /^App / }).check();
-    assert.equal(await genie.isChecked(), true, 'the App ticks the Genie Agent');
-    assert.equal(await genie.isDisabled(), true, 'and locks it');
+    const box = (name) => page.getByRole('checkbox', { name: new RegExp(`^${name}`) });
+    assert.deepEqual([await box('Dashboard').isChecked(), await genie.isChecked(), await box('App ').isChecked(), await box('Alert').isChecked()],
+      [true, true, true, false], 'the dashboard, Genie Agent and App start on, the alert off');
+    assert.equal(await genie.isDisabled(), true, 'the App locks the Genie Agent');
     await page.locator('[data-output="genie_space"]').getByText('Ask Genie in the App needs a Genie Agent.').waitFor();
     await next(page);
     await onStep(page, 'App access');
     const access = page.getByRole('region', { name: 'App access' });
     const perUser = access.getByRole('radio', { name: /^Sensitive data: each person signs in as themselves \(per-user\)/ });
     const internal = access.getByRole('radio', { name: /^Internal data: the App uses its own service principal/ });
-    assert.deepEqual([await perUser.isChecked(), await internal.isChecked()], [false, false], 'no access is chosen for the person');
+    assert.deepEqual([await perUser.isChecked(), await internal.isChecked()], [false, true], 'the App starts reading as its service principal');
+    await access.getByText('Everyone sees the same rows, read with the App\'s own access.', { exact: false }).waitFor();
     assert.deepEqual(await access.getByRole('checkbox').evaluateAll((boxes) => boxes.map((b) => [b.closest('label').querySelector('span span').textContent, b.checked])),
       [['Let people edit data', false], ['Record decisions', false], ['Send alerts', false]], 'every option starts off, and none is a download');
     await access.locator('label', { hasText: 'Record decisions' })
@@ -79,10 +78,6 @@ test('ticking the App locks the Genie Agent on, App access must be chosen, per-u
     await offers.getByText('Refresh now: in a shared App anyone who can open it can refresh it; in an App where each person sees only their own data, only you can. '
       + 'One refresh runs at a time.', { exact: true }).waitFor();
     await offers.getByText('The App offers no data downloads.', { exact: true }).waitFor();
-    await next(page);
-    await page.locator('[role="alert"]').waitFor();
-    assert.deepEqual(await footerErrors(page), ['choose who the App signs people in as: each person (per-user) or its own service principal']);
-    await onStep(page, 'App access');
     await access.getByRole('checkbox', { name: /^Record decisions/ }).check();
     await perUser.check();
     assert.equal(await access.getByRole('checkbox', { name: /^Record decisions/ }).count(), 0, 'per-user hides record decisions');
@@ -149,12 +144,12 @@ test('the App reads Lakebase by default when the workspace has it, a per-user Ap
   let ui = await openUi('wizard', probe({ projects: [] }, 200));
   try {
     const access = await toAccess(ui.page);
-    await access.getByRole('radio', { name: /^Internal data/ }).check();
     const group = choice(access);
     await group.getByRole('status').waitFor({ state: 'detached' });
     await group.getByText('Lakebase (Loads instantly)', { exact: true }).waitFor();
     await group.getByText('Delta Tables (Takes a few seconds to load)', { exact: true }).waitFor();
-    assert.deepEqual(await radios(group), [['lakebase', true, false], ['delta', false, false]], 'Lakebase is the default');
+    assert.equal(await access.getByRole('radio', { name: /^Internal data/ }).isChecked(), true, 'the App reads as its service principal with no click');
+    assert.deepEqual(await radios(group), [['lakebase', true, false], ['delta', false, false]], 'Lakebase is the default, with no click');
     await access.getByRole('radio', { name: /^Sensitive data/ }).check();
     assert.deepEqual(await radios(group), [['lakebase', false, true], ['delta', true, false]], 'a per-user App reads Delta tables');
     await group.getByRole('note', { name: 'Why Lakebase is off' }).getByText(/does not carry Unity Catalog row filters, column masks or grants/).waitFor();

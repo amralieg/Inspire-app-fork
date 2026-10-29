@@ -59,6 +59,7 @@ import {
   RESET_ROLES_LABEL,
   BUILD_STEP_IDS,
   APP_ACCESS_CHOICES,
+  APP_ACCESS_NOTE,
   APP_BACKEND_CHOICES,
   LAKEBASE_CHECKING,
   appBackendOf,
@@ -111,6 +112,8 @@ import {
   holdoutProblems,
   withHoldout,
   withHoldoutPercent,
+  unavailableOutputs,
+  withoutUnavailableOutputs,
 } from '../lib/implementWizard';
 
 const ICONS = { notebook: NotebookPen, dashboard: LayoutDashboard, genie_space: Sparkles, app: AppWindow, alert: Bell };
@@ -661,6 +664,14 @@ export default function ImplementWizard({
   }, [principalQ, apiFetch, q]);
 
   const title = caseNameOf(uc) || spec.use_case_name || spec.use_case_id;
+  const features = preflight?.features || context?.features || ALL_FEATURES;
+  const unavailable = unavailableOutputs(features, outputCheck, context?.assets);
+  const unavailableKey = unavailable.join(',');
+
+  useEffect(() => {
+    if (loading || !unavailableKey) return;
+    setSpec((prev) => withoutUnavailableOutputs(prev, unavailableKey.split(','), context?.assets));
+  }, [loading, unavailableKey, context?.assets]);
 
   if (loading) {
     return (
@@ -672,7 +683,6 @@ export default function ImplementWizard({
     );
   }
 
-  const features = preflight?.features || context?.features || ALL_FEATURES;
   const chosenDestinations = spec.outputs.alert_destinations || [];
   const checkEntries = Object.entries(preflight?.checks || {});
   const generalChecks = checkEntries.filter(([k]) => !TILE_CHECK_KEYS.includes(k));
@@ -1030,10 +1040,7 @@ export default function ImplementWizard({
                     const Icon = ICONS[item.id];
                     const on = spec.outputs[item.id];
                     const noAppAccess = item.id === 'app' && !context?.assets?.app && outputCheck?.app?.ok === false;
-                    const unavailable = (item.id === 'app' && !features.apps)
-                      || noAppAccess
-                      || (item.id === 'genie_space' && !features.genie_spaces)
-                      || (item.id === 'alert' && !features.alerts);
+                    const cannot = unavailable.includes(item.id);
                     const tileChecks = (TILE_CHECKS[item.id] || []).map((k) => [k, preflight?.checks?.[k]])
                       .filter(([k, v]) => v && !v.ok && on && !(k === 'app_name' && appTaken));
                     const locked = item.id === 'genie_space' && spec.outputs.app;
@@ -1043,16 +1050,16 @@ export default function ImplementWizard({
                       <div key={item.id} data-output={item.id} className={`border rounded-lg p-3 space-y-2 ${on ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
                         <div className="relative">
                           <label className={`flex items-start gap-3 ${locked ? '' : 'cursor-pointer'}`}>
-                            <input type="checkbox" className="mt-0.5" checked={on} disabled={(unavailable && !on) || locked} onChange={(e) => toggleOutput(item.id, e.target.checked)} />
+                            <input type="checkbox" className="mt-0.5" checked={on} disabled={(cannot && !on) || locked} onChange={(e) => toggleOutput(item.id, e.target.checked)} />
                             <span className="flex-1">
                               <span className="flex items-center gap-2 text-sm font-semibold text-text-primary">
                                 <Icon size={14} /> {item.label}
                                 {locked && <Lock size={12} className="text-text-tertiary" aria-hidden="true" />}
                               </span>
-                              <span className={`block text-[11px] mt-1 ${unavailable ? 'text-error-fg' : 'text-text-secondary'}`}>
-                                {!unavailable && (locked ? GENIE_FOR_APP_NOTE : item.blurb)}
-                                {unavailable && noAppAccess && `Inspire cannot create this App: ${outputCheck.app.detail}.${on ? ' Turn it off, or fix the access and check again.' : ''}`}
-                                {unavailable && !noAppAccess && (on ? 'You cannot create this in this workspace any more. Turn it off, or ask a workspace admin.' : 'You cannot create this in this workspace.')}
+                              <span className={`block text-[11px] mt-1 ${cannot ? 'text-error-fg' : 'text-text-secondary'}`}>
+                                {!cannot && (locked ? GENIE_FOR_APP_NOTE : item.blurb)}
+                                {cannot && noAppAccess && `Inspire cannot create this App: ${outputCheck.app.detail}.${on ? ' Turn it off, or fix the access and check again.' : ''}`}
+                                {cannot && !noAppAccess && (on ? 'You cannot create this in this workspace any more. Turn it off, or ask a workspace admin.' : 'You cannot create this in this workspace.')}
                               </span>
                             </span>
                           </label>
@@ -1681,7 +1688,7 @@ function AppAccessStep({ spec, target, lakebase, onAccess, onOption, onBackend }
       <fieldset className="space-y-2">
         <legend className="text-sm font-semibold text-text-primary">Who does the App sign people in as?</legend>
         <p className="text-[11px] text-text-tertiary">
-          Required, with no default: it decides whose access every page, chart and Genie answer reads with.{target ? ` This use case joins ${target.name}.` : ''}
+          {APP_ACCESS_NOTE}{target ? ` This use case joins ${target.name}.` : ''}
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
           {APP_ACCESS_CHOICES.map((choice) => {

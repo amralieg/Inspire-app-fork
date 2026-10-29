@@ -26,14 +26,15 @@ test('the wizard offers exactly the App choices the backend and the App shell ac
   assert.deepEqual(w.ALERT_OPERATORS, backend.IMPLEMENT_ALERT_OPERATORS);
   assert.deepEqual(w.ALERT_THRESHOLD_BASES.map((b) => b.id), backend.IMPLEMENT_ALERT_THRESHOLD_BASES);
   assert.deepEqual(w.ALERT_BASELINE_DIRECTIONS, backend.IMPLEMENT_ALERT_BASELINE_DIRECTIONS);
-  assert.deepEqual(w.APP_ACCESS_CHOICES.map((c) => c.id), SHELL.auths);
+  assert.deepEqual(w.APP_ACCESS_CHOICES.map((c) => c.id).sort(), [...SHELL.auths].sort());
+  assert.equal(w.APP_ACCESS_CHOICES[0].id, w.APP_ACCESS_DEFAULT, 'the default access comes first');
   assert.deepEqual(w.APP_STYLES.map((s) => s.id), SHELL.styles);
   assert.deepEqual(w.APP_LAYOUTS.map((l) => l.id), SHELL.layouts);
   assert.deepEqual(w.APP_THEMES.map((t) => t.id), SHELL.themes);
   assert.deepEqual(w.APP_OPTIONS.map((o) => o.id), backend.IMPLEMENT_APP_OPTION_KEYS.filter((o) => o !== 'replace_edits'));
   assert.deepEqual(w.APP_ACCESS_CHOICES.map((c) => c.label), [
-    'Sensitive data: each person signs in as themselves (per-user)',
     'Internal data: the App uses its own service principal',
+    'Sensitive data: each person signs in as themselves (per-user)',
   ]);
   assert.equal(w.LAKEVIEW_STYLE_NOTE, 'Only style A matches the Lakeview dashboard look.');
   assert.deepEqual(w.APP_OPTIONS.map((o) => o.label), ['Let people edit data', 'Record decisions', 'Send alerts']);
@@ -50,15 +51,23 @@ test('the wizard offers exactly the App choices the backend and the App shell ac
   assert.deepEqual(w.REPLACE_EDITS_CHOICES.map((c) => [c.id, c.label]), [[false, 'No'], [true, 'Yes']], 'No comes first, as the default');
 });
 
-test('a new spec has no App access, the default look, every option off and no merge, and it validates once the access is chosen', async () => {
+test('a new spec has the dashboard, Genie Agent and App on and the alert off, reads as the App\'s service principal, and validates as made', async () => {
   const { w, spec } = await appSpec();
   const fresh = w.defaultSpecFromUseCase(UC, {});
-  assert.equal(fresh.outputs.app_access, '');
+  assert.deepEqual(['dashboard', 'genie_space', 'app', 'alert'].map((k) => fresh.outputs[k]), [true, true, true, false]);
+  assert.equal(fresh.outputs.app_access, 'sp');
+  assert.equal(w.appBackendOf(fresh, { state: 'available' }), 'lakebase', 'a workspace with Lakebase gets a Lakebase App by default');
+  assert.equal(w.appBackendOf(fresh, { state: 'absent' }), 'delta');
+  assert.equal(w.lakebaseBlock(fresh, { state: 'available' }), '');
+  assert.match(w.APP_ACCESS_NOTE, /service principal, so its pages load at once from Lakebase\. Pick per-user when each person must see only/);
+  assert.match(w.APP_ACCESS_CHOICES.find((c) => c.id === 'sp').blurb, /^Everyone sees the same rows/);
   assert.deepEqual(fresh.outputs.app_look, { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' });
   assert.deepEqual(fresh.outputs.app_options, { modify: false, replace_edits: false, decisions: false, alerts: false }, 'alerts start off');
   assert.deepEqual(fresh.outputs.merge, { app: '', dashboard: '', genie_space: '' });
-  assert.ok(backend.validateImplementSpec(spec).errors.some((e) => e.startsWith('choose who the App reads its data as')));
-  const chosen = w.withAppAccess(spec, 'sp');
+  assert.deepEqual(backend.validateImplementSpec(spec).errors, []);
+  const unchosen = { ...spec, outputs: { ...spec.outputs, app_access: '' } };
+  assert.ok(backend.validateImplementSpec(unchosen).errors.some((e) => e.startsWith('choose who the App reads its data as')));
+  const chosen = w.withAppAccess(unchosen, 'sp');
   assert.deepEqual(backend.validateImplementSpec(chosen).errors, []);
   assert.deepEqual(backend.validateImplementSpec(chosen).spec.outputs.app_look, fresh.outputs.app_look);
 });
@@ -219,7 +228,11 @@ test('Edit of a version the old wizard saved gets every new App setting with its
   const w = await load();
   const fallback = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire' });
   const old = w.specFromLatest({ spec_version: 1, spec_json: { ...fallback, outputs: { dashboard: true, app: true, app_name: 'churn-desk' } } }, fallback);
-  assert.equal(old.outputs.app_access, '', 'with no App built yet the access stays a choice for the person');
+  assert.equal(old.outputs.app_access, 'sp', 'a version saved before the choice existed gets the default: the App\'s service principal');
+  const unpicked = w.specFromLatest({ spec_version: 1, spec_json: { ...fallback, outputs: { ...fallback.outputs, app_access: '' } } }, fallback);
+  assert.equal(unpicked.outputs.app_access, 'sp', 'a saved draft that never picked the access gets the default');
+  const perUser = w.specFromLatest({ spec_version: 1, spec_json: { ...fallback, outputs: { ...fallback.outputs, app_access: 'user' } } }, fallback);
+  assert.equal(perUser.outputs.app_access, 'user', 'a saved per-user choice is kept');
   const live = w.specFromLatest({ spec_version: 1, spec_json: { ...fallback, outputs: { dashboard: true, app: true, app_name: 'churn-desk' } } }, fallback,
     { app: 'churn-desk' });
   assert.equal(live.outputs.app_access, 'sp', 'an App built before the choice existed signs in with its service principal, and Edit says so');
@@ -269,4 +282,19 @@ test('the wizard offers Send alerts, off by default, in plain words, and hides i
   assert.equal(perUser.outputs.app_options.alerts, false);
   assert.equal(w.appOptionShown(perUser, 'alerts'), false);
   assert.match(w.PER_USER_REASON, /no alerts/);
+});
+
+test('an output the workspace cannot create starts off, an output already built stays on, and the App goes off before its Genie Agent', async () => {
+  const w = await load();
+  const fresh = w.defaultSpecFromUseCase(UC, {});
+  const all = { apps: true, genie_spaces: true, alerts: true };
+  assert.deepEqual(w.unavailableOutputs(all, null, {}), []);
+  assert.deepEqual(w.unavailableOutputs(all, { app: { ok: false } }, {}), ['app']);
+  assert.deepEqual(w.unavailableOutputs(all, { app: { ok: false } }, { app: 'hub' }), [], 'a built App is not blocked by the create check');
+  assert.deepEqual(w.unavailableOutputs({ apps: false, genie_spaces: false, alerts: false }, null, {}), ['app', 'genie_space', 'alert']);
+  const off = w.withoutUnavailableOutputs(fresh, ['app'], {});
+  assert.deepEqual(['dashboard', 'genie_space', 'app'].map((k) => off.outputs[k]), [true, true, false]);
+  assert.equal(w.withoutUnavailableOutputs(fresh, ['app', 'genie_space'], {}).outputs.genie_space, false, 'the App goes off first, so its Genie Agent can too');
+  assert.equal(w.withoutUnavailableOutputs(fresh, ['app'], { app: 'hub' }).outputs.app, true, 'an App already built stays, so Edit never drops it');
+  assert.equal(w.withoutUnavailableOutputs(fresh, [], {}), fresh);
 });

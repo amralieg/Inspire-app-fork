@@ -32,7 +32,7 @@ import {
   globalVibeChanges, implementDefaultTab, keptVersions, lastVibe, liveVersion, missingAsks, removeChanges, removeKeptChanges, tryAgainChanges, uninstallChanges,
   vibeCards, vibeChanges, vibeOutputs, rollbackChanges,
 } from '../lib/implementControl';
-import { mvpStages, mvpProgressSummary, feedArrivals } from '../lib/mvpProgress';
+import { mvpStages, mvpProgressSummary, mvpRepairOf, feedArrivals } from '../lib/mvpProgress';
 import MvpProgress from '../components/MvpProgress';
 import GenieFeed from '../components/GenieFeed';
 import MoneyReview, { NothingToActCard } from '../components/MoneyReview';
@@ -768,7 +768,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     return () => clearInterval(id);
   }, [active]);
   const stages = useMemo(() => mvpStages(status?.steps, latest, { now, stalled }), [status?.steps, latest, now, stalled]);
-  const progress = mvpProgressSummary(stages, latest, { now, stalled });
+  const repair = useMemo(() => mvpRepairOf(status?.steps, latest), [status?.steps, latest]);
+  const progress = mvpProgressSummary(stages, latest, { now, stalled, repair });
   const row = useMemo(() => (item.uc ? catalogRow(item.uc, 0, { statusOf: () => item.state }) : null), [item.uc, item.state]);
   const subtitle = item.uc ? subtitleOfUseCase(item.uc, item.name) : '';
 

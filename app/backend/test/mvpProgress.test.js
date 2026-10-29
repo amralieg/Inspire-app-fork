@@ -275,3 +275,69 @@ test('the Genie Agent stage follows the agent step, and a run recorded when it w
     assert.equal(stage.state, 'done', phase);
   }
 });
+
+const repairRow = (time, payload) => ({
+  step_id: 99, step_name: 'Self-repair', sub_step_name: 'n01-u01', status: 'started', last_updated: `2026-01-02T${time}.000Z`,
+  result_json: JSON.stringify({ use_case_id: 'N01-U01', phase: 'Self-repair', attempts: 3, step: 'the MVP build', ...payload }),
+});
+const BUSY = 'a Databricks call timed out or was busy, so Inspire tries it again';
+
+test('attempt 2 of a build shows only its own stages and says what Inspire is fixing', async () => {
+  const { mvpStages, mvpProgressSummary, mvpRepairOf } = await lib('mvpProgress.js');
+  const steps = [...BUILT, row('Preview run', 'started', '10:09:05'), row('Preview run', 'ended_error', '10:10:00'),
+    repairRow('10:10:05', { attempt: 2, why: BUSY }), row('Plan', 'ended_success', '10:10:40'), row('Instruction', 'started', '10:10:41')];
+  const latest = latestOf('filling');
+  const stages = mvpStages(steps, latest, { now: at('10:11:00') });
+  assert.deepEqual(states(stages), [
+    ['Plan', 'done'], ['Instruction', 'running'], ['Genie Code', 'waiting'], ['Genie build', 'waiting'],
+    ['Preview run', 'waiting'], ['Dashboard', 'waiting'], ['Done', 'waiting'],
+  ], "attempt 1's failed preview is not shown as attempt 2's");
+  const repair = mvpRepairOf(steps, latest);
+  assert.deepEqual(repair, { attempt: 2, attempts: 3, step: 'the MVP build', why: BUSY, at: at('10:10:05') });
+  assert.equal(mvpProgressSummary(stages, latest, { now: at('10:11:00'), repair }).detail, `Attempt 2 of 3: Inspire is fixing it: ${BUSY}`);
+});
+
+test('a retry of one part says which part and keeps the stages already built', async () => {
+  const { mvpStages, mvpProgressSummary, mvpRepairOf } = await lib('mvpProgress.js');
+  const steps = [...BUILT, row('Preview run', 'started', '10:09:05'), row('Preview run', 'ended_success', '10:10:00'),
+    row('Dashboard', 'started', '10:10:05'), repairRow('10:12:00', { attempt: 2, step: 'the Dashboard', why: BUSY })];
+  const latest = latestOf('building_outputs');
+  const stages = mvpStages(steps, latest, { now: at('10:12:10') });
+  assert.deepEqual(states(stages), [
+    ['Plan', 'done'], ['Instruction', 'done'], ['Genie Code', 'done'], ['Genie build', 'done'],
+    ['Preview run', 'done'], ['Dashboard', 'running'], ['Done', 'waiting'],
+  ]);
+  const summary = mvpProgressSummary(stages, latest, { now: at('10:12:10'), repair: mvpRepairOf(steps, latest) });
+  assert.equal(summary.detail, `Attempt 2 of 3 for the Dashboard: Inspire is fixing it: ${BUSY}`);
+});
+
+test('a build that needed another attempt says so once built, and a failed or stalled one leaves the reasons to its failure', async () => {
+  const { mvpStages, mvpProgressSummary } = await lib('mvpProgress.js');
+  const repair = { attempt: 2, attempts: 3, step: 'the MVP build', why: BUSY, at: at('10:10:05') };
+  const stages = mvpStages(BUILT, latestOf('ready'), { now: at('10:20:00') });
+  assert.equal(mvpProgressSummary(stages, latestOf('ready'), { repair }).detail, `Built on attempt 2 of 3. What Inspire fixed: ${BUSY}`);
+  assert.equal(mvpProgressSummary(stages, latestOf('failed'), { repair }).detail, '');
+  assert.equal(mvpProgressSummary(stages, latestOf('filling'), { repair, stalled: { reason: 'the run stopped' } }).detail, '');
+  assert.equal(mvpProgressSummary(stages, latestOf('ready')).detail, '', 'a build that worked first time says nothing extra');
+});
+
+test("a repair of another version, or a row with no attempt number, is not this build's", async () => {
+  const { mvpRepairOf } = await lib('mvpProgress.js');
+  const latest = { ...latestOf('filling'), spec_version: 3 };
+  assert.equal(mvpRepairOf([repairRow('10:10:05', { attempt: 2, why: BUSY, spec_version: 2 })], latest), null);
+  assert.equal(mvpRepairOf([repairRow('10:10:05', { attempt: 1, why: BUSY, spec_version: 3 })], latest), null);
+  assert.equal(mvpRepairOf([repairRow('10:10:05', { why: BUSY, spec_version: 3 })], latest), null);
+  assert.equal(mvpRepairOf([row('Plan', 'started', '10:10:05')], latest), null);
+  const later = [repairRow('10:10:05', { attempt: 2, why: 'first', spec_version: 3 }), repairRow('10:20:05', { attempt: 3, why: 'second', spec_version: 3 })];
+  assert.deepEqual([mvpRepairOf(later, latest).attempt, mvpRepairOf(later, latest).why], [3, 'second'], 'the latest attempt wins');
+});
+
+test('the attempt and the Genie round read as one line while both apply', async () => {
+  const { mvpStages, mvpProgressSummary, mvpRepairOf } = await lib('mvpProgress.js');
+  const steps = [repairRow('10:10:05', { attempt: 2, why: BUSY }), row('Plan', 'ended_success', '10:10:40'),
+    row('Genie build', 'started', '10:12:00', { result_json: JSON.stringify({ use_case_id: 'N01-U01', phase: 'Genie build', round: 2, rounds: 3 }) })];
+  const latest = latestOf('filling');
+  const stages = mvpStages(steps, latest, { now: at('10:12:30') });
+  assert.equal(mvpProgressSummary(stages, latest, { now: at('10:12:30'), repair: mvpRepairOf(steps, latest) }).detail,
+    `Attempt 2 of 3: Inspire is fixing it: ${BUSY}. Round 2 of 3: Genie is fixing what failed in round 1`);
+});

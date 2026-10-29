@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { closeBrowser, openUi } from './uiSupport.mjs';
+import { closeBrowser, openUi, startMvp } from './uiSupport.mjs';
 
 const OWNER = ['owner', 'example.com'].join('@');
 const PAT = ['pat', 'example.com'].join('@');
@@ -33,9 +33,7 @@ async function toResults(page) {
 }
 
 async function startWhenReady(page) {
-  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Start MVP' && !b.disabled),
-    null, { timeout: 15000 });
-  await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
+  await startMvp(page);
   await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
 }
 
@@ -173,6 +171,8 @@ test('App owners are typed under Advanced settings like alert recipients, checke
     await onStep(page, 'Delivery');
     await advanced(page).click();
     const owners = page.getByLabel('App owners (comma separated)');
+    await owners.waitFor();
+    await page.getByRole('checkbox', { name: /^App / }).uncheck();
     assert.equal(await owners.count(), 0, 'no App, no owners to name');
     await page.getByRole('checkbox', { name: /^App / }).check();
     await page.getByText('You can always change the money at stake assumptions in the App. Add the work emails of other people who may change them too.').waitFor();

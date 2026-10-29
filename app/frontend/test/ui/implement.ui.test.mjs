@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaultSpecFromUseCase, lostTablesText } from '../../src/lib/implementWizard.js';
 import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
-import { closeBrowser, lowContrast, openUi, until } from './uiSupport.mjs';
+import { closeBrowser, lowContrast, openUi, startMvp, until } from './uiSupport.mjs';
 
 const OWNER = 'owner@example.com';
 const RESULT_TABLE = 'main.inspire.n01_u01_s42_out';
@@ -129,11 +129,7 @@ async function throughApp(page, access = /^Internal data/) {
 const advanced = (page) => page.getByRole('button', { name: 'Advanced settings' });
 const footerErrors = (page) => page.locator('[role="alert"] p').allTextContents();
 
-async function implementWhenReady(page) {
-  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Start MVP' && !b.disabled),
-    null, { timeout: 15000 });
-  await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
-}
+const implementWhenReady = startMvp;
 
 function submittedSpec(made) {
   const inserts = made.sqlCalls.filter((c) => String(c.sql).includes('INSERT INTO') && (c.parameters || []).some((p) => p.name === 'spec'));
@@ -141,12 +137,13 @@ function submittedSpec(made) {
   return JSON.parse(inserts[0].parameters.find((p) => p.name === 'spec').value);
 }
 
-test('the wizard walks Choose, Data, Results and Delivery, adds App access and App look once the App is ticked, and Start MVP launches one run', async () => {
+test('the wizard starts with the dashboard, Genie Agent and App ticked, drops App access and App look while the App is unticked, and Start MVP launches one run', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
+  const withApp = ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App access', '6. App look'];
   try {
     await onStep(page, 'Choose');
-    assert.deepEqual(await page.locator('ol li').allTextContents(), ['1. Choose', '2. Data', '3. Results', '4. Delivery']);
+    assert.deepEqual(await page.locator('ol li').allTextContents(), withApp);
     const summary = page.getByRole('region', { name: 'Executive summary' });
     await summary.getByText('Cut churn in the top segment').waitFor();
     await summary.getByText('Head of Retention').waitFor();
@@ -159,11 +156,13 @@ test('the wizard walks Choose, Data, Results and Delivery, adds App access and A
     assert.equal(await advanced(page).getAttribute('aria-expanded'), 'false');
     assert.equal(await page.getByLabel('Goal sentence').count(), 0, 'every other setting waits under Advanced settings');
     await toDelivery(page);
-    assert.equal(await page.getByRole('checkbox', { name: /^Dashboard/ }).isChecked(), true, 'the dashboard is the default');
-    for (const name of [/^Genie Agent/, /^App /, /^Alert/]) assert.equal(await page.getByRole('checkbox', { name }).isChecked(), false, String(name));
-    await page.getByRole('checkbox', { name: /^Genie Agent/ }).check();
+    for (const name of [/^Dashboard/, /^Genie Agent/, /^App /]) assert.equal(await page.getByRole('checkbox', { name }).isChecked(), true, String(name));
+    assert.equal(await page.getByRole('checkbox', { name: /^Alert/ }).isChecked(), false, 'the alert is the one output left off');
+    await page.getByRole('checkbox', { name: /^App / }).uncheck();
+    assert.deepEqual(await page.locator('ol li').allTextContents(), ['1. Choose', '2. Data', '3. Results', '4. Delivery']);
+    await page.getByRole('button', { name: 'Start MVP', exact: true }).waitFor();
     await page.getByRole('checkbox', { name: /^App / }).check();
-    assert.deepEqual(await page.locator('ol li').allTextContents(), ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App access', '6. App look']);
+    assert.deepEqual(await page.locator('ol li').allTextContents(), withApp);
     assert.equal(await page.getByLabel('App name').inputValue(), 'inspire-hub-acme', 'a new App is the business Hub');
     await page.getByText("'inspire-hub-acme' is free").waitFor();
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
@@ -337,7 +336,7 @@ test('a new App that could not get access is disabled up front with the reason, 
     const warn = page.locator('span.text-warning-fg', { hasText: `${OWNER} may not be able to read the result table` });
     await warn.waitFor();
     assert.equal(await warn.count(), 1, 'the warning shows on the main view, once');
-    assert.match(await warn.textContent(), new RegExp(`${OWNER} needs CAN USE on .* to open the dashboard, because they query with their own access`));
+    assert.match(await warn.textContent(), new RegExp(`${OWNER} needs CAN USE on .* to open the dashboard and the Genie Agent, because they query with their own access`));
     assert.equal(await page.getByRole('note', { name: 'Where Inspire saves the MVP' }).count(), 0, 'a session outside /Shared shows no folder warning');
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
@@ -524,7 +523,7 @@ test('what blocks a step shows in the footer, opens Advanced on the field to fix
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
     await page.getByText('Nobody gets it yet: add an email under Advanced settings.').waitFor();
     assert.equal(await advanced(page).getAttribute('aria-expanded'), 'false');
-    await implementWhenReady(page);
+    await next(page);
     await page.locator('[role="alert"]').waitFor();
     assert.deepEqual(await footerErrors(page), ['an alert needs at least one recipient email or notification destination']);
     assert.equal(await advanced(page).getAttribute('aria-expanded'), 'true');

@@ -38,6 +38,17 @@ export async function openUi(open, overrides = {}, query = '') {
   };
 }
 
+export async function startMvp(page) {
+  for (const label of ['App access', 'App look']) {
+    if (!(await page.getByRole('button', { name: 'Next' }).count())) break;
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.locator('[aria-current="step"]', { hasText: label }).waitFor({ timeout: 15000 });
+  }
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Start MVP' && !b.disabled),
+    null, { timeout: 15000 });
+  await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
+}
+
 export async function until(check, what, timeout = 10000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {

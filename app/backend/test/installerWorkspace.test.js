@@ -46,7 +46,7 @@ const GRANTS_PROBE = String.raw`
 import ast, sys, types
 path = sys.argv[1]
 tree = ast.parse(open(path, encoding="utf-8").read())
-wanted = {"step_grant_permissions", "_catalog_access_for_new_apps", "_lakebase_project_access"}
+wanted = {"step_grant_permissions", "_catalog_access_for_new_apps", "_lakebase_project_access", "_app_folder_access"}
 module = ast.Module(body=[n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name in wanted)
                           or (isinstance(n, ast.Assign) and [t.id for t in n.targets if isinstance(t, ast.Name)][:1] in (["LAKEBASE_PROJECT"], ["LAKEBASE_CATALOG"]))],
                     type_ignores=[])
@@ -54,7 +54,7 @@ import contextlib, io
 class StatementState:
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
-def run(catalog_grants, owner="amr@x", show_fails=False, lakebase=(200, ""), lakebase_catalog=False):
+def run(catalog_grants, owner="amr@x", show_fails=False, lakebase=(200, ""), lakebase_catalog=False, folder=(200, 77), folder_grant=(200, "")):
     executed, patched = [], []
     def ok(rows=None):
         manifest = types.SimpleNamespace(schema=types.SimpleNamespace(columns=[types.SimpleNamespace(name=n) for n in ("Principal", "ActionType", "ObjectType", "ObjectKey")]))
@@ -78,10 +78,15 @@ def run(catalog_grants, owner="amr@x", show_fails=False, lakebase=(200, ""), lak
         patched.append((method, url, body))
         if "/database-projects/" in url:
             return types.SimpleNamespace(status_code=lakebase[0], text=lakebase[1])
+        if "/workspace/get-status" in url:
+            return types.SimpleNamespace(status_code=folder[0], text="" if folder[0] == 200 else str(folder[1]),
+                                         json=lambda: {"object_id": folder[1]})
+        if "/permissions/directories/" in url:
+            return types.SimpleNamespace(status_code=folder_grant[0], text=folder_grant[1])
         return types.SimpleNamespace(status_code=200, text="")
     ns = {"StatementState": StatementState}
     exec(compile(module, path, "exec"), ns)
-    ctx = {"NEW_SP_APP_ID": "SP", "WAREHOUSE_ID": "wh", "CATALOG": "main", "SCHEMA": "_inspire", "available_catalogs": ["main"],
+    ctx = {"NEW_SP_APP_ID": "SP", "APP_NAME": "inspire-ai", "WAREHOUSE_ID": "wh", "CATALOG": "main", "SCHEMA": "_inspire", "available_catalogs": ["main"],
            "w": types.SimpleNamespace(statement_execution=Statements(), catalogs=Catalogs()), "api": api}
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
@@ -102,7 +107,18 @@ assert lakebase_sql == [f"GRANT {p} ON CATALOG \x60inspire_lakebase\x60 TO \x60S
                         ("USE_CATALOG", "BROWSE", "ALL PRIVILEGES")], lakebase_sql
 manage = {"access_control_list": [{"service_principal_name": "SP", "permission_level": "CAN_MANAGE"}]}
 assert patched == [("PATCH", "/api/2.0/permissions/sql/warehouses/wh", manage),
-                   ("PATCH", "/api/2.0/permissions/database-projects/inspire-apps", manage)], patched
+                   ("PATCH", "/api/2.0/permissions/database-projects/inspire-apps", manage),
+                   ("GET", "/api/2.0/workspace/get-status?path=/Shared/inspire-ai", None),
+                   ("PATCH", "/api/2.0/permissions/directories/77", manage)], patched
+assert "CAN_MANAGE on /Shared/inspire-ai, so Implement can save every MVP there: ✅" in said, said
+missing = run([], folder=(404, '{"error_code":"RESOURCE_DOES_NOT_EXIST"}'))
+assert not [p for p in missing[1] if "/permissions/directories/" in p[1]], missing[1]
+assert ("⚠️ Could not find /Shared/inspire-ai ({\"error_code\":\"RESOURCE_DOES_NOT_EXIST\"}), so SP may not be able to save MVPs there. "
+        "A workspace admin can give SP Can Manage on that folder") in missing[2], missing[2]
+refused = run([], folder_grant=(403, '{"error_code":"PERMISSION_DENIED"}'))[2]
+assert ("⚠️ SP cannot save MVPs in /Shared/inspire-ai yet ({\"error_code\":\"PERMISSION_DENIED\"}). "
+        "A workspace admin can give SP Can Manage on that folder") in refused, refused
+assert "save every MVP there: ✅" not in refused, refused
 assert "CAN_MANAGE on warehouse, so Implement can attach it to the Apps it creates: ✅" in said, said
 assert "CAN_MANAGE on Lakebase project inspire-apps, so the Apps Implement builds can read Lakebase: ✅" in said, said
 absent = run([], lakebase=(404, '{"error_code":"NOT_FOUND","message":"Database project is not found."}'))[2]

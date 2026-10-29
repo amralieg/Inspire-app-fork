@@ -151,7 +151,7 @@ test('alert recipients default to the decision owner and the users it is shared 
 test('the Delivery step accepts an alert on its own and blocks one nobody would receive', async () => {
   const w = await load();
   const base = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire' });
-  const only = (outputs) => ({ ...base, outputs: { ...base.outputs, dashboard: false, ...outputs } });
+  const only = (outputs) => ({ ...base, outputs: { ...base.outputs, dashboard: false, genie_space: false, app: false, ...outputs } });
   assert.deepEqual(w.stepErrors('delivery', only({ alert: true, alert_recipients: ['a@example.com'] })), []);
   assert.deepEqual(w.stepErrors('delivery', only({ alert: true, alert_destinations: [{ id: '1234abcd-ef' }] })), []);
   assert.deepEqual(w.stepErrors('delivery', only({})), ['pick at least one way to use it']);
@@ -192,7 +192,7 @@ test('each Full MVP step runs the checks of every section it shows, and only tho
   const spec = w.defaultSpecFromUseCase(UC, { warehouseId: '', inspireDatabase: 'main.inspire' });
   const bad = { ...spec, use_case: { ...spec.use_case, decision_owner: '' }, schedule: { ...spec.schedule, enabled: true, cron: '0 0 25 * * ?' },
     config: { ...spec.config, result_table: 'main.inspire' },
-    outputs: { ...spec.outputs, dashboard: false, app: true, app_name: 'X', alert: true } };
+    outputs: { ...spec.outputs, dashboard: false, genie_space: false, app: true, app_name: 'X', alert: true } };
   assert.deepEqual(w.stepErrors('data', bad), ['name the decision owner', 'pick a SQL warehouse']);
   assert.deepEqual(w.stepErrors('results', bad), ['pick a catalog and a schema, and name the result table']);
   assert.deepEqual(w.stepErrors('delivery', bad), [
@@ -207,8 +207,9 @@ test('each Full MVP step runs the checks of every section it shows, and only tho
   ], 'the App name lives on the main view, so it never opens Advanced');
   assert.deepEqual(w.advancedErrors('data', bad), w.stepErrors('data', bad));
   assert.deepEqual(w.advancedErrors('results', bad), [], 'the result table lives on its own step, never under Advanced');
-  assert.deepEqual(w.stepErrors('app_access', bad), ['choose who the App signs people in as: each person (per-user) or its own service principal']);
-  assert.deepEqual(w.stepErrors('app_access', { ...bad, outputs: { ...bad.outputs, app_access: 'sp' } }), []);
+  assert.deepEqual(w.stepErrors('app_access', bad), [], 'the App starts reading as its service principal, so the step passes as made');
+  assert.deepEqual(w.stepErrors('app_access', { ...bad, outputs: { ...bad.outputs, app_access: '' } }),
+    ['choose who the App signs people in as: each person (per-user) or its own service principal']);
   assert.deepEqual(w.stepErrors('app_look', bad), [], 'the look is checked only against the looks the App shell offers, once they load');
   const shell = { styles: ['a', 'b', 'c'], layouts: ['sidebar', 'tabs', 'home'], palettes: ['default', 'mono'], themes: ['light', 'dark'] };
   assert.deepEqual(w.stepErrors('app_look', bad, { appLook: shell }), []);
@@ -302,7 +303,7 @@ test('Keep it fresh maps Off, Daily and Weekly onto the schedule, and shows Cust
 test('an edit offers the use case App name in place of the old id default unless an App was built under it, and keeps a typed name', async () => {
   const w = await load();
   const fallback = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
-  const stored = backend.validateImplementSpec(fallback).spec;
+  const stored = backend.validateImplementSpec({ ...fallback, outputs: { ...fallback.outputs, app: false } }).spec;
   const saved = (outputs) => ({ spec_version: 2, spec_json: { ...stored, outputs: { ...stored.outputs, ...outputs } } });
   assert.equal(stored.outputs.app_name, '', 'the backend stores no App name when the App is off');
   const noApp = w.specFromLatest({ spec_version: 2, spec_json: stored }, fallback);
@@ -720,7 +721,9 @@ test('a use case goes into its business Hub App by default only when that Hub ex
   assert.equal(w.withHubDefault(on, { app: [hub] }, 'Other Co', {}), on, 'another business has another Hub');
   assert.equal(w.withHubDefault(on, null, 'Acme', {}), on);
   assert.equal(w.withHubDefault(on, { app: [hub] }, 'Acme', { app: 'predict-churn' }), on, 'a use case with its own App keeps it');
-  const off = w.defaultSpecFromUseCase(UC, { businessName: 'Acme' });
+  const fresh = w.defaultSpecFromUseCase(UC, { businessName: 'Acme' });
+  assert.equal(w.withHubDefault(fresh, { app: [hub] }, 'Acme', {}).outputs.merge.app, 'inspire-hub-acme', 'the App is on by default, so a new use case joins its Hub');
+  const off = w.withOutput(fresh, 'app', false);
   assert.equal(w.withHubDefault(off, { app: [hub] }, 'Acme', {}), off, 'no App asked, nothing joins');
   const picked = w.withMergeTarget(on, 'app', legacy);
   assert.equal(w.withHubDefault(picked, { app: [hub] }, 'Acme', {}), picked, 'a choice already made stays');
@@ -1036,4 +1039,48 @@ test('the wizard never fills a column role on its own', () => {
   assert.doesNotMatch(source, /guessColumnRole|confirmedRoles|unconfirmedRoles/);
   assert.match(source, /<option value="">Inspire&apos;s choice<\/option>/);
   assert.doesNotMatch(source, /column_roles: roles/);
+});
+
+test('every MVP state falls in one bucket: ready and with warnings are live, running is building, failed and stopped are failed, and a notebook run or an uninstalled MVP is no MVP', async () => {
+  const w = await load();
+  const bucket = (latest, notebook = null) => w.mvpBucketOf(w.implementState(latest, notebook));
+  assert.equal(bucket({ status: 'ready' }), 'live');
+  assert.equal(bucket({ status: 'ready_with_warnings' }), 'live');
+  for (const status of backend.IMPLEMENT_ACTIVE_STATUSES) assert.equal(bucket({ status }), 'building', status);
+  assert.equal(bucket({ status: 'filling', stalled: { message: 'gone' } }), 'failed', 'a stopped build is failed, not building');
+  assert.equal(bucket({ status: 'failed' }), 'failed');
+  assert.equal(bucket({ status: 'some_new_state' }), 'building');
+  assert.equal(bucket({ status: 'uninstalled' }), 'none');
+  assert.equal(bucket(null, w.notebookStatus({ has_genie_code: 'Y' }, null)), 'none', 'a notebook alone is not an MVP');
+  assert.equal(bucket(null), 'none');
+  assert.equal(w.mvpBucketOf(null), 'none');
+  assert.equal(w.mvpBucketOf(undefined), 'none');
+});
+
+test('the MVP filter keeps only its bucket, Has an MVP keeps every bucket but none, and Any keeps everything', async () => {
+  const w = await load();
+  const states = { live: w.implementState({ status: 'ready' }), building: w.implementState({ status: 'filling' }),
+    failed: w.implementState({ status: 'failed' }), none: w.implementState(null) };
+  const kept = (filter) => Object.entries(states).filter(([, state]) => w.mvpFilterMatches(filter, state)).map(([name]) => name);
+  assert.deepEqual(kept('all'), ['live', 'building', 'failed', 'none']);
+  assert.deepEqual(kept(''), ['live', 'building', 'failed', 'none']);
+  assert.deepEqual(kept('has'), ['live', 'building', 'failed']);
+  assert.deepEqual(kept('none'), ['none']);
+  assert.deepEqual(kept('live'), ['live']);
+  assert.deepEqual(kept('building'), ['building']);
+  assert.deepEqual(kept('failed'), ['failed']);
+  assert.equal(w.mvpFilterMatches('none', null), true, 'a use case without an id has no MVP');
+  assert.deepEqual(w.MVP_FILTERS.map((f) => f.id), ['all', 'has', 'none', 'live', 'building', 'failed']);
+});
+
+test('the MVP counts add up: started is live plus building plus failed, and started plus none is every use case', async () => {
+  const w = await load();
+  const states = [{ status: 'ready' }, { status: 'ready_with_warnings' }, { status: 'checking' }, { status: 'failed' }, { status: 'uninstalled' }, null]
+    .map((latest) => w.implementState(latest));
+  const counts = w.mvpCounts([...states, null]);
+  assert.deepEqual(counts, { useCases: 7, has: 4, none: 3, live: 2, building: 1, failed: 1 });
+  assert.equal(counts.has, counts.live + counts.building + counts.failed);
+  assert.equal(counts.has + counts.none, counts.useCases);
+  assert.deepEqual(w.mvpCounts([]), { useCases: 0, has: 0, none: 0, live: 0, building: 0, failed: 0 });
+  assert.deepEqual(w.mvpCounts(undefined), { useCases: 0, has: 0, none: 0, live: 0, building: 0, failed: 0 });
 });

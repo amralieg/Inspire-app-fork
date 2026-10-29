@@ -79,10 +79,11 @@ test('the backends come from the shell\'s Postgres layer: a shell without it rea
   assert.throws(() => S.appShellLook({ ...payload, files: noDelta }), /KINDS has no delta/);
 });
 
-test('the App backend is lakebase or delta, Delta when unset, and an App that is not built has none', () => {
+test('the App backend is lakebase or delta, Delta when unset so a stored spec keeps the backend it was built on, and an App that is not built has none', () => {
   const backend = (outputs) => check(outputs).spec.outputs.app_backend;
   assert.equal(backend({}), 'delta');
   assert.equal(backend({ app_backend: '' }), 'delta');
+  assert.equal(backend({ app_access: 'sp', app_backend: '' }), 'delta');
   assert.equal(backend({ app_backend: ' Lakebase ' }), 'lakebase');
   assert.equal(backend({ app_backend: 'DELTA' }), 'delta');
   assert.equal(backend({ app: false, app_backend: 'postgres' }), '');

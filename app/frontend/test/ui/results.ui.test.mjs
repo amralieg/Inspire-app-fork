@@ -225,6 +225,63 @@ test('the whole Results page, its open sidebar panels and every kind of open car
   }
 });
 
+test('the MVP tiles count the use cases by their MVP, a tile or the MVP filter narrows the cards, and clearing brings every card back', async () => {
+  const now = new Date().toISOString();
+  const row = (id, status) => ({ session_id: '42', use_case_id: id, spec_version: 1, status, created_by: 'amr@x', updated_at: now, spec_json: '{}' });
+  const history = [row('N01-U01', 'ready'), row('N01-U02', 'ready_with_warnings'), row('N02-U01', 'filling'), row('N02-U02', 'failed'), row('N01-U04', 'uninstalled')];
+  const ui = await openUi('results', { ...STATE, history });
+  const { page } = ui;
+  const names = async () => (await cards(page).allInnerTexts()).map((text) => ['Predict churn', 'Score upsell', 'Segment shoppers', 'Price elasticity', 'Forecast stock', 'Spot late suppliers']
+    .find((name) => text.includes(name))).sort();
+  try {
+    await ready(page);
+    const tiles = page.getByRole('group', { name: 'MVPs' });
+    await tiles.getByRole('button', { name: 'MVPs started: 4' }).waitFor();
+    for (const name of ['MVPs live: 2', 'Building: 1', 'Failed: 1', 'No MVP yet: 2']) {
+      assert.equal(await tiles.getByRole('button', { name, exact: true }).count(), 1, name);
+    }
+    const live = tiles.getByRole('button', { name: 'MVPs live: 2' });
+    await live.click();
+    await card(page, 'Forecast stock').waitFor({ state: 'detached' });
+    assert.deepEqual(await names(), ['Predict churn', 'Score upsell']);
+    assert.equal(await live.getAttribute('aria-pressed'), 'true');
+    for (const dark of [false, true]) {
+      await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
+      await page.waitForTimeout(400);
+      const measured = await lowContrast(page, ['[aria-label="MVPs"]']);
+      assert.ok(measured.checked >= 10, `${dark ? 'dark' : 'light'}: measured ${measured.checked} tile elements`);
+      assert.deepEqual(measured.low, [], `${dark ? 'dark' : 'light'} MVP tiles with one picked`);
+    }
+    await live.click();
+    await card(page, 'Forecast stock').waitFor();
+    assert.equal(await cards(page).count(), 6, 'a second click on the picked tile shows every use case');
+    const filter = page.getByRole('combobox', { name: 'MVP', exact: true });
+    await filter.selectOption('none');
+    await card(page, 'Predict churn').waitFor({ state: 'detached' });
+    assert.deepEqual(await names(), ['Price elasticity', 'Segment shoppers'], 'an uninstalled MVP counts as no MVP');
+    assert.equal(await tiles.getByRole('button', { name: 'No MVP yet: 2' }).getAttribute('aria-pressed'), 'true', 'the dropdown and the tiles agree');
+    await page.getByRole('button', { name: 'Clear the MVP filter' }).click();
+    await card(page, 'Predict churn').waitFor();
+    assert.equal(await cards(page).count(), 6);
+    await filter.selectOption('has');
+    await card(page, 'Segment shoppers').waitFor({ state: 'detached' });
+    assert.deepEqual(await names(), ['Forecast stock', 'Predict churn', 'Score upsell', 'Spot late suppliers']);
+    await filter.selectOption('failed');
+    await card(page, 'Predict churn').waitFor({ state: 'detached' });
+    assert.deepEqual(await names(), ['Spot late suppliers']);
+    await filter.selectOption('building');
+    await card(page, 'Forecast stock').waitFor();
+    assert.deepEqual(await names(), ['Forecast stock']);
+    await page.getByRole('button', { name: 'Clear', exact: true }).click();
+    await card(page, 'Predict churn').waitFor();
+    assert.equal(await cards(page).count(), 6);
+    assert.equal(await filter.inputValue(), 'all', 'Clear resets the MVP filter too');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('a warehouse too slow to answer shows its own message with Retry, and Retry brings the sessions back', async () => {
   const ui = await openUi('results', { ...STATE, sessionsErrors: [SLOW_WAREHOUSE_MESSAGE] });
   const { page, made } = ui;

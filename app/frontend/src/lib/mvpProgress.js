@@ -14,6 +14,8 @@ const EARLIER_PHASES = { genie_space: ['Genie space'] };
 const FINISH_STAGE = { id: 'Done', label: 'Done', working: 'Inspire is scheduling and sharing the MVP', phases: ['Schedule', 'Sharing', 'Done'] };
 
 const STEP_STATES = { started: 'running', ended_success: 'done', ended_warning: 'warning', ended_error: 'error' };
+export const MVP_REPAIR_PHASE = 'Self-repair';
+const WHOLE_BUILD = 'the MVP build';
 const RUN_STARTING_STATES = ['PENDING', 'QUEUED', 'BLOCKED'];
 
 function stepPayload(row) {
@@ -49,6 +51,38 @@ function stepEvents(steps) {
     .sort((a, b) => ((a.at ?? Infinity) - (b.at ?? Infinity)) || a.order - b.order);
 }
 
+function sameVersion(payload, latest) {
+  const ours = Number(latest?.spec_version);
+  const theirs = Number(payload.spec_version);
+  return !Number.isFinite(ours) || !Number.isFinite(theirs) || ours === theirs;
+}
+
+export function mvpRepairOf(steps, latest) {
+  let found = null;
+  for (const { row, payload, at } of stepEvents(steps)) {
+    const attempt = Number(payload.attempt);
+    if (stepPhase(row, payload) !== MVP_REPAIR_PHASE || !Number.isInteger(attempt) || attempt < 2 || !sameVersion(payload, latest)) continue;
+    const attempts = Number(payload.attempts);
+    found = {
+      attempt,
+      attempts: Number.isInteger(attempts) && attempts >= attempt ? attempts : null,
+      step: String(payload.step || WHOLE_BUILD),
+      why: String(payload.why || '').trim(),
+      at,
+    };
+  }
+  return found;
+}
+
+function repairLine(repair, status) {
+  if (!repair) return '';
+  const count = `${repair.attempt}${repair.attempts ? ` of ${repair.attempts}` : ''}`;
+  const part = repair.step === WHOLE_BUILD ? '' : ` for ${repair.step}`;
+  if (IMPLEMENT_ACTIVE_STATUSES.includes(status)) return `Attempt ${count}${part}: Inspire is fixing it${repair.why ? `: ${repair.why}` : ''}`;
+  if (['ready', 'ready_with_warnings'].includes(status)) return `Built on attempt ${count}${part}${repair.why ? `. What Inspire fixed: ${repair.why}` : ''}`;
+  return '';
+}
+
 function roundOf(payload) {
   const round = Number(payload.round);
   if (!Number.isInteger(round) || round < 1) return null;
@@ -67,7 +101,10 @@ export function mvpStages(steps, latest, { now = Date.now(), stalled = null } = 
     || (s.phases || []).some((p) => p.toLowerCase() === phase.toLowerCase()));
   const rank = { running: 0, done: 1, warning: 2, error: 3 };
   const seenAt = new Map();
+  const repair = mvpRepairOf(steps, latest);
+  const since = repair && repair.step === WHOLE_BUILD ? repair.at : null;
   for (const { row, payload, at } of stepEvents(steps)) {
+    if (since !== null && at !== null && at < since) continue;
     const index = indexOf(stepPhase(row, payload));
     if (index < 0) continue;
     const stage = stages[index];
@@ -131,7 +168,7 @@ export function mvpStages(steps, latest, { now = Date.now(), stalled = null } = 
   return stages;
 }
 
-export function mvpProgressSummary(stages, latest, { now = Date.now(), stalled = null } = {}) {
+export function mvpProgressSummary(stages, latest, { now = Date.now(), stalled = null, repair = null } = {}) {
   const counted = stages.filter((s) => s.state !== 'skipped');
   const settled = counted.filter((s) => ['done', 'warning'].includes(s.state)).length;
   const current = stages.find((s) => ['running', 'next'].includes(s.state)) || null;
@@ -145,12 +182,14 @@ export function mvpProgressSummary(stages, latest, { now = Date.now(), stalled =
   else if (active && current) headline = `${current.working}…`;
   else if (active) headline = 'Inspire is working…';
   const round = active && current?.state === 'running' && current.round > 1 ? current.round : null;
+  const rounds = round ? `Round ${round}${current.rounds ? ` of ${current.rounds}` : ''}: Genie is fixing what failed in round ${round - 1}` : '';
+  const fixing = stalled ? '' : repairLine(repair, status);
   return {
     active,
     current,
     percent: counted.length ? Math.round((settled / counted.length) * 100) : 0,
     headline,
-    detail: round ? `Round ${round}${current.rounds ? ` of ${current.rounds}` : ''}: Genie is fixing what failed in round ${round - 1}` : '',
+    detail: [fixing, rounds].filter(Boolean).join('. '),
     span: span ? `${active ? 'Running for' : 'Took'} ${span}` : '',
   };
 }

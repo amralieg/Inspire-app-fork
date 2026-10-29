@@ -34,11 +34,14 @@ export function wizardSteps(mode, spec = null) {
 export const BUILD_STEP_IDS = ['delivery', ...APP_STEPS.map((s) => s.id)];
 
 export const APP_ACCESS_CHOICES = [
-  { id: 'user', label: 'Sensitive data: each person signs in as themselves (per-user)',
-    blurb: 'Each person sees only the rows their own access allows.' },
   { id: 'sp', label: 'Internal data: the App uses its own service principal',
     blurb: 'Everyone sees the same rows, read with the App\'s own access. Inspire grants it read access to the result table.' },
+  { id: 'user', label: 'Sensitive data: each person signs in as themselves (per-user)',
+    blurb: 'Each person sees only the rows their own access allows.' },
 ];
+export const APP_ACCESS_DEFAULT = 'sp';
+export const APP_ACCESS_NOTE = 'Inspire starts with the App\'s own service principal, so its pages load at once from Lakebase. '
+  + 'Pick per-user when each person must see only the rows their own access allows; that App reads Delta tables.';
 
 export const APP_BACKENDS = ['lakebase', 'delta'];
 export const APP_BACKEND_CHOICES = [
@@ -129,7 +132,7 @@ export const FRESHNESS_OPTIONS = [
 ];
 
 export const IMPLEMENT_OUTPUTS = [
-  { id: 'dashboard', label: 'Dashboard', blurb: 'Decision list, trend and run health. Selected by default.' },
+  { id: 'dashboard', label: 'Dashboard', blurb: 'Decision list, trend and run health.' },
   { id: 'genie_space', label: 'Genie Agent', blurb: 'An agent over the result and source tables, with 5 sample questions.' },
   { id: 'app', label: 'App', blurb: 'A Databricks App with the decision list, row detail and Ask Genie. You pick its access and look next.' },
   { id: 'alert', label: 'Alert', blurb: 'Emails you when the latest run has rows to act on. Genie writes the check.' },
@@ -496,8 +499,8 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, sessi
     },
     outputs: {
       dashboard: true,
-      genie_space: false,
-      app: false,
+      genie_space: true,
+      app: true,
       dashboard_name: '',
       dashboard_filters: [],
       dashboard_vibes: '',
@@ -506,7 +509,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, sessi
       genie_space_vibes: '',
       app_name: hubAppName(businessName) || appNameOf(uc?.short_name || useCaseName, id),
       app_purpose: '',
-      app_access: '',
+      app_access: APP_ACCESS_DEFAULT,
       app_look: { ...APP_LOOK_DEFAULT },
       app_options: Object.fromEntries(APP_OPTION_KEYS.map((key) => [key, false])),
       app_backend: '',
@@ -548,7 +551,7 @@ export function specFromLatest(latest, fallback, assets = {}) {
     outputs[key] = { ...fallback.outputs[key], ...(saved[key] && typeof saved[key] === 'object' && !Array.isArray(saved[key]) ? saved[key] : {}) };
   }
   if (!Array.isArray(outputs.app_owners)) outputs.app_owners = fallback.outputs.app_owners;
-  if (saved.app && assets?.app && !Object.prototype.hasOwnProperty.call(saved, 'app_access')) outputs.app_access = 'sp';
+  if (!APP_ACCESS_CHOICES.some((c) => c.id === outputs.app_access)) outputs.app_access = APP_ACCESS_DEFAULT;
   if (saved.app && assets?.app && !Object.prototype.hasOwnProperty.call(saved, 'app_backend')) outputs.app_backend = 'delta';
   const idDefault = !assets?.app && outputs.app_name === idAppNameOf(fallback.use_case_id);
   if (!outputs.app || !outputs.app_name || idDefault) outputs.app_name = fallback.outputs.app_name;
@@ -1158,6 +1161,18 @@ export function withResultTable(spec, { catalog, schema, table }) {
   return { ...spec, config: { ...spec.config, result_table: name.some(Boolean) ? name.join('.') : '' } };
 }
 
+export function unavailableOutputs(features, outputCheck, assets = {}) {
+  return [
+    (!features.apps || (!assets?.app && outputCheck?.app?.ok === false)) && 'app',
+    !features.genie_spaces && 'genie_space',
+    !features.alerts && 'alert',
+  ].filter(Boolean);
+}
+
+export function withoutUnavailableOutputs(spec, unavailable, assets = {}) {
+  return unavailable.reduce((next, id) => (next.outputs[id] && !assets?.[id] ? withOutput(next, id, false, assets) : next), spec);
+}
+
 export function withOutput(spec, id, checked, assets = {}) {
   if (id === 'genie_space' && !checked && spec.outputs.app) return spec;
   const outputs = { ...spec.outputs, [id]: checked };
@@ -1420,6 +1435,38 @@ export function implementGroups(useCases, latestRows, notebookRun, query = '') {
     return terms.every((t) => text.includes(t));
   });
   return IMPLEMENT_GROUPS.map((group) => ({ ...group, items: items.filter((item) => item.state.group === group.id) }));
+}
+
+export const MVP_FILTERS = [
+  { id: 'all', label: 'MVP: Any' },
+  { id: 'has', label: 'Has an MVP' },
+  { id: 'none', label: 'No MVP yet' },
+  { id: 'live', label: 'MVP live' },
+  { id: 'building', label: 'MVP building' },
+  { id: 'failed', label: 'MVP failed' },
+];
+
+const MVP_BUCKET = { ready: 'live', in_progress: 'building', failed: 'failed' };
+
+export function mvpBucketOf(state) {
+  return state?.kind === 'mvp' ? MVP_BUCKET[state.group] || 'building' : 'none';
+}
+
+export function mvpFilterMatches(filter, state) {
+  if (!filter || filter === 'all') return true;
+  const bucket = mvpBucketOf(state);
+  return filter === 'has' ? bucket !== 'none' : bucket === filter;
+}
+
+export function mvpCounts(states) {
+  const counts = { useCases: 0, has: 0, none: 0, live: 0, building: 0, failed: 0 };
+  for (const state of Array.isArray(states) ? states : []) {
+    const bucket = mvpBucketOf(state);
+    counts.useCases += 1;
+    counts[bucket] += 1;
+    if (bucket !== 'none') counts.has += 1;
+  }
+  return counts;
 }
 
 const questionKey = (text) => String(text ?? '').split(/\s+/).filter(Boolean).join(' ').toLowerCase();

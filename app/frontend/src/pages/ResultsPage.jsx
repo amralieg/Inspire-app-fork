@@ -71,7 +71,7 @@ import {
 import { fileExtension, quickAccessFiles, visibleArtifactFiles } from '../lib/artifactFiles';
 import { generationFolder, workspaceNotebookUrl, workspaceWebUiHashPath } from '../lib/workspaceLinks';
 import ImplementWizard from './ImplementWizard';
-import { implementState, notebookRunEnded, notebookStatus, versionActive } from '../lib/implementWizard';
+import { MVP_FILTERS, implementState, mvpCounts, mvpFilterMatches, notebookRunEnded, notebookStatus, versionActive } from '../lib/implementWizard';
 import { buildUseCaseList } from '../lib/useCaseList';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
 
@@ -181,6 +181,7 @@ export default function ResultsPage({
   const [filterSponsor, setFilterSponsor] = useState('all');
   /** `all` | `yes` | `no` — filter by presence of Genie instruction on the use case. */
   const [filterHasGenie, setFilterHasGenie] = useState('all');
+  const [filterMvp, setFilterMvp] = useState('all');
   const [filterStrategy, setFilterStrategy] = useState('all');
   const [filterBizPriority, setFilterBizPriority] = useState('all');
   const [sortBy, setSortBy] = useState('inspire');
@@ -366,6 +367,10 @@ export default function ResultsPage({
     () => Object.fromEntries(implementView.latest.map((row) => [String(row.use_case_id), row])),
     [implementView.latest],
   );
+  const mvpStateOf = (uc) => {
+    const tid = trackingIdOf(uc);
+    return tid ? implementState(implementLatestById[tid] || null) : null;
+  };
 
   // ── Auto-load sessions when settings are available ──
   const [autoLoaded, setAutoLoaded] = useState(false);
@@ -501,6 +506,7 @@ export default function ResultsPage({
         if (filterBizPriority !== 'all' && !priorityMatches(uc._v130?.priorityText, bizPriorities).includes(filterBizPriority)) return false;
         if (filterHasGenie === 'yes' && !hasGenieInstruction(uc)) return false;
         if (filterHasGenie === 'no' && hasGenieInstruction(uc)) return false;
+        if (!mvpFilterMatches(filterMvp, mvpStateOf(uc))) return false;
         if (searchQuery) {
           const q = searchQuery.toLowerCase();
           return (
@@ -677,6 +683,7 @@ export default function ResultsPage({
     filterStrategy !== 'all' ||
     filterBizPriority !== 'all' ||
     filterHasGenie !== 'all' ||
+    filterMvp !== 'all' ||
     showBestOfBestOnly;
 
   const clearAllFilters = () => {
@@ -686,6 +693,7 @@ export default function ResultsPage({
     setFilterBeneficiary('all'); setFilterSponsor('all');
     setFilterStrategy('all'); setFilterBizPriority('all');
     setFilterHasGenie('all');
+    setFilterMvp('all');
     setShowBestOfBestOnly(false);
   };
 
@@ -1796,6 +1804,13 @@ export default function ResultsPage({
               renderValue={avgInspireScore != null ? avgInspireScore.toFixed(1) : '—'}
             />
           </div>
+          {canImplement && (
+            <MvpTiles
+              counts={mvpCounts(allUseCases.map(mvpStateOf))}
+              active={filterMvp}
+              onPick={(id) => setFilterMvp(filterMvp === id ? 'all' : id)}
+            />
+          )}
 
 
           {v130Session && (
@@ -2153,6 +2168,18 @@ export default function ResultsPage({
                     <option value="no">Has Genie: No</option>
                   </select>
 
+                  <select
+                    value={filterMvp}
+                    onChange={(e) => setFilterMvp(e.target.value)}
+                    aria-label="MVP"
+                    title="Filter by the use case's MVP"
+                    className="px-2 py-1.5 text-[11px] border border-border rounded-lg bg-bg text-text-primary focus:outline-none focus:border-db-red/30 transition-smooth min-w-[9rem]"
+                  >
+                    {MVP_FILTERS.map((f) => (
+                      <option key={f.id} value={f.id}>{f.label}</option>
+                    ))}
+                  </select>
+
                   {/* Sort */}
                   <select
                     value={sortBy}
@@ -2223,6 +2250,12 @@ export default function ResultsPage({
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red-fg text-[10px] font-medium border border-db-red/20">
                         Genie: {filterHasGenie === 'yes' ? 'Yes' : 'No'}
                         <button type="button" onClick={() => setFilterHasGenie('all')} className="hover:text-db-red-fg">&times;</button>
+                      </span>
+                    )}
+                    {filterMvp !== 'all' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-db-red-50 text-db-red-fg text-[10px] font-medium border border-db-red/20">
+                        {MVP_FILTERS.find((f) => f.id === filterMvp)?.label}
+                        <button type="button" aria-label="Clear the MVP filter" onClick={() => setFilterMvp('all')} className="hover:text-db-red-fg">&times;</button>
                       </span>
                     )}
                     {searchQuery && (
@@ -2314,6 +2347,40 @@ export default function ResultsPage({
         />
       )}
 
+    </div>
+  );
+}
+
+const MVP_TILES = [
+  { id: 'has', label: 'MVPs started', icon: Layers },
+  { id: 'live', label: 'MVPs live', icon: CheckCircle2 },
+  { id: 'building', label: 'Building', icon: Loader2 },
+  { id: 'failed', label: 'Failed', icon: AlertCircle },
+  { id: 'none', label: 'No MVP yet', icon: FileText },
+];
+
+function MvpTiles({ counts, active, onPick }) {
+  return (
+    <div role="group" aria-label="MVPs" className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+      {MVP_TILES.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={active === id}
+          aria-label={`${label}: ${counts[id]}`}
+          title={active === id ? 'Show every use case' : `Show only: ${label}`}
+          onClick={() => onPick(id)}
+          className={`text-left rounded-xl border p-3 transition-smooth focus:outline-none focus-visible:ring-2 focus-visible:ring-db-red/40 ${
+            active === id ? 'border-db-red/40 bg-db-red-50' : 'border-border bg-surface hover:border-db-red/25'
+          }`}
+        >
+          <span className="flex items-center gap-2 mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-text-tertiary">
+            <Icon size={11} className="text-db-red-fg" />
+            {label}
+          </span>
+          <span className="block text-2xl font-bold text-text-primary tabular-nums tracking-tight">{counts[id]}</span>
+        </button>
+      ))}
     </div>
   );
 }
