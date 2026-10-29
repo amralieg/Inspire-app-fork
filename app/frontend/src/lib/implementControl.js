@@ -1,4 +1,6 @@
-import { IMPLEMENT_OUTPUTS, rebuildableOutputs, versionActive, vibesKey } from './implementWizard.js';
+import {
+  BUILT_ASSET_STATES, IMPLEMENT_OUTPUTS, partLabel, partOf, rebuildableOutputs, statusChip, versionActive, vibesKey,
+} from './implementWizard.js';
 import { formatWhen } from './formatWhen.js';
 
 export const CONTROL_REFRESH_MS = 15000;
@@ -105,7 +107,7 @@ export const APP_BACKEND_FACTS = {
 
 export function appBackendFacts(latest) {
   const asset = latest?.asset_status?.app || {};
-  const built = asset.backend == null && asset.state === 'ready' ? 'delta' : asset.backend;
+  const built = asset.backend == null && BUILT_ASSET_STATES.includes(asset.state) ? 'delta' : asset.backend;
   if (!Object.prototype.hasOwnProperty.call(APP_BACKEND_FACTS, built)) return { backend: '', lakebaseSwitch: false };
   const outputs = latest?.spec_json?.outputs || {};
   const wanted = outputs.app_backend === 'lakebase' && outputs.app_access === 'sp' && !outputs.merge?.app;
@@ -204,41 +206,179 @@ export function vibeWarnings(row, id) {
   return [...new Set(listed.filter((w) => w.includes(lead)).map((w) => w.slice(w.indexOf(lead)).trim()))];
 }
 
+const PART_STATES = [...BUILT_ASSET_STATES, 'failed'];
+const ASSET_WHAT = {
+  notebook: 'The Genie Code notebook that finds the rows to act on',
+  ai_reasoning: 'Why each row is flagged, what to do, and how sure',
+  value_formula: 'How the money at stake on each row is counted',
+  app_page: 'A page of the App',
+  dashboard_chart: 'A chart on the dashboard',
+  dashboard: 'The whole dashboard',
+  genie_space: 'How Genie answers questions on this use case',
+  app: 'The whole App',
+  alert: 'Emails people when the latest run has rows to act on',
+};
+const ASSET_NOUNS = { app_page: 'page', dashboard_chart: 'chart', ai_reasoning: 'part', value_formula: 'part', notebook: 'notebook', dashboard: 'dashboard', genie_space: 'Genie Agent', app: 'App', alert: 'alert' };
+const ASSET_PILLS = {
+  ready: { label: 'Ready', tone: 'success' },
+  ready_with_warnings: { label: 'Ready with warnings', tone: 'warning' },
+  failed: { label: 'Failed', tone: 'error' },
+  rebuilding: { label: 'Rebuilding', tone: 'busy' },
+};
+const ALL_ASSETS = 'all';
+const OPTION_PREFIXES = { dashboard: ['dashboard_'], genie_space: ['genie_space_', 'genie_questions'], app: ['app_'], alert: ['alert_'] };
+
+export function vibeChecks(raw) {
+  let list = raw;
+  if (typeof raw === 'string') {
+    try {
+      list = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  return list.filter((check) => check && typeof check === 'object' && String(check.ask ?? '').trim()).map((check) => ({
+    ask: String(check.ask).trim(),
+    done: String(check.status ?? '').trim().toLowerCase() === 'done',
+    evidence: String(check.evidence ?? '').trim(),
+  }));
+}
+
+export function checksSummary(checks) {
+  const done = checks.filter((check) => check.done).length;
+  return `You asked for ${checks.length} ${checks.length === 1 ? 'thing' : 'things'}. Done: ${done} of ${checks.length}.`;
+}
+
+export function missingAsks(checks) {
+  return checks.filter((check) => !check.done).map((check) => check.ask);
+}
+
+export function askCount(text) {
+  return String(text ?? '').split(/\n+|;|\.(?:\s+|$)|,\s*and\s+|\s+and\s+|,\s+/).map((s) => s.trim()).filter((s) => s.length > 3).length;
+}
+
+function builtChecks(rows, version, id) {
+  const output = partOf(id)?.output || id;
+  let row = rows.find((r) => r.spec_version === version);
+  let back = Number(row?.spec_json?.rollback_outputs?.[output]);
+  while (row && Number.isInteger(back) && back < row.spec_version) {
+    row = rows.find((r) => r.spec_version === back);
+    back = Number(row?.spec_json?.rollback_outputs?.[output]);
+  }
+  return { checks: vibeChecks(row?.asset_status?.[id]?.vibes_checks), checkedOn: row?.spec_version ?? null };
+}
+
+function assetPill(entry, checks, rebuilding) {
+  if (rebuilding) return ASSET_PILLS.rebuilding;
+  const state = entry?.state || 'ready';
+  if (state === 'ready' && checks.some((check) => !check.done)) return ASSET_PILLS.ready_with_warnings;
+  return ASSET_PILLS[state] || statusChip(state);
+}
+
+function rebuildTargets(latest, base) {
+  if (String(latest?.change_classes || '').split(',').some((c) => ['initial', 'data', 'config'].includes(c.trim()))) return ALL_ASSETS;
+  const spec = latest?.spec_json || {};
+  const ids = new Set([...(spec.retry_outputs || []), ...Object.keys(spec.rollback_outputs || {})]);
+  const before = base?.spec_json?.outputs || {};
+  const after = spec.outputs || {};
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (key.endsWith('_vibes') && String(before[key] ?? '').trim() !== String(after[key] ?? '').trim()) ids.add(key.slice(0, -'_vibes'.length));
+  }
+  for (const [output, prefixes] of Object.entries(OPTION_PREFIXES)) {
+    const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((key) => prefixes.some((prefix) => key.startsWith(prefix)));
+    const moved = JSON.stringify(before.merge?.[output] ?? '') !== JSON.stringify(after.merge?.[output] ?? '');
+    if (moved || keys.some((key) => JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null))) ids.add(output);
+  }
+  if (String(base?.spec_json?.data?.notes ?? '').trim() !== String(spec.data?.notes ?? '').trim()) ids.add('notebook');
+  return ids;
+}
+
 export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
   const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
-  const base = versionActive(latest, stalled) ? rows.find((r) => DONE.includes(r.status)) : latest;
+  const active = versionActive(latest, stalled);
+  const base = active ? rows.find((r) => DONE.includes(r.status)) : latest;
   if (!base || !DONE.includes(String(base.status))) return [];
   const chosen = latest.spec_json?.outputs || {};
   const built = rebuildableOutputs(base).map((o) => o.id);
+  const targets = active ? rebuildTargets(latest, base) : new Set();
+  const asking = latest.spec_json?.retry_asks || {};
+  const rolling = latest.spec_json?.rollback_outputs || {};
   const at = (row) => String(row?.updated_at || row?.created_at || '');
-  const notebookVersion = base.asset_status?.notebook?.spec_version ?? null;
-  const notebook = notebookVersion == null ? [] : [{
-    id: 'notebook',
-    label: 'notebook',
-    vibes: String(latest.spec_json?.data?.notes ?? '').trim(),
-    rebuild: true,
-    live: { version: notebookVersion, at: at(rows.find((r) => r.spec_version === notebookVersion)) },
-    url: String(notebookUrl || ''),
-    versions: [],
-    warnings: [],
-  }];
-  return [...notebook, ...IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id]).map((o) => {
+  const liveAt = (version) => (version == null ? null : { version, at: at(rows.find((r) => r.spec_version === version)) });
+  const urlOf = (output) => (output === 'notebook' ? String(notebookUrl || '') : String(base[OUTPUT_URLS[output]] || latest[OUTPUT_URLS[output]] || ''));
+  const card = (id, output, entry, version, fields) => {
+    const kind = partOf(id)?.kind || id;
+    const { checks, checkedOn } = builtChecks(rows, version, id);
+    const rebuilding = targets === ALL_ASSETS || targets.has(id) || targets.has(output);
+    const rollback = Number(rolling[output]) || null;
+    const asks = rollback ? 0 : Array.isArray(asking[id]) ? asking[id].length : askCount(fields.vibes);
+    return {
+      id, output, name: '', versions: [], warnings: [], ...fields, live: liveAt(version), url: urlOf(output),
+      what: String(entry?.what ?? entry?.description ?? '').trim() || ASSET_WHAT[kind], noun: ASSET_NOUNS[kind],
+      checks, checkedOn, state: assetPill(entry, checks, rebuilding), building: rebuilding ? { step: latest.status === 'queued' ? 0 : 1, asks, rollback } : null,
+    };
+  };
+  const parts = (output) => Object.entries(base.asset_status || {})
+    .filter(([id, entry]) => partOf(id)?.output === output && PART_STATES.includes(entry?.state))
+    .map(([id, entry]) => {
+      const name = String(entry.name ?? entry.title ?? '').trim();
+      const version = BUILT_ASSET_STATES.includes(entry.state) ? (entry.spec_version ?? base.spec_version ?? null) : null;
+      return card(id, output, entry, version, { label: partLabel(id, name), name, vibes: String(chosen[vibesKey(id)] ?? ''), rebuild: true });
+    });
+  const notebookEntry = base.asset_status?.notebook;
+  const notebookVersion = notebookEntry?.spec_version ?? null;
+  const notebook = notebookVersion == null ? []
+    : [card('notebook', 'notebook', notebookEntry, notebookVersion, { label: 'notebook', vibes: String(latest.spec_json?.data?.notes ?? '').trim(), rebuild: true })];
+  return [...notebook, ...parts('notebook'), ...IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id]).flatMap((o) => {
     const entry = base.asset_status?.[o.id];
-    const liveVersion = entry?.state === 'ready' ? (entry.spec_version ?? base.spec_version ?? null) : null;
+    const liveVersion = BUILT_ASSET_STATES.includes(entry?.state) ? (entry.spec_version ?? base.spec_version ?? null) : null;
     const versions = rows.filter((r) => {
       const saved = r.asset_status?.[o.id];
       return saved?.snapshot === true && r.spec_version !== liveVersion && (saved.spec_version ?? r.spec_version) === r.spec_version;
-    }).map((r) => ({ version: r.spec_version, at: at(r), status: String(r.status || ''), vibes: savedVibes(r, o.id) }));
+    }).map((r) => ({
+      version: r.spec_version, at: at(r), status: String(r.status || ''), vibes: savedVibes(r, o.id), checks: builtChecks(rows, r.spec_version, o.id).checks,
+    }));
+    const whole = card(o.id, o.id, entry, liveVersion, {
+      label: o.label, blurb: o.blurb, vibes: String(chosen[vibesKey(o.id)] ?? '').trim(), rebuild: built.includes(o.id), versions,
+    });
+    whole.warnings = whole.checks.length ? [] : vibeWarnings(base, o.id);
+    return [whole, ...parts(o.id)];
+  }).filter((c) => c.rebuild || c.versions.length)];
+}
+
+const PICK_GROUPS = [['notebook', 'Genie Code notebook'], ['results', 'Results'], ['app', 'App'], ['dashboard', 'Dashboard'], ['genie_space', 'Genie Agent'], ['alert', 'Alert']];
+const pickGroup = (card) => (card.output === 'notebook' && card.id !== 'notebook' ? 'results' : card.output);
+
+function pickTitle(card, liveName) {
+  const part = partOf(card.id);
+  if (part?.kind === 'app_page') return `Page: ${card.name || part.key}`;
+  if (part?.kind === 'dashboard_chart') return `Chart: ${card.name || part.key}`;
+  return {
+    notebook: 'Notebook', ai_reasoning: 'AI reasoning', value_formula: 'Money at stake', genie_space: 'Instructions',
+    alert: liveName ? `Alert: ${liveName}` : 'Alert', app: 'The whole App', dashboard: 'The whole dashboard',
+  }[card.id];
+}
+
+export function assetGroups(cards, rows = []) {
+  const names = new Map((rows || []).map((row) => [row.id, String(row.name || '')]));
+  const list = cards || [];
+  return PICK_GROUPS.map(([key, label]) => {
+    const own = list.filter((c) => pickGroup(c) === key);
+    const parts = own.filter((c) => c.id !== c.output);
+    const shown = ['app', 'dashboard'].includes(key) && parts.length ? parts : own;
     return {
-      ...o,
-      vibes: String(chosen[vibesKey(o.id)] ?? '').trim(),
-      rebuild: built.includes(o.id),
-      live: liveVersion == null ? null : { version: liveVersion, at: at(rows.find((r) => r.spec_version === liveVersion)) },
-      url: String(base[OUTPUT_URLS[o.id]] || latest[OUTPUT_URLS[o.id]] || ''),
-      versions,
-      warnings: vibeWarnings(base, o.id),
+      key,
+      label,
+      assets: shown.map((c) => ({
+        ...c, group: label, title: pickTitle(c, names.get(c.id)), name: c.name || names.get(c.id) || '', parent: c.id === c.output ? null : list.find((p) => p.id === c.output) || null,
+      })),
     };
-  }).filter((card) => card.rebuild || card.versions.length)];
+  }).filter((group) => group.assets.length);
+}
+
+export function tryAgainChanges(id, asks) {
+  return { retry_outputs: [id], retry_asks: { [id]: [...asks] } };
 }
 
 export function vibeChanges(latest, id, text) {
@@ -247,6 +387,11 @@ export function vibeChanges(latest, id, text) {
   if (id === 'notebook') {
     const data = latest?.spec_json?.data || {};
     return next === String(data.notes ?? '').trim() ? { retry_outputs: ['notebook'] } : { data: { ...data, notes: next } };
+  }
+  if (partOf(id)) {
+    return next === String(outputs[vibesKey(id)] ?? '').trim()
+      ? { retry_outputs: [id] }
+      : { outputs: { ...outputs, [vibesKey(id)]: String(text ?? '') }, retry_outputs: [id] };
   }
   return next === String(outputs[vibesKey(id)] ?? '').trim() ? { retry_outputs: [id] } : { outputs: { ...outputs, [vibesKey(id)]: next } };
 }

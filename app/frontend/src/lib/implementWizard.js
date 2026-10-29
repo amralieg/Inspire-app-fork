@@ -125,24 +125,48 @@ export const IMPLEMENT_OUTPUTS = [
 export const VIBES_MAX = 2000;
 export const VIBES_HELP = "Tell Genie what you want in your own words. Your asks win over Inspire's defaults.";
 
+export const BUILT_ASSET_STATES = ['ready', 'ready_with_warnings'];
+
 export function vibesKey(id) {
   return `${id}_vibes`;
+}
+
+const NOTEBOOK_PARTS = { ai_reasoning: 'AI reasoning', value_formula: 'money at stake formula' };
+
+export function partOf(id) {
+  const text = String(id ?? '');
+  if (Object.prototype.hasOwnProperty.call(NOTEBOOK_PARTS, text)) return { output: 'notebook', kind: text, key: '', noun: '', label: NOTEBOOK_PARTS[text] };
+  const match = /^(app:page|dashboard):([A-Za-z0-9_-]{1,64})$/.exec(text);
+  if (!match) return null;
+  return match[1] === 'app:page'
+    ? { output: 'app', kind: 'app_page', key: match[2], noun: 'page', label: `App page ${match[2]}` }
+    : { output: 'dashboard', kind: 'dashboard_chart', key: match[2], noun: 'chart', label: `dashboard chart ${match[2]}` };
+}
+
+export function assetLabel(id) {
+  return IMPLEMENT_OUTPUTS.find((o) => o.id === id)?.label || partOf(id)?.label || id;
+}
+
+export function partLabel(id, name = '') {
+  const part = partOf(id);
+  const text = String(name ?? '').trim();
+  if (!part?.noun || !text) return assetLabel(id);
+  return text.toLowerCase().endsWith(part.noun) ? text : `${text} ${part.noun}`;
 }
 
 export function vibesLabel(id) {
   if (id === 'app') return 'App vibes';
   if (id === 'notebook') return 'Notebook vibes';
-  return `Vibes for the ${IMPLEMENT_OUTPUTS.find((o) => o.id === id)?.label || id}`;
+  return `Vibes for the ${assetLabel(id)}`;
 }
 
 export function vibesLength(text) {
   return [...String(text ?? '').trim()].length;
 }
 
-export function vibesProblem(id, text) {
+export function vibesProblem(id, text, label = '') {
   const length = vibesLength(text);
-  const label = IMPLEMENT_OUTPUTS.find((o) => o.id === id)?.label || id;
-  return length > VIBES_MAX ? `the ${label} vibes are ${length} characters; at most ${VIBES_MAX} are allowed` : '';
+  return length > VIBES_MAX ? `the ${label || assetLabel(id)} vibes are ${length} characters; at most ${VIBES_MAX} are allowed` : '';
 }
 
 export function vibesPreview(text, max = 80) {
@@ -446,7 +470,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, owner
   };
 }
 
-const ONE_VERSION_KEYS = ['retry_outputs', 'rollback_outputs', 'confirm_notebook_overwrite'];
+const ONE_VERSION_KEYS = ['retry_outputs', 'retry_asks', 'rollback_outputs', 'confirm_notebook_overwrite'];
 
 function withoutOneVersionKeys(spec) {
   return Object.fromEntries(Object.entries(spec || {}).filter(([key]) => !ONE_VERSION_KEYS.includes(key)));
@@ -959,7 +983,7 @@ export function rebuildableOutputs(latest) {
   if (!latest || !['ready', 'ready_with_warnings'].includes(latest.status)) return [];
   const chosen = latest.spec_json?.outputs || {};
   const assets = latest.asset_status || {};
-  return IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id] && assets[o.id]?.state === 'ready');
+  return IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id] && BUILT_ASSET_STATES.includes(assets[o.id]?.state));
 }
 
 export function sectionErrors(section, spec, extras = {}) {

@@ -273,7 +273,7 @@ function NotebookTile({ notebook, onDetails }) {
 }
 
 export default function ImplementControlTower({
-  poc = true, notebook = null, banner = null, failed = [], live, liveError, latest, useCaseId, active, buildingNow, actionBusy, submitBusy,
+  poc = true, notebook = null, banner = null, picker = null, failed = [], live, liveError, latest, useCaseId, active, buildingNow, actionBusy, submitBusy,
   onAction, onRemove, onToggleSchedule, onRefresh, onAddOutput, onRetry, onDetails,
 }) {
   const [removing, setRemoving] = useState(null);
@@ -322,6 +322,7 @@ export default function ImplementControlTower({
           {strips.map((row) => <StripRow key={row.id} row={row} controls={controls(row)} />)}
         </ul>
       )}
+      {picker}
       <ul className="grid gap-3 p-4 sm:grid-cols-2">
         {notebook && <NotebookTile notebook={notebook} onDetails={() => onDetails('notebook')} />}
         {tiles.map((tile) => (tile.kind === 'live'

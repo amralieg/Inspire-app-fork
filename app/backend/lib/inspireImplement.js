@@ -20,6 +20,9 @@ const IMPLEMENT_RUN_PROFILES = ['preview', 'full'];
 const IMPLEMENT_FILTER_OPS = ['=', '!=', '>', '>=', '<', '<=', 'in', 'not in', 'between'];
 const IMPLEMENT_COLUMN_ROLES = ['entity_id', 'event_date', 'measure', 'label', 'segment'];
 const IMPLEMENT_VIBES_MAX = 2000;
+const IMPLEMENT_NOTEBOOK_PARTS = { ai_reasoning: 'AI reasoning', value_formula: 'money at stake formula' };
+const IMPLEMENT_PART_RE = /^(app:page|dashboard):([A-Za-z0-9_-]{1,64})$/;
+const IMPLEMENT_PART_STATES = ['ready', 'ready_with_warnings', 'failed'];
 const IMPLEMENT_OUTPUT_OPTIONS = {
   dashboard: ['dashboard_name', 'dashboard_filters', 'dashboard_vibes'],
   genie_space: ['genie_space_name', 'genie_questions', 'genie_space_vibes'],
@@ -457,19 +460,38 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
   const retry = [];
   for (const raw of listField(spec.retry_outputs, 'retry_outputs', errors)) {
     const name = textValue(raw);
-    if (!IMPLEMENT_RETRY_TARGETS.includes(name)) {
+    const part = implementPart(name);
+    if (part) {
+      if (part.output !== IMPLEMENT_NOTEBOOK && !chosen[part.output]) {
+        errors.push(`the ${part.label} cannot be rebuilt: the ${IMPLEMENT_OUTPUT_LABELS[part.output]} is not selected`);
+      } else if (!retry.includes(name)) retry.push(name);
+    } else if (!IMPLEMENT_RETRY_TARGETS.includes(name)) {
       errors.push(`retry output ${shownValue(name === null ? raw : name)} is not one of ${IMPLEMENT_RETRY_TARGETS.join(', ')}`);
     } else if (name !== IMPLEMENT_NOTEBOOK && !chosen[name]) errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} cannot be retried: it is not selected`);
     else if (!retry.includes(name)) retry.push(name);
   }
   out.retry_outputs = retry;
+  const retryAsks = {};
+  for (const [id, list] of Object.entries(objectField(spec.retry_asks, 'retry_asks', errors))) {
+    const shapeErrors = errors.length;
+    const asks = textsField(list, `retry_asks.${id}`, errors);
+    const label = (implementPart(id) || {}).label || IMPLEMENT_OUTPUT_LABELS[id] || id;
+    if (!retry.includes(id)) errors.push(`retry_asks names ${shownValue(id)}, which this version does not rebuild; list it in retry_outputs too`);
+    else if (errors.length > shapeErrors) continue;
+    else if (!asks.length) errors.push(`retry_asks.${id} must list at least one ask to try again`);
+    else if (asks.some((ask) => vibesLength(ask) > IMPLEMENT_VIBES_MAX)) errors.push(`each ask to try again on the ${label} must be at most ${IMPLEMENT_VIBES_MAX} characters`);
+    else retryAsks[id] = asks;
+  }
+  if (Object.keys(retryAsks).length) out.retry_asks = retryAsks;
   const rollback = {};
   for (const [name, value] of Object.entries(objectField(spec.rollback_outputs, 'rollback_outputs', errors))) {
     const version = wholeNumber(value);
     if (!IMPLEMENT_OUTPUTS.includes(name)) errors.push(`rollback output ${shownValue(name)} is not one of ${IMPLEMENT_CONTRACT_OUTPUTS.join(', ')}`);
     else if (!chosen[name]) errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} cannot be rolled back: it is not selected`);
     else if (version == null || version < 1) errors.push(`rollback_outputs.${name} ${shownValue(value)} must be a version number, 1 or more`);
-    else if (retry.includes(name)) errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} cannot be retried and rolled back in the same version`);
+    else if (retry.some((id) => (implementPart(id) || { output: id }).output === name)) {
+      errors.push(`the ${IMPLEMENT_OUTPUT_LABELS[name]} cannot be retried and rolled back in the same version`);
+    }
     else rollback[name] = version;
   }
   out.rollback_outputs = rollback;
@@ -510,7 +532,53 @@ function outputVibes(outputs, chosen, errors) {
     const key = `${name}_vibes`;
     vibes[key] = chosen[name] ? vibesText(outputs[key], `outputs.${key}`, IMPLEMENT_OUTPUT_LABELS[name], errors) : '';
   }
+  for (const [id, raw] of Object.entries(partVibes(outputs))) {
+    const part = implementPart(id);
+    if (part.output !== IMPLEMENT_NOTEBOOK && !chosen[part.output]) continue;
+    if (vibesText(raw, `outputs.${id}_vibes`, part.label, errors)) vibes[`${id}_vibes`] = raw;
+  }
   return vibes;
+}
+
+function implementPart(id) {
+  const text = str(id);
+  if (ownKey(IMPLEMENT_NOTEBOOK_PARTS, text)) return { output: IMPLEMENT_NOTEBOOK, label: IMPLEMENT_NOTEBOOK_PARTS[text] };
+  const match = IMPLEMENT_PART_RE.exec(text);
+  if (!match) return null;
+  return match[1] === 'app:page' ? { output: 'app', label: `App page ${match[2]}` } : { output: 'dashboard', label: `dashboard chart ${match[2]}` };
+}
+
+function partVibes(outputs) {
+  const found = {};
+  for (const [key, value] of Object.entries(isPlainObject(outputs) ? outputs : {})) {
+    const id = key.endsWith('_vibes') ? key.slice(0, -'_vibes'.length) : '';
+    if (implementPart(id)) found[id] = value;
+  }
+  return found;
+}
+
+function partProblems(built, spec) {
+  const assets = built && isPlainObject(built.asset_status) ? built.asset_status : {};
+  const before = partVibes(built && isPlainObject(built.spec_json) ? built.spec_json.outputs : null);
+  const after = partVibes(spec.outputs);
+  const ticked = spec.outputs || {};
+  const rolling = Object.keys(spec.rollback_outputs || {});
+  const retry = (spec.retry_outputs || []).filter((id) => implementPart(id));
+  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((id) => {
+    const { output } = implementPart(id);
+    return (output === IMPLEMENT_NOTEBOOK || ticked[output]) && !rolling.includes(output) && str(before[id]).trim() !== str(after[id]).trim();
+  });
+  const problems = [];
+  for (const id of [...new Set([...retry, ...changed])]) {
+    const { label } = implementPart(id);
+    const entry = assets[id];
+    if (!isPlainObject(entry) || !IMPLEMENT_PART_STATES.includes(entry.state)) {
+      problems.push(`Inspire has not built the ${label} on this PoC/MVP, so it cannot rebuild it with your vibes; pick an asset the Control tower lists`);
+    } else if (!retry.includes(id)) {
+      problems.push(`the vibes for the ${label} changed, so list ${id} in retry_outputs to rebuild it with them`);
+    }
+  }
+  return problems;
 }
 
 function choiceField(outputs, key, fallback, choices, separator, errors, lower = false) {
@@ -689,11 +757,11 @@ function classifyImplementChange(previous, current) {
 
 function implementChangeSummary(previous, current, assets = {}) {
   const classes = classifyImplementChange(previous, current);
-  const refill = classes.some((c) => ['initial', 'data', 'config'].includes(c)) || (current.retry_outputs || []).includes(IMPLEMENT_NOTEBOOK);
+  const retry = (current.retry_outputs || []).map((id) => (implementPart(id) || { output: id }).output);
+  const refill = classes.some((c) => ['initial', 'data', 'config'].includes(c)) || retry.includes(IMPLEMENT_NOTEBOOK);
   const before = (previous && previous.outputs) || {};
   const after = current.outputs || {};
   const changedOptions = previous ? optionChanges(before, after) : [];
-  const retry = current.retry_outputs || [];
   const rollingBack = Object.keys(current.rollback_outputs || {});
   const build = [];
   const refresh = [];
@@ -1007,8 +1075,13 @@ function rollbackSpec(history, spec) {
       problems.push(`v${version} has no saved ${IMPLEMENT_OUTPUT_LABELS[name]} to roll back to`);
       continue;
     }
-    const saved = isPlainObject(row.spec_json) && isPlainObject(row.spec_json.outputs) ? row.spec_json.outputs[`${name}_vibes`] : '';
+    const savedOutputs = isPlainObject(row.spec_json) && isPlainObject(row.spec_json.outputs) ? row.spec_json.outputs : {};
+    const saved = savedOutputs[`${name}_vibes`];
     outputs[`${name}_vibes`] = typeof saved === 'string' ? saved.trim() : '';
+    for (const id of Object.keys(partVibes(outputs))) if (implementPart(id).output === name) delete outputs[`${id}_vibes`];
+    for (const [id, value] of Object.entries(partVibes(savedOutputs))) {
+      if (implementPart(id).output === name && typeof value === 'string' && value.trim()) outputs[`${id}_vibes`] = value;
+    }
   }
   if (problems.length) throw badRequest(problems.join('; '));
   return { ...spec, outputs };
@@ -1025,6 +1098,8 @@ function planSubmission(history, spec, stalled = null) {
     throw badRequest(`v${built.spec_version} was built after the version you edited (v${spec.based_on_version}); `
       + 'reopen Edit to see it and submit again', 409);
   }
+  const parts = partProblems(built, spec);
+  if (parts.length) throw badRequest(parts.join('; '));
   const previous = built ? validateImplementSpec(built.spec_json, { legacyAccess: legacyAppAccess(rows) }).spec : null;
   const summary = implementChangeSummary(previous, spec, carriedAssets(rows));
   if (summary.undecided.length) {
@@ -1941,6 +2016,7 @@ module.exports = {
   IMPLEMENT_NOTEBOOK,
   IMPLEMENT_RETRY_TARGETS,
   vibesLength,
+  implementPart,
   IMPLEMENT_ALERT_TIER_SETS,
   IMPLEMENT_ALERT_OPERATORS,
   IMPLEMENT_ALERT_THRESHOLD_BASES,
