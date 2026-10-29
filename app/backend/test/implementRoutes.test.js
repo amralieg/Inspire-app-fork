@@ -937,6 +937,29 @@ test('context names each source table that is gone, checking the use case\'s own
   });
 });
 
+test('context names each output the use case had that no longer exists, and only those', async () => {
+  const history = [BUILT({ app_name: 'old-desk', dashboard_id: 'd1', genie_space_id: 'g1' })];
+  await withApp({ history, appsByName: {}, responses: { 'GET /api/2.0/lakeview/dashboards/d1': [{ error_code: 'RESOURCE_DOES_NOT_EXIST' }, 404] } }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/context?${Q}`);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.deepEqual(got.data.assets, { dashboard: 'd1', genie_space: 'g1', app: 'old-desk' });
+    assert.deepEqual(got.data.gone_assets, ['dashboard', 'app']);
+  });
+  await withApp({ history, appsByName: { 'old-desk': { name: 'old-desk' } } }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/context?${Q}`);
+    assert.deepEqual(got.data.gone_assets, []);
+  });
+  await withApp({ history, appsByName: { 'old-desk': { name: 'old-desk' } }, fetchThrows: { 'GET /api/2.0/genie/spaces/g1': 'socket hang up' } }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/context?${Q}`);
+    assert.equal(got.status, 200);
+    assert.deepEqual(got.data.gone_assets, [], 'an output Inspire could not check is not called gone');
+  });
+  await withApp({}, async (url) => {
+    const got = await call(url, `/api/inspire/implement/context?${Q}`);
+    assert.deepEqual(got.data.gone_assets, []);
+  });
+});
+
 test('an Implement page re-run refuses to override the result table and drops blank overrides', async () => {
   await withApp({ history: [BUILT()] }, async (url, made) => {
     for (const name of ['result_table', 'RESULT_TABLE']) {

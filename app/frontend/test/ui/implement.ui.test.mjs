@@ -164,8 +164,8 @@ test('the wizard walks Choose, Data, Results and Delivery, adds App access and A
     await page.getByRole('checkbox', { name: /^Genie Agent/ }).check();
     await page.getByRole('checkbox', { name: /^App / }).check();
     assert.deepEqual(await page.locator('ol li').allTextContents(), ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App access', '6. App look']);
-    assert.equal(await page.getByLabel('App name').inputValue(), 'predict-churn', 'the App is named after the use case');
-    await page.getByText("'predict-churn' is free").waitFor();
+    assert.equal(await page.getByLabel('App name').inputValue(), 'inspire-hub-acme', 'a new App is the business Hub');
+    await page.getByText("'inspire-hub-acme' is free").waitFor();
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
     await page.getByText(`Emails ${OWNER} when Act now rows in the latest run >= 1.`).waitFor();
     const fresh = page.getByRole('group', { name: 'Keep it fresh' });
@@ -191,7 +191,7 @@ test('the wizard walks Choose, Data, Results and Delivery, adds App access and A
       { dashboard: spec.outputs.dashboard, genie_space: spec.outputs.genie_space, app: spec.outputs.app, alert: spec.outputs.alert },
       { dashboard: true, genie_space: true, app: true, alert: true },
     );
-    assert.equal(spec.outputs.app_name, 'predict-churn');
+    assert.equal(spec.outputs.app_name, 'inspire-hub-acme');
     assert.equal(spec.outputs.app_access, 'sp');
     assert.deepEqual(spec.outputs.app_look, { style: 'a', layout: 'sidebar', palette: 'default', theme: 'light' });
     assert.deepEqual(spec.outputs.app_options, { modify: false, replace_edits: false, decisions: false, alerts: false });
@@ -249,7 +249,7 @@ test('Edit keeps the card name even when the saved version carries the tracking-
   }
 });
 
-test('Edit of a failed version the old wizard saved under the use case id names the App from the use case, since no App was built', async () => {
+test('Edit of a failed version the old wizard saved under the use case id names the App after the business Hub, since no App was built', async () => {
   const oldWizard = { ...builtSpec(), outputs: { ...builtSpec().outputs, app_name: 'n01-u01' } };
   const failed = built({
     status: 'failed', spec_json: JSON.stringify(oldWizard), result_rows: null, asset_status: null,
@@ -259,7 +259,7 @@ test('Edit of a failed version the old wizard saved under the use case id names 
   try {
     await toData(ui.page);
     await toDelivery(ui.page);
-    assert.equal(await ui.page.getByLabel('App name').inputValue(), 'predict-churn', 'the App is named after the use case, not its id');
+    assert.equal(await ui.page.getByLabel('App name').inputValue(), 'inspire-hub-acme', 'the App is the business Hub, not named after the use case id');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -543,27 +543,27 @@ test('what blocks a step shows in the footer, opens Advanced on the field to fix
 test('an App name another App already uses offers the next name, and Implement waits until the name is free', async () => {
   const ui = await openUi('wizard', {
     me: { userName: OWNER, displayName: 'Owner' },
-    appsByName: { 'predict-churn': { name: 'predict-churn', description: 'Sales forecasting tool' } },
+    appsByName: { 'inspire-hub-acme': { name: 'inspire-hub-acme', description: 'Sales forecasting tool' } },
   });
   const { page, made } = ui;
   try {
     await toData(page);
     await toDelivery(page);
     await page.getByRole('checkbox', { name: /^App / }).check();
-    await page.getByText("'predict-churn' is used by another App in this workspace; pick another name.", { exact: false }).waitFor();
+    await page.getByText("'inspire-hub-acme' is used by another App in this workspace; pick another name.", { exact: false }).waitFor();
     await throughApp(page);
-    await page.locator('[role="alert"] p', { hasText: "App name: 'predict-churn' is used by another App in this workspace; pick another name (fix it on Delivery)" }).waitFor();
+    await page.locator('[role="alert"] p', { hasText: "App name: 'inspire-hub-acme' is used by another App in this workspace; pick another name (fix it on Delivery)" }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Start PoC/MVP', exact: true }).isDisabled(), true);
     await page.getByRole('button', { name: 'Back' }).click();
     await page.getByRole('button', { name: 'Back' }).click();
     await onStep(page, 'Delivery');
-    await page.getByRole('button', { name: 'Use predict-churn-2' }).click();
-    assert.equal(await page.getByLabel('App name').inputValue(), 'predict-churn-2');
-    await page.getByText("'predict-churn-2' is free").waitFor();
+    await page.getByRole('button', { name: 'Use inspire-hub-acme-2' }).click();
+    assert.equal(await page.getByLabel('App name').inputValue(), 'inspire-hub-acme-2');
+    await page.getByText("'inspire-hub-acme-2' is free").waitFor();
     await throughApp(page);
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    assert.equal(submittedSpec(made).outputs.app_name, 'predict-churn-2');
+    assert.equal(submittedSpec(made).outputs.app_name, 'inspire-hub-acme-2');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -1227,6 +1227,36 @@ test('a dropped source table stops the re-run with its name, and Edit opens the 
     assert.equal(made.sqlCalls.some((c) => /FROM `main`\.`inspire`\.`n01_u01_out` WHERE as_of_date/.test(String(c.sql))), false, 'no result rows are read');
     assert.equal(made.jobs.length, 0);
     assert.deepEqual(ui.pageErrors, ['Failed to load resource: the server responded with a status of 409 (Conflict)'], 'the refused re-run is the only error');
+  } finally {
+    await ui.close();
+  }
+});
+
+test('Edit of a use case whose own App no longer exists says so and puts the use case in the business Hub by default', async () => {
+  const hubRow = {
+    session_id: '42', use_case_id: 'N01-U05', spec_version: 1, status: 'ready', updated_at: '2026-10-26T00:00:00Z', asset_status: null,
+    spec_json: JSON.stringify({ use_case_id: 'N01-U05', use_case_name: 'Price promos', outputs: { app: true, app_access: 'sp' } }),
+    dashboard_id: null, genie_space_id: null, app_name: 'inspire-hub-acme',
+  };
+  const ui = await openUi('wizard', {
+    me: { userName: OWNER, displayName: 'Owner' }, history: [built()], registry: [hubRow],
+    appsByName: { 'inspire-hub-acme': { name: 'inspire-hub-acme', description: 'Inspire use case N01-U05 (session 42): Price promos' } },
+  });
+  const { page, made } = ui;
+  try {
+    await toData(page);
+    await toDelivery(page);
+    await page.getByText('The App this use case had, churn-desk, no longer exists, so Genie can add the use case to one Inspire built or create a new one.').waitFor();
+    const app = page.locator('[data-merge="app"]');
+    await app.getByText('Adds this use case to inspire-hub-acme, which holds Price promos; it signs in with its own service principal.').waitFor();
+    assert.equal(await app.getByRole('button', { name: 'Add to an existing one' }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('[data-merge="dashboard"]').count(), 0, 'a dashboard that still exists is updated in place');
+    await throughApp(page);
+    await implementWhenReady(page);
+    await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
+    const spec = submittedSpec(made);
+    assert.deepEqual([spec.outputs.app_name, spec.outputs.merge.app], ['inspire-hub-acme', 'inspire-hub-acme']);
+    assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
   }

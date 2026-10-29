@@ -392,6 +392,7 @@ function registerImplementRoutes(app, deps) {
       const missing = await missingTables(req, warehouseId, I.checkedSourceTables(latest && latest.spec_json, I.useCaseTables(useCase)));
       const widgets = I.implementWidgets(history, useCase.genie_instruction || useCase.generate_genie_code_instruction || '');
       const assets = I.carriedAssets(history);
+      const goneAssets = await goneMergeAssets(req, assets);
       const family = I.executionFamily(useCase.code_structure_mandate);
       res.json({
         session_id: sid,
@@ -403,6 +404,7 @@ function registerImplementRoutes(app, deps) {
         history,
         latest,
         assets,
+        gone_assets: goneAssets,
         family,
         trains_model: I.trainsModel(useCase),
         evidence: I.parseEvidence(useCase.data_evidence),
@@ -669,6 +671,12 @@ function registerImplementRoutes(app, deps) {
       sendError(res, err);
     }
   });
+
+  async function goneMergeAssets(req, assets) {
+    const names = I.IMPLEMENT_MERGE_OUTPUTS.filter((name) => assets[name]);
+    const got = await Promise.all(names.map((name) => jsonOf(dbFetch, req.dbHost, req.dbToken, I.mergeTargetPath(name, assets[name])).catch(() => null)));
+    return names.filter((_name, i) => got[i] && got[i].status === 404);
+  }
 
   async function missingTables(req, warehouseId, tables) {
     const probes = await Promise.all(tables.map((table) => sqlRows(req.dbHost, req.dbToken, warehouseId, I.tableProbeStatement(table))

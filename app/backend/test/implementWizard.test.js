@@ -690,6 +690,57 @@ test('the Implement page shows lost tables from a refused re-run first, else onl
   assert.equal(w.lostTablesText(undefined), '');
 });
 
+test('the business Hub App is inspire-hub- and the business name, at most 30 characters, and a fresh App of a known business takes that name', async () => {
+  const w = await load();
+  assert.equal(w.hubAppName('TPCDS Retail V130 Ship'), 'inspire-hub-tpcds-retail-v130');
+  assert.equal(w.hubAppName('Acme'), 'inspire-hub-acme');
+  assert.equal(w.hubAppName('  Société Générale & Co  '), 'inspire-hub-societe-generale');
+  assert.equal(w.hubAppName('Supercalifragilisticexpialidocious'), 'inspire-hub-supercalifragilist');
+  assert.equal(w.hubAppName('A'), 'inspire-hub-a');
+  assert.equal(w.hubAppName(''), '');
+  assert.equal(w.hubAppName('&&&'), '');
+  assert.equal(w.hubAppName(undefined), '');
+  for (const biz of ['TPCDS Retail V130 Ship', 'Acme', 'Supercalifragilisticexpialidocious', 'x'.repeat(80), 'a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p']) {
+    const name = w.hubAppName(biz);
+    assert.ok(w.APP_NAME_RE.test(name) && name.length <= 30 && name.startsWith('inspire-hub-'), `${biz}: ${name}`);
+  }
+  assert.equal(w.defaultSpecFromUseCase(UC, { businessName: 'Acme' }).outputs.app_name, 'inspire-hub-acme');
+  assert.equal(w.defaultSpecFromUseCase(UC).outputs.app_name, 'predict-churn', 'with no business name the App keeps the use case name');
+  assert.equal(w.defaultSpecFromUseCase(UC, { businessName: '***' }).outputs.app_name, 'predict-churn');
+});
+
+test('a use case goes into its business Hub App by default only when that Hub exists, can take it, and nothing else was chosen', async () => {
+  const w = await load();
+  const hub = { id: 'inspire-hub-acme', name: 'inspire-hub-acme', access: 'sp', per_user_block: 'inspire-hub-acme signs everyone in with its own service principal', look: { palette: 'ocean' } };
+  const legacy = { id: 'ops-desk', name: 'ops-desk', access: 'sp' };
+  const on = w.withOutput(w.defaultSpecFromUseCase(UC, { businessName: 'Acme' }), 'app', true);
+  const merged = w.withHubDefault(on, { app: [legacy, hub] }, 'Acme', {});
+  assert.deepEqual([merged.outputs.merge.app, merged.outputs.app_name, merged.outputs.app_look.palette], ['inspire-hub-acme', 'inspire-hub-acme', 'ocean']);
+  assert.equal(w.withHubDefault(on, { app: [legacy] }, 'Acme', {}), on, 'an App Inspire built for one use case is not the Hub');
+  assert.equal(w.withHubDefault(on, { app: [hub] }, 'Other Co', {}), on, 'another business has another Hub');
+  assert.equal(w.withHubDefault(on, null, 'Acme', {}), on);
+  assert.equal(w.withHubDefault(on, { app: [hub] }, 'Acme', { app: 'predict-churn' }), on, 'a use case with its own App keeps it');
+  const off = w.defaultSpecFromUseCase(UC, { businessName: 'Acme' });
+  assert.equal(w.withHubDefault(off, { app: [hub] }, 'Acme', {}), off, 'no App asked, nothing joins');
+  const picked = w.withMergeTarget(on, 'app', legacy);
+  assert.equal(w.withHubDefault(picked, { app: [hub] }, 'Acme', {}), picked, 'a choice already made stays');
+  const perUser = w.withAppAccess(on, 'user');
+  assert.equal(w.withHubDefault(perUser, { app: [hub] }, 'Acme', {}), perUser, 'a per-user use case cannot join a service-principal Hub');
+});
+
+test('an output that no longer exists is not held, so the use case can join the Hub, and the wizard says which one is gone', async () => {
+  const w = await load();
+  assert.deepEqual(w.heldAssets({ dashboard: 'd1', genie_space: 'g1', app: 'old-desk', alert: 'a1' }, ['app', 'dashboard']), { genie_space: 'g1', alert: 'a1' });
+  assert.deepEqual(w.heldAssets({ app: 'old-desk' }, undefined), { app: 'old-desk' });
+  assert.deepEqual(w.heldAssets(undefined, ['app']), {});
+  assert.equal(w.goneAssetText('App', 'old-desk'), 'The App this use case had, old-desk, no longer exists, so Genie can add the use case to one Inspire built or create a new one.');
+  const hub = { id: 'inspire-hub-acme', name: 'inspire-hub-acme', access: 'sp' };
+  const on = w.withOutput(w.defaultSpecFromUseCase(UC, { businessName: 'Acme' }), 'app', true);
+  const assets = { app: 'old-desk' };
+  assert.equal(w.withHubDefault(on, { app: [hub] }, 'Acme', w.heldAssets(assets, [])).outputs.merge.app, '', 'a live App of its own stays');
+  assert.equal(w.withHubDefault(on, { app: [hub] }, 'Acme', w.heldAssets(assets, ['app'])).outputs.merge.app, 'inspire-hub-acme', 'a gone App of its own lets it join the Hub');
+});
+
 test('a rebuild that inherits a swap to a gone table goes back to the use case\'s own table, clears what pointed at the gone one, and says so', async () => {
   const w = await load();
   const uc = { primary_table: 'main.s.orders', tables_involved: 'main.s.orders,main.s.returns,main.s.items' };

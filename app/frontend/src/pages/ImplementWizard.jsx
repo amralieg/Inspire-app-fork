@@ -87,6 +87,9 @@ import {
   mergeTargetOf,
   appMergeBlock,
   withMergeTarget,
+  withHubDefault,
+  heldAssets,
+  goneAssetText,
   mergeTargetText,
   vibesKey,
   vibesLabel,
@@ -270,6 +273,7 @@ export default function ImplementWizard({
   const [schemas, setSchemas] = useState({});
   const [vibesFor, setVibesFor] = useState('');
   const bodyRef = useRef(null);
+  const hubChosen = useRef(false);
   const steps = wizardSteps(mode, spec);
   const stepIndex = Math.min(step, steps.length - 1);
   const stepId = steps[stepIndex].id;
@@ -322,6 +326,7 @@ export default function ImplementWizard({
           warehouseId,
           inspireDatabase,
           owner: data.me?.username,
+          businessName: data.business_name,
         });
         const missing = [...(focus?.missingTables || []), ...(data.missing_tables || [])]
           .filter((m, i, all) => all.findIndex((o) => String(o.table).toLowerCase() === String(m.table).toLowerCase()) === i);
@@ -507,6 +512,12 @@ export default function ImplementWizard({
     return () => { cancelled = true; clearTimeout(timer); };
   }, [buildStep, specKey, ownErrorsKey, planReady, q]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const held = useMemo(() => heldAssets(context?.assets, context?.gone_assets), [context]);
+  useEffect(() => {
+    if (hubChosen.current || !targets || !context) return;
+    setSpec((prev) => withHubDefault(prev, targets, context.business_name, held));
+  }, [targets, context, held, spec.outputs.app]);
+
   useEffect(() => {
     if (!buildStep || targets !== null) return undefined;
     let cancelled = false;
@@ -680,7 +691,7 @@ export default function ImplementWizard({
   const unchanged = lastStep && !checksBusy && Boolean(plan?.unchanged);
   const implementBlocked = busy || checksBusy || Boolean(plan?.unchanged)
     || (!ownErrors.length && (!preflight || !preflight.ok || !plan || Boolean(planError)));
-  const mergeFresh = defaultSpecFromUseCase(ucRow).outputs.app_name;
+  const mergeFresh = defaultSpecFromUseCase(ucRow, { businessName: context?.business_name }).outputs.app_name;
   const appTarget = mergeTargetOf(targets, 'app', spec.outputs.app ? spec.outputs.merge.app : '');
   const palette = (look?.palette_colors || []).find((p) => p.id === spec.outputs.app_look.palette) || null;
 
@@ -1024,7 +1035,8 @@ export default function ImplementWizard({
                     const tileChecks = (TILE_CHECKS[item.id] || []).map((k) => [k, preflight?.checks?.[k]])
                       .filter(([k, v]) => v && !v.ok && on && !(k === 'app_name' && appTaken));
                     const locked = item.id === 'genie_space' && spec.outputs.app;
-                    const mergeable = on && MERGE_OUTPUTS.includes(item.id) && !context?.assets?.[item.id];
+                    const mergeable = on && MERGE_OUTPUTS.includes(item.id) && !held[item.id];
+                    const gone = on && (context?.gone_assets || []).includes(item.id);
                     return (
                       <div key={item.id} data-output={item.id} className={`border rounded-lg p-3 space-y-2 ${on ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
                         <div className="relative">
@@ -1044,6 +1056,7 @@ export default function ImplementWizard({
                           </label>
                           {on && <VibesTrigger label={item.label} value={spec.outputs[vibesKey(item.id)]} onOpen={() => setVibesFor(item.id)} />}
                         </div>
+                        {gone && <p className="pl-7 text-[11px] text-text-secondary">{goneAssetText(item.label, context.assets[item.id])}</p>}
                         {mergeable && (
                           <MergeChoice
                             name={item.id}
@@ -1052,7 +1065,10 @@ export default function ImplementWizard({
                             targets={targets}
                             targetsError={targetsError}
                             access={spec.outputs.app_access}
-                            onPick={(target) => { setSpec((prev) => withMergeTarget(prev, item.id, target, mergeFresh)); }}
+                            onPick={(target) => {
+                              if (item.id === 'app') hubChosen.current = true;
+                              setSpec((prev) => withMergeTarget(prev, item.id, target, mergeFresh));
+                            }}
                           />
                         )}
                         {on && item.id === 'app' && !spec.outputs.merge.app && (
