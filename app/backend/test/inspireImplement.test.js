@@ -108,6 +108,23 @@ test('change classes match the shared fixture, case by case', () => {
   }
 });
 
+const SHARED_PLAN_LISTS = ['build', 'refresh', 'rollback', 'delete', 'keep_unmanaged'];
+const SHARED_PLAN_KEYS = ['classes', 'refill', ...SHARED_PLAN_LISTS, 'schedule'];
+
+test('change summaries match the shared fixture, plan by plan', () => {
+  const cases = Object.fromEntries(FIXTURE.cases.map((c) => [c.name, c]));
+  assert.ok(FIXTURE.plans.length >= 80);
+  for (const p of FIXTURE.plans) {
+    const c = cases[p.case];
+    assert.ok(c, `${p.name} names no shared case`);
+    assert.deepEqual(Object.keys(p.summary), SHARED_PLAN_KEYS, p.name);
+    const previous = c.previous ? validateImplementSpec(c.previous).spec : null;
+    const summary = implementChangeSummary(previous, validateImplementSpec(c.current).spec, p.assets);
+    const shared = Object.fromEntries(SHARED_PLAN_KEYS.map((k) => [k, SHARED_PLAN_LISTS.includes(k) ? [...summary[k]].sort() : summary[k]]));
+    assert.deepEqual(shared, p.summary, p.name);
+  }
+});
+
 test('a valid spec normalizes the same way the agent does', () => {
   const { spec: out, errors } = spec();
   assert.deepEqual(errors, []);
