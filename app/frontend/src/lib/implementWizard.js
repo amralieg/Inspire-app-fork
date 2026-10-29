@@ -1,3 +1,5 @@
+import { subtitleOfUseCase } from './useCaseFields.js';
+
 export const START_MVP_LABEL = 'Start Use Case MVP with Genie';
 
 export const IMPLEMENT_MODES = [
@@ -1508,7 +1510,7 @@ export function implementGroups(useCases, latestRows, notebookRun, query = '') {
     const notebook = notebookStatus(uc, notebookRun);
     return { id, name: caseNameOf(uc) || id, domain: String(uc._domain || uc['Business Domain'] || ''), uc, latest, notebook, state: implementState(latest, notebook) };
   }).filter((item) => {
-    const text = `${item.id} ${item.name} ${item.domain}`.toLowerCase();
+    const text = `${item.id} ${item.name} ${subtitleOfUseCase(item.uc, item.name)} ${item.domain}`.toLowerCase();
     return terms.every((t) => text.includes(t));
   });
   return IMPLEMENT_GROUPS.map((group) => ({ ...group, items: items.filter((item) => item.state.group === group.id) }));

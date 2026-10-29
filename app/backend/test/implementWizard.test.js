@@ -869,10 +869,10 @@ test('the MVP state outranks the notebook, and a stopped MVP run counts as faile
   assert.equal(w.implementState(null, null).kind, 'none');
 });
 
-test('the Implement page groups every use case in a fixed order, keeps MVPs of unlisted use cases, and searches id, name and domain', async () => {
+test('the Implement page groups every use case in a fixed order, keeps MVPs of unlisted use cases, and searches id, name, the business title on the card and domain', async () => {
   const w = await load();
   const useCases = [
-    { id: 'N01-U01', Name: 'Predict churn', _domain: 'Retention' },
+    { id: 'N01-U01', Name: 'Predict churn', _domain: 'Retention', description: 'Keep loyal members from leaving' },
     { id: 'N01-U02', Name: 'Basket growth', _domain: 'Sales', has_genie_code: 'Y' },
     { id: 'N02-U01', Name: 'Stock outs', _domain: 'Supply', generate_genie_code_instruction: 'Yes', has_genie_code: 'N' },
     { id: 'N02-U02', Name: 'Fraud flags', _domain: 'Risk' },
@@ -895,6 +895,8 @@ test('the Implement page groups every use case in a fixed order, keeps MVPs of u
   assert.deepEqual(search('  SUPPLY  '), ['N02-U01']);
   assert.deepEqual(search('n02 fraud'), ['N02-U02']);
   assert.deepEqual(search('fraud churn'), []);
+  assert.deepEqual(search('Keep loyal members from leaving'), ['N01-U01'], 'the business title the card shows under the name finds it');
+  assert.deepEqual(search('loyal fraud'), [], 'every word must match');
   assert.equal(search('').length, 5);
   assert.deepEqual(w.implementGroups(null, undefined, null).map((g) => g.items.length), [0, 0, 0, 0]);
 });

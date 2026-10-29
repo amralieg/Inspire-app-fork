@@ -66,6 +66,7 @@ import {
   hasGenieInstruction,
   hasShippedGenieCode,
   sponsorFromUc,
+  subtitleOfUseCase,
   trackingIdOf,
 } from '../lib/useCaseFields';
 import { fileExtension, quickAccessFiles, visibleArtifactFiles } from '../lib/artifactFiles';
@@ -512,6 +513,7 @@ export default function ResultsPage({
           const q = searchQuery.toLowerCase();
           return (
             String(uc.Name || '').toLowerCase().includes(q) ||
+            subtitleOfUseCase(uc, '').toLowerCase().includes(q) ||
             String(uc.Statement || '').toLowerCase().includes(q) ||
             String(uc.Solution || '').toLowerCase().includes(q) ||
             beneficiaryFromUc(uc).toLowerCase().includes(q) ||

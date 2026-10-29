@@ -20,6 +20,28 @@ async function ready(page) {
   await cards(page).first().waitFor();
 }
 
+test('the search finds a use case by the business title its card shows under the name, and only that one', async () => {
+  const titled = {
+    ...RESULTS,
+    domains: RESULTS.domains.map((d) => ({ ...d, use_cases: d.use_cases.map((u) => (u.No === 'N02-U02' ? { ...u, description: 'Warn buyers before a supplier delivery slips' } : u)) })),
+  };
+  const ui = await openUi('results', { ...STATE, results: titled });
+  const { page } = ui;
+  try {
+    await ready(page);
+    await card(page, 'Spot late suppliers').getByText('Warn buyers before a supplier delivery slips').waitFor();
+    await page.getByPlaceholder('Search use cases...').fill('Warn buyers before a supplier delivery slips');
+    assert.equal(await cards(page).count(), 1);
+    assert.match(await cards(page).first().innerText(), /Spot late suppliers/);
+    await page.getByPlaceholder('Search use cases...').fill('supplier delivery slips churn');
+    await page.getByText('No use cases match your filters.').waitFor();
+    assert.equal(await cards(page).count(), 0, 'a phrase no card carries finds nothing');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('the Results page is the list it was before the grid: the sidebar and the filter bar narrow the cards, best of best comes first, and Clear brings every card back', async () => {
   const ui = await openUi('results', STATE);
   const { page } = ui;
