@@ -28,7 +28,7 @@ export function tiersText(run) {
       + 'every other row Monitor.';
   }
   if (run?.basis === 'predicted') {
-    if (run.accepted === true) return 'A model passed this use case\u2019s acceptance check in the last run, so its rows can be acted on.';
+    if (run.accepted === true) return 'A model passed this use case\u2019s acceptance check in the last run, so acceptance no longer holds its rows at Monitor.';
     if (run.accepted === false) return 'No model passed this use case\u2019s acceptance check in the last run, so no row is actionable yet.';
     return 'A row is called actionable only after a model passes this use case\u2019s acceptance check.';
   }

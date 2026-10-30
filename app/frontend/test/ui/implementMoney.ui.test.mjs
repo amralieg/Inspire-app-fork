@@ -99,6 +99,16 @@ test('an MVP whose last run has nothing to act on says so in a plain card with t
   } finally {
     await predicted.close();
   }
+  const held = await openMoney({ moneySummary: [{ ...SUMMARY, decision_basis: 'predicted', accepted: true,
+    nothing_to_act: 'The test flags every series, so every record stays at Monitor' }] });
+  try {
+    await held.page.getByText('Nothing to act on yet, because the test flags every series, so every record stays at Monitor').waitFor();
+    const tiers = await held.card.locator('[data-tiers]').textContent();
+    assert.equal(tiers, 'A model passed this use case\u2019s acceptance check in the last run, so acceptance no longer holds its rows at Monitor.');
+    assert.ok(!tiers.includes('can be acted on'), 'a passed acceptance check never says rows can be acted on while every row is held at Monitor');
+  } finally {
+    await held.close();
+  }
 });
 
 test('a formula of only the row\u2019s own numbers lists no assumption and never tells owners to change one in the App', async () => {
