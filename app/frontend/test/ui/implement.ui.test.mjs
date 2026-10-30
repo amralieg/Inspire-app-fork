@@ -1134,6 +1134,34 @@ test('a failed output offers its own retry, which submits the next version that 
   }
 });
 
+test('a retry of a version that wrote to the old shared result table another use case holds moves to its own table and says so on the Build page', async () => {
+  const shared = 'main.inspire.n01_u01_out';
+  const assets = JSON.parse(built().asset_status);
+  const warned = built({
+    spec_version: 2, status: 'ready_with_warnings', status_message: 'Genie Agent: space create 403',
+    spec_json: JSON.stringify({ ...builtSpec(), config: { ...builtSpec().config, result_table: shared } }),
+    asset_status: JSON.stringify({ ...assets, genie_space: { state: 'failed', error: 'space create 403', spec_version: 1 } }),
+  });
+  const ui = await openUi('implement', { ...STUDIO_STATE, history: [warned],
+    resultTableHolders: { [shared]: [{ session_id: '2222222222222222222', use_case_id: 'N01-U01' }] } });
+  const { page, made } = ui;
+  try {
+    await page.getByText('The Genie Agent failed.', { exact: false }).waitFor();
+    const retries = runPane(page).getByRole('button', { name: 'Retry the Genie Agent' });
+    await retries.first().click();
+    await until(() => made.jobs.length === 1, 'the retry implement run');
+    const note = page.getByRole('status').filter({ hasText: 'Result table: results move to' });
+    await note.waitFor();
+    assert.equal((await note.textContent()).trim(), `Result table: results move to ${RESULT_TABLE}, because ${shared} holds the results of use case N01-U01 `
+      + 'of session 2222222222222222222; earlier versions of this use case wrote there under the old shared name');
+    const insert = made.sqlCalls.find((c) => String(c.sql).includes('INSERT INTO'));
+    assert.equal(JSON.parse(insert.parameters.find((p) => p.name === 'spec').value).config.result_table, RESULT_TABLE);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 const OUTPUT_LABELS = ['Dashboard', 'Genie Agent', 'App', 'Alert'];
 
 test('an output that was built can be rebuilt on its own from its Details drawer, and a failed one stays under the retries', async () => {

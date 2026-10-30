@@ -61,7 +61,9 @@ function makeApp(overrides = {}, { mount } = {}) {
       if (sql.includes('__inspire_implement') && sql.includes('UPDATE')) return { rows: [] };
       if (sql.includes('__inspire_implement') && sql.includes('held AS')) {
         if (state.holderError) throw new Error(state.holderError);
-        return { rows: state.resultTableHolders || [] };
+        const holders = state.resultTableHolders || [];
+        if (Array.isArray(holders)) return { rows: holders };
+        return { rows: holders[((parameters || []).find((p) => p.name === 't') || {}).value] || [] };
       }
       if (sql.includes('__inspire_implement')) {
         const unknown = IMPLEMENT_COLUMNS.map(([name]) => name)

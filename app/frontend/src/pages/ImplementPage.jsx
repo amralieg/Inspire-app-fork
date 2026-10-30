@@ -6,7 +6,7 @@ import {
 import {
   statusChip, statusReason, nextSpecFrom, retryableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
   runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded, notebookStatus, START_MVP_LABEL, IMPLEMENT_ACTIVE_STATUSES, IMPLEMENT_UNINSTALLED,
-  vibesPreview, vibesProblem, canBuildAgain, buildAgainChanges, buildAgainHint,
+  vibesPreview, vibesProblem, canBuildAgain, buildAgainChanges, buildAgainHint, resultTableMoveNote,
 } from '../lib/implementWizard';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
 import { buildUseCaseList } from '../lib/useCaseList';
@@ -51,6 +51,7 @@ const DETAILS_LOOK = {
 const NO_RAIL = { latest: [], notebook_run: null, notebook_run_error: '' };
 const READY_STATUSES = ['ready', 'ready_with_warnings'];
 const ERROR_BOX = 'text-xs text-error-fg bg-error-bg border border-error/20 rounded-lg px-3 py-2';
+const NOTE_BOX = 'text-xs text-info-fg bg-info-bg border border-info/20 rounded-lg px-3 py-2';
 const OUTLINE_BUTTON = 'inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-border bg-surface text-text-primary hover:bg-bg-subtle disabled:opacity-50';
 const PRIMARY_BUTTON = 'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-db-red-solid hover:bg-db-red-solid-hover shadow-sm shadow-db-red/20 disabled:opacity-50';
 const LINK = 'text-sm font-semibold text-db-red-fg inline-flex items-center gap-1 hover:underline';
@@ -694,6 +695,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const [details, setDetails] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [overrides, setOverrides] = useState({});
   const [rerunBusy, setRerunBusy] = useState(false);
   const [rerunError, setRerunError] = useState(null);
@@ -838,14 +840,16 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     if (!latest || active || submitBusy) return false;
     setSubmitBusy(true);
     setError('');
+    setNotice('');
     try {
-      await apiPostJson('/api/inspire/implement/submit', {
+      const data = await apiPostJson('/api/inspire/implement/submit', {
         inspire_database: settings.inspireDatabase,
         warehouse_id: settings.warehouseId,
         session_id: String(sessionId),
         notebook_path: settings.notebookPath,
         spec: nextSpecFrom(latest, changes),
       });
+      setNotice(resultTableMoveNote(data?.summary));
       await loadStatus();
       return true;
     } catch (e) {
@@ -1120,6 +1124,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
         </ConfirmDialog>
       )}
       {error && !built && <p className={ERROR_BOX}>{error}</p>}
+      {notice && <p role="status" className={NOTE_BOX}>{notice}</p>}
       {built && (
         <>
           {failedOutputs.length > 0 && (

@@ -191,6 +191,22 @@ function registerImplementRoutes(app, deps) {
     return I.warehouseManageCheck(permissions, identities, groups, name);
   }
 
+  async function loadResultTableHolder(req, warehouseId, catalog, schema, table) {
+    const rows = await sqlRows(req.dbHost, req.dbToken, warehouseId, I.resultTableHolderStatement(I.implementTableName(catalog, schema), table))
+      .catch((err) => { if (isMissingTableError(err)) return []; throw err; });
+    return rows[0] || null;
+  }
+
+  async function movedResultTable(req, warehouseId, useCaseId, table, history = null) {
+    const { inspire_database, catalog, schema } = dbOf(req, splitInspireDatabase);
+    if (!I.sameTable(table, I.sharedDefaultResultTable(inspire_database, useCaseId))) return null;
+    const sid = sessionIdOf(req);
+    const rows = history || await loadHistory(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId);
+    if (!I.carriesSharedDefault(table, rows, inspire_database, useCaseId)) return null;
+    const holder = await loadResultTableHolder(req, warehouseId, catalog, schema, table);
+    return I.resultTableMove(table, holder, { inspireDatabase: inspire_database, sessionId: sid, useCaseId, history: rows });
+  }
+
   async function checkOutput(req, warehouseId, table, useCaseId, options = {}) {
     const { catalog, schema } = dbOf(req, splitInspireDatabase);
     const statement = I.outputAccessStatement(table);
@@ -199,12 +215,11 @@ function registerImplementRoutes(app, deps) {
     const modelName = asked || I.defaultModelName(table);
     const elsewhere = !I.sameSchema(modelName, table);
     const sid = sessionIdOf(req);
-    const [rows, useCase, modelRows, holders] = await Promise.all([
+    const [rows, useCase, modelRows, holder] = await Promise.all([
       sqlRows(req.dbHost, req.dbToken, warehouseId, statement),
       loadUseCase(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId),
       elsewhere ? sqlRows(req.dbHost, req.dbToken, warehouseId, I.outputAccessStatement(modelName)) : null,
-      sqlRows(req.dbHost, req.dbToken, warehouseId, I.resultTableHolderStatement(I.implementTableName(catalog, schema), table))
-        .catch((err) => { if (isMissingTableError(err)) return []; throw err; }),
+      loadResultTableHolder(req, warehouseId, catalog, schema, table),
     ]);
     const access = I.outputAccess(rows, table);
     const model = I.trainsModel(useCase) ? I.modelAccess(elsewhere ? modelRows : rows, modelName) : null;
@@ -214,7 +229,7 @@ function registerImplementRoutes(app, deps) {
     if (warnings.length) access.grant = { ...access.grant, warn: warnings.join(' ') };
     access.app = I.appAccessCheck(access.app, warehouse);
     let safety = { ok: true, detail: access.exists ? `${access.table} holds only this use case's rows` : `${access.table} is new; the first run creates it` };
-    const held = I.resultTableHolderProblem(table, holders[0], sid, useCaseId);
+    const held = I.resultTableHolderProblem(table, holder, sid, useCaseId);
     if (held) safety = { ok: false, detail: held };
     else if (access.exists && access.write.ok) {
       const columns = await sqlRows(req.dbHost, req.dbToken, warehouseId, I.columnsStatement(table));
@@ -579,7 +594,9 @@ function registerImplementRoutes(app, deps) {
     try {
       const warehouseId = warehouseOf(req);
       const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
-      res.json(await checkOutput(req, warehouseId, q(req, 'table'), useCaseId));
+      const moved = await movedResultTable(req, warehouseId, useCaseId, q(req, 'table'));
+      const output = await checkOutput(req, warehouseId, moved ? moved.to : q(req, 'table'), useCaseId);
+      res.json(moved ? { ...output, result_table_moved: moved } : output);
     } catch (err) {
       sendError(res, err);
     }
@@ -609,18 +626,21 @@ function registerImplementRoutes(app, deps) {
       const warehouseName = warehouses.ok ? (warehouses.data.name || warehouseId) : warehouseId;
       let output = null;
       let outputError = '';
+      let moved = null;
       try {
         const viewed = [wantsDashboard && 'the dashboard', wantsGenie && 'the Genie Agent'];
-        output = await checkOutput(req, warehouseId, resultTable, useCaseId, { principals, warehouseName, viewed });
+        moved = await movedResultTable(req, warehouseId, useCaseId, resultTable);
+        output = await checkOutput(req, warehouseId, moved ? moved.to : resultTable, useCaseId, { principals, warehouseName, viewed });
       } catch (err) {
         outputError = err.message || String(err);
       }
+      const outputDetail = output && (output.write.ok ? `${output.write.detail}; ${output.safety.detail}` : output.write.detail);
       const checks = {
         warehouse: output
           ? { ok: true, detail: `${warehouseName} ran the access check for you` }
           : { ok: false, detail: `${warehouseName} could not run a statement for you: ${outputError}` },
         output: output
-          ? { ok: output.write.ok && output.safety.ok, detail: output.write.ok ? `${output.write.detail}; ${output.safety.detail}` : output.write.detail }
+          ? { ok: output.write.ok && output.safety.ok, detail: moved ? `${moved.detail}; ${outputDetail}` : outputDetail }
           : { ok: false, detail: 'not checked, because the warehouse could not run the access check' },
       };
       if (output && output.model) checks.model = output.model;
@@ -651,6 +671,7 @@ function registerImplementRoutes(app, deps) {
         identity: (output && output.identity) || identityOf(req, me),
         checks,
         features,
+        ...(moved ? { result_table_moved: moved } : {}),
       });
     } catch (err) {
       sendError(res, err);
@@ -722,8 +743,10 @@ function registerImplementRoutes(app, deps) {
     const legacyAccess = I.legacyAppAccess(history);
     const { spec: asked, errors } = legacyAccess ? I.validateImplementSpec(raw, { legacyAccess }) : draft;
     if (errors.length) throw I.badRequest(errors.join('; '));
-    const spec = I.rollbackSpec(history, asked);
-    const useCaseId = I.validateUseCaseId(spec.use_case_id);
+    const rolled = I.rollbackSpec(history, asked);
+    const useCaseId = I.validateUseCaseId(rolled.use_case_id);
+    const moved = await movedResultTable(req, warehouseId, useCaseId, rolled.config.result_table, history);
+    const spec = moved ? I.withResultTable(rolled, moved.to) : rolled;
     const [session, useCase] = await Promise.all([
       loadSession(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid),
       loadUseCase(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId),
@@ -741,6 +764,7 @@ function registerImplementRoutes(app, deps) {
     }
     const stalled = await stalledOf(req, history[0]);
     const plan = I.planSubmission(history, spec, stalled);
+    if (moved) plan.summary.result_table_moved = moved;
     if (plan.summary.refill) await refuseMissingSources(req, warehouseId, spec, useCase);
     return { sid, warehouseId, inspire_database, catalog, schema, spec, useCaseId, session, history, plan };
   }

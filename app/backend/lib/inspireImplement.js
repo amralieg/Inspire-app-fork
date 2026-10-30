@@ -2012,6 +2012,47 @@ function resultTableHolderProblem(table, holder, sessionId, useCaseId) {
     + 'result table so its outputs show only its rows';
 }
 
+function useCaseSlug(useCaseId) {
+  return str(useCaseId).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
+}
+
+function defaultResultTable(inspireDatabase, useCaseId, sessionId) {
+  const slug = useCaseSlug(useCaseId);
+  const sid = /^\d+$/.test(str(sessionId).trim()) ? str(sessionId).trim() : '';
+  return inspireDatabase && slug && sid ? `${inspireDatabase}.${slug}_s${sid}_out` : '';
+}
+
+function sharedDefaultResultTable(inspireDatabase, useCaseId) {
+  const slug = useCaseSlug(useCaseId);
+  return inspireDatabase && slug ? `${inspireDatabase}.${slug}_out` : '';
+}
+
+function sameTable(a, b) {
+  return Boolean(str(a).trim()) && plainTable(a).toLowerCase() === plainTable(b).toLowerCase();
+}
+
+function carriesSharedDefault(table, history, inspireDatabase, useCaseId) {
+  return sameTable(table, sharedDefaultResultTable(inspireDatabase, useCaseId))
+    && (history || []).some((row) => sameTable(row?.spec_json?.config?.result_table, table));
+}
+
+function resultTableMove(table, holder, { inspireDatabase, sessionId, useCaseId, history }) {
+  if (!resultTableHolderProblem(table, holder, sessionId, useCaseId)) return null;
+  if (!carriesSharedDefault(table, history, inspireDatabase, useCaseId)) return null;
+  const to = defaultResultTable(inspireDatabase, useCaseId, sessionId);
+  if (!to || sameTable(to, table)) return null;
+  return {
+    from: plainTable(table),
+    to,
+    detail: `results move to ${to}, because ${plainTable(table)} holds the results of use case ${str(holder.use_case_id)} `
+      + `of session ${str(holder.session_id)}; earlier versions of this use case wrote there under the old shared name`,
+  };
+}
+
+function withResultTable(spec, table) {
+  return { ...spec, config: { ...spec.config, result_table: table } };
+}
+
 function appOwnerTag(useCaseId, sessionId) {
   return `Inspire use case ${str(useCaseId)} (session ${str(sessionId)})`;
 }
@@ -2258,6 +2299,12 @@ module.exports = {
   otherUseCaseRowsStatement,
   resultTableHolderStatement,
   resultTableHolderProblem,
+  defaultResultTable,
+  sharedDefaultResultTable,
+  sameTable,
+  carriesSharedDefault,
+  resultTableMove,
+  withResultTable,
   appOwnerTag,
   appNameCheck,
   appsLimit,

@@ -674,6 +674,93 @@ test('the holder statement reads each use case\'s latest version and orders by t
     /^main\.s\.t already holds the results of use case N01-U01 of session 43;/);
 });
 
+const SHARED = 'main.inspire.n01_u01_out';
+const OWN = 'main.inspire.n01_u01_s42_out';
+const OTHER_HOLDS = { session_id: '2222222222222222222', use_case_id: 'N01-U01' };
+const MOVED = `results move to ${OWN}, because ${SHARED} holds the results of use case N01-U01 of session 2222222222222222222; `
+  + 'earlier versions of this use case wrote there under the old shared name';
+
+test('the backend names a use case\'s own result table exactly as the wizard does', async () => {
+  const w = await import(require('node:url').pathToFileURL(require('node:path').resolve(__dirname, '..', '..', 'frontend', 'src', 'lib', 'implementWizard.js')).href);
+  const cases = [['main.inspire', 'N01-U01', '42'], ['main.inspire', 'N01-U01', ' 42 '], ['main.inspire', 'N01-U01', 'x'], ['', 'N01-U01', '42'],
+    ['main.inspire', '--', '42'], ['c.s', `N01-${'U'.repeat(60)}`, '7'], ['c.s', 'n05 u02', '9']];
+  for (const [db, uc, sid] of cases) assert.equal(I.defaultResultTable(db, uc, sid), w.defaultResultTable(db, uc, sid), JSON.stringify([db, uc, sid]));
+  assert.equal(I.defaultResultTable('main.inspire', 'N01-U01', '42'), OWN);
+  assert.equal(I.sharedDefaultResultTable('main.inspire', 'N01-U01'), SHARED);
+});
+
+test('only a carried result table under the old shared name that another use case holds moves to this session\'s own table', () => {
+  const carried = [{ spec_version: 2, spec_json: { config: { result_table: SHARED } } }];
+  const args = { inspireDatabase: 'main.inspire', sessionId: '42', useCaseId: 'N01-U01', history: carried };
+  assert.deepEqual(I.resultTableMove(SHARED, OTHER_HOLDS, args), { from: SHARED, to: OWN, detail: MOVED });
+  assert.equal(I.resultTableMove('`Main`.`inspire`.`N01_U01_OUT`', OTHER_HOLDS, args).to, OWN, 'case and backticks do not hide the old name');
+  assert.equal(I.resultTableMove(SHARED, { session_id: '42', use_case_id: 'N02-U01' }, args).to, OWN, 'another use case of this session holds it');
+  assert.equal(I.resultTableMove(SHARED, null, args), null, 'nobody else holds it, so it stays');
+  assert.equal(I.resultTableMove(SHARED, { session_id: '42', use_case_id: 'N01-U01' }, args), null, 'this use case named it first, so it keeps it');
+  assert.equal(I.resultTableMove(SHARED, OTHER_HOLDS, { ...args, history: [] }), null, 'a name no earlier version used was typed, so it is kept and refused');
+  assert.equal(I.resultTableMove(SHARED, OTHER_HOLDS, { ...args, history: [{ spec_json: { config: { result_table: 'main.inspire.churn_out' } } }] }), null,
+    'earlier versions wrote elsewhere, so the shared name was typed now');
+  const typed = [{ spec_json: { config: { result_table: 'main.inspire.churn_out' } } }];
+  assert.equal(I.resultTableMove('main.inspire.churn_out', OTHER_HOLDS, { ...args, history: typed }), null, 'a name the user chose is never moved');
+  const theirs = [{ spec_json: { config: { result_table: 'main.inspire.n02_u01_out' } } }];
+  assert.equal(I.resultTableMove('main.inspire.n02_u01_out', OTHER_HOLDS, { ...args, history: theirs }), null, 'another use case\'s old name is not this one\'s default');
+  const elsewhere = [{ spec_json: { config: { result_table: 'other.db.n01_u01_out' } } }];
+  assert.equal(I.resultTableMove('other.db.n01_u01_out', OTHER_HOLDS, { ...args, history: elsewhere }), null, 'the old name in another schema was chosen');
+  assert.equal(I.resultTableMove(SHARED, OTHER_HOLDS, { ...args, sessionId: 'abc' }), null, 'no session number, no own name to move to');
+  assert.deepEqual(I.withResultTable({ config: { result_table: SHARED, widgets: { top_k: '5' } }, outputs: {} }, OWN),
+    { config: { result_table: OWN, widgets: { top_k: '5' } }, outputs: {} });
+});
+
+test('a Rebuild that carries the old shared result table another use case holds moves to its own table, says so at every check, and builds there', async () => {
+  const spec = { ...SPEC, config: { ...SPEC.config, result_table: SHARED } };
+  const history = [{ spec_version: 2, status: 'ready', use_case_id: 'N01-U01', spec_json: JSON.stringify(spec), dashboard_id: 'd1' }];
+  await withApp({ history, resultTableHolders: { [SHARED]: [OTHER_HOLDS] } }, async (url, made) => {
+    const pre = await call(url, `/api/inspire/implement/preflight?${Q}&result_table=${SHARED}`);
+    assert.equal(pre.status, 200, JSON.stringify(pre.data));
+    assert.equal(pre.data.checks.output.ok, true, JSON.stringify(pre.data.checks.output));
+    assert.ok(pre.data.checks.output.detail.startsWith(`${MOVED}; `), pre.data.checks.output.detail);
+    assert.deepEqual(pre.data.result_table_moved, { from: SHARED, to: OWN, detail: MOVED });
+    const checked = await call(url, `/api/inspire/implement/output-check?${Q}&table=${SHARED}`);
+    assert.deepEqual([checked.data.ok, checked.data.table, checked.data.result_table_moved.to], [true, OWN, OWN]);
+    const body = { inspire_database: 'main.inspire', warehouse_id: 'wh1', session_id: '42', spec };
+    const planned = await call(url, '/api/inspire/implement/plan', { method: 'POST', body });
+    assert.equal(planned.status, 200, JSON.stringify(planned.data));
+    assert.deepEqual(planned.data.summary.result_table_moved, { from: SHARED, to: OWN, detail: MOVED });
+    assert.ok(planned.data.summary.classes.includes('config'), 'a new table is a config change, so the notebook refills it');
+    assert.equal(made.jobs.length, 0, 'the plan starts nothing');
+    const sent = await call(url, '/api/inspire/implement/submit', { method: 'POST', body });
+    assert.equal(sent.status, 200, JSON.stringify(sent.data));
+    assert.equal(sent.data.summary.result_table_moved.to, OWN);
+    const insert = made.sqlCalls.find((c) => String(c.sql).includes('INSERT INTO'));
+    assert.equal(JSON.parse(insert.parameters.find((p) => p.name === 'spec').value).config.result_table, OWN, 'the new version writes to its own table');
+    assert.equal(made.jobs.length, 1);
+  });
+});
+
+test('the old shared name typed by hand, or held by this use case, is never moved', async () => {
+  const spec = { ...SPEC, config: { ...SPEC.config, result_table: SHARED } };
+  const body = { inspire_database: 'main.inspire', warehouse_id: 'wh1', session_id: '42', spec };
+  await withApp({ resultTableHolders: { [SHARED]: [OTHER_HOLDS] } }, async (url, made) => {
+    const pre = await call(url, `/api/inspire/implement/preflight?${Q}&result_table=${SHARED}`);
+    assert.equal(pre.data.checks.output.ok, false);
+    assert.equal(pre.data.result_table_moved, undefined);
+    const sent = await call(url, '/api/inspire/implement/submit', { method: 'POST', body });
+    assert.equal(sent.status, 403);
+    assert.match(sent.data.error, /^main\.inspire\.n01_u01_out already holds the results of use case N01-U01 of session 2222222222222222222;/);
+    assert.equal(made.jobs.length, 0);
+  });
+  const history = [{ spec_version: 2, status: 'ready', use_case_id: 'N01-U01', spec_json: JSON.stringify(spec), dashboard_id: 'd1' }];
+  await withApp({ history, resultTableHolders: { [SHARED]: [{ session_id: '42', use_case_id: 'N01-U01' }] } }, async (url, made) => {
+    const pre = await call(url, `/api/inspire/implement/preflight?${Q}&result_table=${SHARED}`);
+    assert.equal(pre.data.result_table_moved, undefined, 'the use case that named the table first keeps it');
+    assert.ok(!made.sqlCalls.some((c) => String(c.sql).includes('held AS') && c.parameters.some((p) => p.value === OWN)));
+  });
+  await withApp({ history }, async (url, made) => {
+    await call(url, `/api/inspire/implement/preflight?${Q}&${OUT}`);
+    assert.equal(made.sqlCalls.filter((c) => String(c.sql).includes('held AS')).length, 1, 'any other name costs no extra query');
+  });
+});
+
 const TRAINS = { id: 'N01-U01', use_case: 'Predict churn', code_structure_mandate: 'Execution pattern: family B (classification).', genie_instruction: '' };
 const WRITES_NO_MODEL = [...NOT_MINE_SCHEMA,
   { level: 'schema', privilege: 'USE_SCHEMA', principal: 'amr@x', mine: 'true', me: 'amr@x' },

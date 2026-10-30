@@ -478,6 +478,20 @@ test('plan lines say what the edit builds, refreshes, deletes and keeps', async 
   ]);
 });
 
+test('plan lines say first when the results move to the use case\'s own table, and the Build page note reads the same', async () => {
+  const w = await load();
+  const moved = { from: 'main.s.n01_u01_out', to: 'main.s.n01_u01_s42_out', detail: 'results move to main.s.n01_u01_s42_out, because main.s.n01_u01_out holds the results of use case N01-U01 of session 7' };
+  assert.deepEqual(w.planLines({ classes: ['config'], refill: true, result_table_moved: moved }).slice(0, 2), [
+    'Result table: results move to main.s.n01_u01_s42_out, because main.s.n01_u01_out holds the results of use case N01-U01 of session 7',
+    'Changes: config',
+  ]);
+  assert.equal(w.resultTableMoveNote({ result_table_moved: moved }), w.planLines({ result_table_moved: moved })[0]);
+  assert.equal(w.resultTableMoveNote({ classes: ['config'] }), '');
+  assert.equal(w.resultTableMoveNote({ result_table_moved: { detail: '  ' } }), '');
+  assert.equal(w.resultTableMoveNote(null), '');
+  assert.equal(w.planLines({ classes: ['config'], refill: true })[0], 'Changes: config', 'no move, no line');
+});
+
 test('failure emails start as the decision owner and follow the owner until the user edits them', async () => {
   const w = await load();
   const spec = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });

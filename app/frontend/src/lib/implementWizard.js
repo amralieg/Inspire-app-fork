@@ -484,10 +484,16 @@ export function emptyScopeError(scope) {
   return `No rows to work with: ${scope.table} has no rows ${where}. Widen or clear ${parts.join() === 'window' ? 'it' : 'them'} under Advanced settings.`;
 }
 
+export function resultTableMoveNote(summary) {
+  const detail = String(summary?.result_table_moved?.detail || '').trim();
+  return detail ? `Result table: ${detail}` : '';
+}
+
 export function planLines(summary) {
   if (!summary) return [];
   const label = (names) => names.map((n) => IMPLEMENT_OUTPUTS.find((o) => o.id === n)?.label || n).join(', ');
   const lines = [];
+  if (resultTableMoveNote(summary)) lines.push(resultTableMoveNote(summary));
   if (summary.classes?.length) lines.push(`Changes: ${summary.classes.join(', ')}`);
   lines.push(summary.refill ? 'Genie rewrites the notebook and Inspire re-runs the preview' : 'The built notebook is kept as it is');
   if (summary.build?.length) lines.push(`Builds: ${label(summary.build)}`);
