@@ -572,7 +572,8 @@ function AssetCard({ asset, draft, locked, active, error, money = null, moneyErr
   };
   const steps = busy ? [
     busy.asks ? `Reading what you asked: ${busy.asks} ${busy.asks === 1 ? 'thing' : 'things'}` : 'Reading what you asked',
-    `Rebuilding the ${asset.label} only. Nothing else changes.`,
+    asset.appFollows ? `Rebuilding the ${asset.label}, then pointing the App page at it. Nothing else changes.`
+      : `Rebuilding the ${asset.label} only. Nothing else changes.`,
     'Checking each thing you asked for',
   ] : [];
   return (

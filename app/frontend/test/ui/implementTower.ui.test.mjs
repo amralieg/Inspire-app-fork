@@ -350,6 +350,26 @@ test('while a version rebuilds the picked asset, it reads Rebuilding with the th
   }
 });
 
+test('a Genie Agent rebuilt while the use case has an App says the App page is pointed at it', async () => {
+  const building = versionRow(4, {
+    status: 'building_outputs', implement_run_id: '5555555555555555', updated_at: new Date().toISOString(), change_classes: 'retry',
+    outputs: V3_OUTPUTS, top: { retry_outputs: ['genie_space'] }, assets: {},
+  });
+  const ui = await openTower({ ...STATE, history: [building, ...HISTORY], implementRun: { run_id: 5555555555555555, state: { life_cycle_state: 'RUNNING' } } });
+  try {
+    const card = await pick(ui.page, 'genie_space');
+    const steps = card.getByRole('list', { name: 'Rebuilding the Genie Agent' }).getByRole('listitem');
+    assert.deepEqual(await steps.evaluateAll((li) => li.map((x) => x.textContent.slice(1))), [
+      'Reading what you asked: 3 things',
+      'Rebuilding the Genie Agent, then pointing the App page at it. Nothing else changes.',
+      'Checking each thing you asked for',
+    ]);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
 test('a rolled back output shows the checklist of the version it rolled back to, its Versions card marks Live, and Roll back still works from its drawer', async () => {
   const rolled = [
     versionRow(4, {

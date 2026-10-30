@@ -348,6 +348,7 @@ export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
     }));
     const whole = card(o.id, o.id, entry, liveVersion, {
       label: o.label, blurb: o.blurb, vibes: String(chosen[vibesKey(o.id)] ?? '').trim(), rebuild: built.includes(o.id), versions,
+      appFollows: o.id === 'genie_space' && built.includes('app'),
     });
     whole.warnings = whole.checks.length ? [] : vibeWarnings(base, o.id);
     return [whole, ...parts(o.id)];
