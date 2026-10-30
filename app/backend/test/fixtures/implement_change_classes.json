@@ -6296,7 +6296,9 @@
         {
           "low": 0,
           "high": 1,
-          "whole": false
+          "whole": false,
+          "lowOpen": false,
+          "highOpen": false
         },
         "0 to 1"
       ],
@@ -6305,7 +6307,9 @@
         {
           "low": 1,
           "high": null,
-          "whole": true
+          "whole": true,
+          "lowOpen": false,
+          "highOpen": false
         },
         "whole number, at least 1"
       ],
@@ -6314,7 +6318,9 @@
         {
           "low": null,
           "high": null,
-          "whole": true
+          "whole": true,
+          "lowOpen": false,
+          "highOpen": false
         },
         "whole number"
       ],
@@ -6323,7 +6329,9 @@
         {
           "low": null,
           "high": 5,
-          "whole": false
+          "whole": false,
+          "lowOpen": false,
+          "highOpen": false
         },
         "at most 5"
       ],
@@ -6332,7 +6340,9 @@
         {
           "low": -1,
           "high": 1,
-          "whole": false
+          "whole": false,
+          "lowOpen": false,
+          "highOpen": false
         },
         "-1 to 1"
       ],
@@ -6341,7 +6351,9 @@
         {
           "low": 0.5,
           "high": 1,
-          "whole": false
+          "whole": false,
+          "lowOpen": false,
+          "highOpen": false
         },
         "0.5 to 1"
       ],
@@ -6350,7 +6362,9 @@
         {
           "low": 1,
           "high": 10,
-          "whole": true
+          "whole": true,
+          "lowOpen": false,
+          "highOpen": false
         },
         "whole number, 1 to 10"
       ],
@@ -6359,7 +6373,9 @@
         {
           "low": null,
           "high": null,
-          "whole": false
+          "whole": false,
+          "lowOpen": false,
+          "highOpen": false
         },
         ""
       ],
@@ -6368,7 +6384,9 @@
         {
           "low": null,
           "high": null,
-          "whole": false
+          "whole": false,
+          "lowOpen": false,
+          "highOpen": false
         },
         ""
       ],
@@ -6384,6 +6402,120 @@
       ],
       [
         "whole number at least 1",
+        null,
+        null
+      ],
+      [
+        "above 0 and below 1",
+        {
+          "low": 0,
+          "high": 1,
+          "whole": false,
+          "lowOpen": true,
+          "highOpen": true
+        },
+        "above 0 and below 1"
+      ],
+      [
+        "greater than 0 and less than 1",
+        {
+          "low": 0,
+          "high": 1,
+          "whole": false,
+          "lowOpen": true,
+          "highOpen": true
+        },
+        "above 0 and below 1"
+      ],
+      [
+        "more than 0",
+        {
+          "low": 0,
+          "high": null,
+          "whole": false,
+          "lowOpen": true,
+          "highOpen": false
+        },
+        "above 0"
+      ],
+      [
+        "below 1",
+        {
+          "low": null,
+          "high": 1,
+          "whole": false,
+          "lowOpen": false,
+          "highOpen": true
+        },
+        "below 1"
+      ],
+      [
+        "less than 1",
+        {
+          "low": null,
+          "high": 1,
+          "whole": false,
+          "lowOpen": false,
+          "highOpen": true
+        },
+        "below 1"
+      ],
+      [
+        "at least 0 and below 1",
+        {
+          "low": 0,
+          "high": 1,
+          "whole": false,
+          "lowOpen": false,
+          "highOpen": true
+        },
+        "at least 0 and below 1"
+      ],
+      [
+        "above 0 and at most 1",
+        {
+          "low": 0,
+          "high": 1,
+          "whole": false,
+          "lowOpen": true,
+          "highOpen": false
+        },
+        "above 0 and at most 1"
+      ],
+      [
+        "at least 0 and at most 1",
+        {
+          "low": 0,
+          "high": 1,
+          "whole": false,
+          "lowOpen": false,
+          "highOpen": false
+        },
+        "0 to 1"
+      ],
+      [
+        "whole number, above 0",
+        {
+          "low": 0,
+          "high": null,
+          "whole": true,
+          "lowOpen": true,
+          "highOpen": false
+        },
+        "whole number, above 0"
+      ],
+      [
+        "below 1 and above 0",
+        null,
+        null
+      ],
+      [
+        "greater than or equal to 0",
+        null,
+        null
+      ],
+      [
+        "above 0 and",
         null,
         null
       ]
@@ -6460,6 +6592,54 @@
         "36",
         "1-5",
         ""
+      ],
+      [
+        "holdout_fraction",
+        "0.2",
+        "above 0 and below 1",
+        ""
+      ],
+      [
+        "holdout_fraction",
+        "0",
+        "above 0 and below 1",
+        "holdout_fraction is '0'; allowed: above 0 and below 1"
+      ],
+      [
+        "holdout_fraction",
+        "1",
+        "greater than 0 and less than 1",
+        "holdout_fraction is '1'; allowed: above 0 and below 1"
+      ],
+      [
+        "holdout_fraction",
+        "1",
+        "above 0 and at most 1",
+        ""
+      ],
+      [
+        "learning_rate",
+        "0",
+        "at least 0 and below 1",
+        ""
+      ],
+      [
+        "learning_rate",
+        "1",
+        "at least 0 and below 1",
+        "learning_rate is '1'; allowed: at least 0 and below 1"
+      ],
+      [
+        "min_trees",
+        "1",
+        "whole number, above 0",
+        ""
+      ],
+      [
+        "min_trees",
+        "0",
+        "whole number, above 0",
+        "min_trees is '0'; allowed: whole number, above 0"
       ]
     ],
     "problems": [

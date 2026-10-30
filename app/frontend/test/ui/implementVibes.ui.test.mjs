@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaultSpecFromUseCase } from '../../src/lib/implementWizard.js';
 import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
-import { clippedExamples, closeBrowser, lowContrast, openUi, onStep, startMvp, toVibes, until } from './uiSupport.mjs';
+import { clippedExamples, closeBrowser, lowContrast, openUi, onStep, startMvp, toAppAccess, toVibes, until } from './uiSupport.mjs';
 
 const OWNER = ['owner', 'example.com'].join('@');
 const SHOTS = process.env.VIBES_SHOTS || '';
@@ -56,7 +56,7 @@ async function readable(page, selectors, name) {
   await page.evaluate(() => document.documentElement.classList.remove('dark'));
 }
 
-const STEPS_WITH_APP = ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App access', '6. App look', '7. Vibes'];
+const STEPS_WITH_APP = ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App placement', '6. App access', '7. App look', '8. Vibes'];
 const boxLabels = (panel) => panel.locator('textarea').evaluateAll((boxes) => boxes.map((b) => b.getAttribute('aria-label')));
 const tabNames = (page) => vibesTabs(page).getByRole('tab').evaluateAll((tabs) => tabs.map((t) => t.textContent));
 
@@ -110,8 +110,7 @@ test('Vibes is the last step: Delivery asks for no vibes, each picked output get
     await onStep(page, 'Delivery');
     for (const name of [/^App /, /^Alert/]) await page.getByRole('checkbox', { name }).check();
     await page.getByText(`Emails ${OWNER} when`, { exact: false }).waitFor();
-    await next(page);
-    await onStep(page, 'App access');
+    await toAppAccess(page);
     await page.getByRole('radio', { name: /^Internal data/ }).check();
     await toVibes(page);
     assert.deepEqual(await boxLabels(panel), ['Notebook vibes', 'Vibes for the Dashboard', 'Vibes for the Genie Agent', 'App vibes', 'Vibes for the Alert']);
@@ -132,8 +131,7 @@ test('the Vibes step shows one asset at a time in tabs, each with a full-width b
     await toDelivery(page);
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
     await page.getByText(`Emails ${OWNER} when`, { exact: false }).waitFor();
-    await next(page);
-    await onStep(page, 'App access');
+    await toAppAccess(page);
     await page.getByRole('radio', { name: /^Internal data/ }).check();
     await toVibes(page);
     const panel = page.getByRole('region', { name: 'Vibes' });
@@ -204,8 +202,7 @@ test('the Vibes step keeps a live counter, an ask over 2000 characters stops Sta
     await toDelivery(page);
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
     await page.getByText(`Emails ${OWNER} when`, { exact: false }).waitFor();
-    await next(page);
-    await onStep(page, 'App access');
+    await toAppAccess(page);
     await page.getByRole('radio', { name: /^Internal data/ }).check();
     await toVibes(page);
     const panel = page.getByRole('region', { name: 'Vibes' });
@@ -266,8 +263,7 @@ test('the Vibes step with every output picked fits 1440x900 with every box fille
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
     await page.getByText(`Emails ${OWNER} when`, { exact: false }).waitFor();
     await fits('vibes-wizard-tiles');
-    await next(page);
-    await onStep(page, 'App access');
+    await toAppAccess(page);
     await page.getByRole('radio', { name: /^Internal data/ }).check();
     await toVibes(page);
     await fits('vibes-step-empty');
@@ -583,8 +579,7 @@ test('the notebook has its own vibes in the wizard and a card on the Build page 
   try {
     const { page } = wizard;
     await toDelivery(page);
-    await next(page);
-    await onStep(page, 'App access');
+    await toAppAccess(page);
     await page.getByRole('radio', { name: /^Internal data/ }).check();
     await toVibes(page);
     const panel = page.getByRole('region', { name: 'Vibes' });

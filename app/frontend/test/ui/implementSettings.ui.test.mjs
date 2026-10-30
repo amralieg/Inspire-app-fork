@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { closeBrowser, openUi, onStep, startMvp } from './uiSupport.mjs';
+import { closeBrowser, openUi, onStep, startMvp, toAppAccess } from './uiSupport.mjs';
 
 const OWNER = ['owner', 'example.com'].join('@');
 const PAT = ['pat', 'example.com'].join('@');
@@ -35,8 +35,7 @@ function submittedSpec(made) {
 }
 
 async function throughApp(page) {
-  await next(page);
-  await onStep(page, 'App access');
+  await toAppAccess(page);
   await page.getByRole('region', { name: 'App access' }).getByRole('radio', { name: /^Internal data/ }).check();
   await next(page);
   await onStep(page, 'App look');

@@ -112,9 +112,15 @@ import {
   withAppLook,
   appOptionShown,
   mergeTargetOf,
-  appMergeBlock,
   withMergeTarget,
-  withHubDefault,
+  withPlacementDefault,
+  withNewApp,
+  appPlacementChoices,
+  placementMemoryText,
+  APP_PLACEMENTS,
+  APP_PLACEMENT_DEFAULT,
+  domainOf,
+  caseAppNameOf,
   heldAssets,
   goneAssetText,
   mergeTargetText,
@@ -147,8 +153,9 @@ const ACCESS_ICONS = { user: UserRound, sp: KeyRound };
 const NO_WIDGET_GROUPS = { business: [], model: [], ai: [], extras: [], extras_kept_default: [] };
 const COLUMN_ROLES = ['entity_id', 'event_date', 'measure', 'label', 'segment'];
 const ALL_FEATURES = { apps: true, genie_spaces: true, alerts: true };
-const TILE_CHECKS = { app: ['app_name', 'app_access', 'apps'], genie_space: ['genie_spaces'], alert: ['alerts'] };
-const TILE_CHECK_KEYS = Object.values(TILE_CHECKS).flat();
+const TILE_CHECKS = { app: ['app_access', 'apps'], genie_space: ['genie_spaces'], alert: ['alerts'] };
+const PLACE_CHECKS = ['app_name'];
+const TILE_CHECK_KEYS = [...Object.values(TILE_CHECKS).flat(), ...PLACE_CHECKS];
 const REMOVE = '__remove__';
 
 const rowWithCard = (card, row) => ({ ...(card || {}), ...(row || {}) });
@@ -302,7 +309,7 @@ export default function ImplementWizard({
   const [catalogsError, setCatalogsError] = useState('');
   const [schemas, setSchemas] = useState({});
   const bodyRef = useRef(null);
-  const hubChosen = useRef(false);
+  const placeChosen = useRef(false);
   const steps = wizardSteps(mode, spec);
   const stepIndex = Math.min(step, steps.length - 1);
   const stepId = steps[stepIndex].id;
@@ -385,6 +392,8 @@ export default function ImplementWizard({
   }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ucRow = useMemo(() => rowWithCard(uc, context?.use_case), [uc, context?.use_case]);
+  const placeScope = useMemo(() => ({ business: context?.business_name || '', domain: domainOf(ucRow), useCaseAppName: caseAppNameOf(ucRow) }),
+    [context?.business_name, ucRow]);
   const notebookEdit = editedNotebook(context?.latest);
   const editing = Boolean(context?.latest);
   const trainsModel = context?.trains_model !== false;
@@ -546,9 +555,11 @@ export default function ImplementWizard({
 
   const held = useMemo(() => heldAssets(context?.assets, context?.gone_assets), [context]);
   useEffect(() => {
-    if (hubChosen.current || !targets || !context) return;
-    setSpec((prev) => withHubDefault(prev, targets, context.business_name, held));
-  }, [targets, context, held, spec.outputs.app]);
+    if (placeChosen.current || !targets || !context) return;
+    const saved = context.latest?.spec_json?.outputs || {};
+    const savedApp = Boolean(saved.app) && !(context.gone_assets || []).includes('app');
+    setSpec((prev) => withPlacementDefault(prev, targets, { held, saved: saved.app_placement, savedApp, ...placeScope }));
+  }, [targets, context, held, placeScope, spec.outputs.app]);
 
   useEffect(() => {
     if (!buildStep || targets !== null) return undefined;
@@ -714,9 +725,10 @@ export default function ImplementWizard({
   const checkEntries = Object.entries(preflight?.checks || {});
   const generalChecks = checkEntries.filter(([k]) => !TILE_CHECK_KEYS.includes(k));
   const freshness = freshnessOf(spec.schedule);
-  const appTaken = spec.outputs.app && preflight?.checks?.app_name?.ok === false;
-  const deliveryChecks = buildStep && stepId !== 'delivery'
-    ? checkEntries.filter(([, v]) => !v.ok).map(([k, v]) => `${PREFLIGHT_LABELS[k] || k.replace(/_/g, ' ')}: ${v.detail} (fix it on Delivery)`)
+  const checkStepOf = (k) => (PLACE_CHECKS.includes(k) ? 'app_place' : 'delivery');
+  const deliveryChecks = buildStep
+    ? checkEntries.filter(([k, v]) => !v.ok && checkStepOf(k) !== stepId)
+      .map(([k, v]) => `${PREFLIGHT_LABELS[k] || k.replace(/_/g, ' ')}: ${v.detail} (fix it on ${checkStepOf(k) === 'app_place' ? 'App placement' : 'Delivery'})`)
     : [];
   const earlierGaps = buildStep && lastStep
     ? steps.filter((s) => BUILD_STEP_IDS.includes(s.id) && s.id !== stepId)
@@ -730,7 +742,6 @@ export default function ImplementWizard({
   const unchanged = lastStep && !checksBusy && Boolean(plan?.unchanged);
   const implementBlocked = busy || checksBusy || Boolean(plan?.unchanged)
     || (!ownErrors.length && (!preflight || !preflight.ok || !plan || Boolean(planError)));
-  const mergeFresh = defaultSpecFromUseCase(ucRow, { businessName: context?.business_name }).outputs.app_name;
   const palette = (look?.palette_colors || []).find((p) => p.id === spec.outputs.app_look.palette) || null;
 
   const pickTable = (original, value) => {
@@ -1064,9 +1075,9 @@ export default function ImplementWizard({
                   const noAppAccess = item.id === 'app' && !context?.assets?.app && outputCheck?.app?.ok === false;
                   const cannot = unavailable.includes(item.id);
                   const tileChecks = (TILE_CHECKS[item.id] || []).map((k) => [k, preflight?.checks?.[k]])
-                    .filter(([k, v]) => v && !v.ok && on && !(k === 'app_name' && appTaken));
+                    .filter(([, v]) => v && !v.ok && on);
                   const locked = item.id === 'genie_space' && spec.outputs.app;
-                  const mergeable = on && MERGE_OUTPUTS.includes(item.id) && !held[item.id];
+                  const mergeable = on && item.id !== 'app' && MERGE_OUTPUTS.includes(item.id) && !held[item.id];
                   const gone = on && (context?.gone_assets || []).includes(item.id);
                   return (
                     <div key={item.id} data-output={item.id} className={`border rounded-lg p-3 space-y-2 ${on ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
@@ -1080,7 +1091,7 @@ export default function ImplementWizard({
                             </span>
                             <span className={`block text-[11px] mt-1 ${cannot ? 'text-error-fg' : 'text-text-secondary'}`}>
                               {!cannot && (locked ? GENIE_FOR_APP_NOTE : item.blurb)}
-                              {!cannot && item.id === 'app' && !joinsApp(spec) && ` ${APP_NEXT_NOTE}`}
+                              {!cannot && item.id === 'app' && ` ${APP_NEXT_NOTE}`}
                               {cannot && noAppAccess && `Inspire cannot create this App: ${outputCheck.app.detail}.${on ? ' Turn it off, or fix the access and check again.' : ''}`}
                               {cannot && !noAppAccess && (on ? 'You cannot create this in this workspace any more. Turn it off, or ask a workspace admin.' : 'You cannot create this in this workspace.')}
                             </span>
@@ -1095,33 +1106,8 @@ export default function ImplementWizard({
                           chosen={spec.outputs.merge[item.id]}
                           targets={targets}
                           targetsError={targetsError}
-                          access={spec.outputs.app_access}
-                          onPick={(target) => {
-                            if (item.id === 'app') hubChosen.current = true;
-                            setSpec((prev) => withMergeTarget(prev, item.id, target, mergeFresh));
-                          }}
+                          onPick={(target) => setSpec((prev) => withMergeTarget(prev, item.id, target))}
                         />
-                      )}
-                      {on && item.id === 'app' && !spec.outputs.merge.app && (
-                        <div className="pl-7 space-y-1">
-                          <Field label="App name">
-                            <input className={inputCls} value={spec.outputs.app_name} onChange={(e) => patch('outputs.app_name', e.target.value.toLowerCase())} />
-                          </Field>
-                          {spec.outputs.app_name && !APP_NAME_RE.test(spec.outputs.app_name) ? (
-                            <p className="text-[11px] text-error-fg">3-30 lowercase letters, digits and dashes, starting with a letter</p>
-                          ) : appTaken ? (
-                            <p className="text-[11px] text-error-fg">
-                              {preflight.checks.app_name.detail}.{' '}
-                              <button type="button" className="text-db-red-fg underline" onClick={() => patch('outputs.app_name', nextAppName(spec.outputs.app_name))}>
-                                Use {nextAppName(spec.outputs.app_name)}
-                              </button>
-                            </p>
-                          ) : (
-                            <p className="text-[11px] text-text-tertiary">
-                              {preflight?.checks?.app_name?.ok ? preflight.checks.app_name.detail : 'Up to 30 lowercase letters, digits and dashes.'}
-                            </p>
-                          )}
-                        </div>
                       )}
                       {on && item.id === 'alert' && (
                         <p className="pl-7 text-[11px] text-text-secondary">
@@ -1361,6 +1347,20 @@ export default function ImplementWizard({
           </>
         )}
 
+        {stepId === 'app_place' && (
+          <AppPlacementStep
+            spec={spec}
+            targets={targets}
+            targetsError={targetsError}
+            heldApp={held.app || ''}
+            scope={placeScope}
+            nameCheck={preflight?.checks?.app_name || null}
+            onJoin={(target) => { placeChosen.current = true; setSpec((prev) => withMergeTarget(prev, 'app', target)); }}
+            onNew={(placement) => { placeChosen.current = true; setSpec((prev) => withNewApp(prev, placement, targets, placeScope)); }}
+            onName={(value) => { placeChosen.current = true; patch('outputs.app_name', value); }}
+          />
+        )}
+
         {stepId === 'app_access' && (
           <AppAccessStep
             spec={spec}
@@ -1500,14 +1500,134 @@ function VibesPanel({ spec, tab, onTab, onChange }) {
   );
 }
 
-function MergeChoice({ name, label, chosen, targets, targetsError, access, onPick }) {
+const FIT_TONE = { recommended: 'text-success-fg', other_domains: 'text-warning-fg', not_recommended: 'text-error-fg' };
+const placeCard = (on) => `border rounded-lg p-3 space-y-2 ${on ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`;
+
+function AppNameField({ name, nameCheck, onName }) {
+  return (
+    <div className="space-y-1">
+      <Field label="App name">
+        <input className={inputCls} value={name} onChange={(e) => onName(e.target.value.toLowerCase())} />
+      </Field>
+      {name && !APP_NAME_RE.test(name) ? (
+        <p className="text-[11px] text-error-fg">3-30 lowercase letters, digits and dashes, starting with a letter</p>
+      ) : nameCheck?.ok === false ? (
+        <p className="text-[11px] text-error-fg">
+          {nameCheck.detail}.{' '}
+          <button type="button" className="text-db-red-fg underline" onClick={() => onName(nextAppName(name))}>Use {nextAppName(name)}</button>
+        </p>
+      ) : (
+        <p className="text-[11px] text-text-tertiary">{nameCheck?.ok ? nameCheck.detail : 'Up to 30 lowercase letters, digits and dashes.'}</p>
+      )}
+    </div>
+  );
+}
+
+function joinListText(targets, targetsError, choices, open) {
+  if (targetsError) return `Inspire could not list the Apps it built (${targetsError}), so Genie creates a new one.`;
+  if (targets === null) return 'Finding the Apps Inspire built';
+  if (!choices.length) return 'Inspire has built none yet.';
+  if (!open.length) return 'None can take a per-user use case.';
+  return `${choices.length} App${choices.length === 1 ? '' : 's'} Inspire built, the best fit first.`;
+}
+
+function AppPlacementStep({ spec, targets, targetsError, heldApp, scope, nameCheck, onJoin, onNew, onName }) {
+  const joined = joinsApp(spec) ? spec.outputs.merge.app : '';
+  const choices = targetsError ? [] : appPlacementChoices(spec, targets, scope);
+  const open = choices.filter((c) => !c.block);
+  const chosen = choices.find((c) => c.target.id === joined) || null;
+  const placement = spec.outputs.app_placement;
+  const memory = placementMemoryText(targets, scope.business);
+  const name = spec.outputs.app_name || '';
+  if (heldApp) {
+    return (
+      <section className="space-y-4" aria-label="App placement">
+        <div>
+          <h3 className="text-sm font-semibold text-text-primary">Where does the App of this use case go?</h3>
+          <p className="text-[11px] text-text-tertiary">This use case already has its App, {heldApp}, so Genie rebuilds it there.</p>
+        </div>
+        {!joined && <AppNameField name={name} nameCheck={nameCheck} onName={onName} />}
+      </section>
+    );
+  }
+  return (
+    <section className="space-y-4" aria-label="App placement">
+      <div>
+        <h3 className="text-sm font-semibold text-text-primary">Where does the App of this use case go?</h3>
+        <p className="text-[11px] text-text-tertiary">Add it to an App Inspire built, or create a new one.{memory && ` ${memory}`}</p>
+      </div>
+      <div role="radiogroup" aria-label="Where the App goes" className="space-y-3">
+        <div data-app-place="join" className={placeCard(Boolean(joined))}>
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input type="radio" name="app-place" value="join" className="mt-0.5" checked={Boolean(joined)} disabled={!joined && !open.length}
+              onChange={() => onJoin(open[0].target)} />
+            <span>
+              <span className="block text-sm font-semibold text-text-primary">Add to an existing App</span>
+              <span className="block text-[11px] text-text-secondary">
+                {targets === null && !targetsError && <Loader2 size={11} className="inline animate-spin mr-1" aria-hidden="true" />}
+                {joinListText(targets, targetsError, choices, open)}
+              </span>
+            </span>
+          </label>
+          {choices.length > 0 && (
+            <ul aria-label="Apps Inspire built" className="pl-7 space-y-2">
+              {choices.map((c) => (
+                <li key={c.target.id} data-app-target={c.target.id}>
+                  <label className={`flex items-start gap-2 ${c.block && joined !== c.target.id ? '' : 'cursor-pointer'}`}>
+                    <input type="radio" name="app-target" value={c.target.id} className="mt-0.5" checked={joined === c.target.id}
+                      disabled={Boolean(c.block) && joined !== c.target.id} onChange={() => onJoin(c.target)} />
+                    <span className="space-y-0.5">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="text-[12px] font-medium text-text-primary">{c.target.name}</span>
+                        <span data-fit={c.fit} className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${FIT_TONE[c.fit]}`}>{c.label}</span>
+                      </span>
+                      <span className="block text-[11px] text-text-secondary">Holds {mergeTargetText(c.target)} · {ACCESS_SHORT[c.target.access]}</span>
+                      {c.reason && <span className="block text-[11px] text-text-secondary">{c.reason}</span>}
+                      {c.block && <span className="block text-[11px] text-error-fg">{c.block}</span>}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+          {chosen && !chosen.block && (
+            <p role="note" aria-label="The App this use case joins" className="pl-7 text-[11px] text-text-secondary">{joinedAppText(chosen.target)}</p>
+          )}
+          {joined && !chosen && targets !== null && (
+            <p className="pl-7 text-[11px] text-error-fg">{joined} is not one Inspire built that you can open: pick another, or create a new App.</p>
+          )}
+        </div>
+        <div data-app-place="new" className={placeCard(!joined)}>
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input type="radio" name="app-place" value="new" className="mt-0.5" checked={!joined} onChange={() => onNew(placement)} />
+            <span className="block text-sm font-semibold text-text-primary">Create a new App</span>
+          </label>
+          {!joined && (
+            <div className="pl-7 space-y-3">
+              <div role="radiogroup" aria-label="How Inspire organizes Apps" className="space-y-1.5">
+                {APP_PLACEMENTS.map((p) => (
+                  <label key={p.id} className="flex items-start gap-2 cursor-pointer">
+                    <input type="radio" name="app-policy" value={p.id} className="mt-0.5" checked={placement === p.id} onChange={() => onNew(p.id)} />
+                    <span className="text-[11px] text-text-secondary">
+                      <span className="text-[12px] font-medium text-text-primary">{p.label}{p.id === APP_PLACEMENT_DEFAULT ? ' (default)' : ''}</span>. {p.blurb}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <AppNameField name={name} nameCheck={nameCheck} onName={onName} />
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MergeChoice({ name, label, chosen, targets, targetsError, onPick }) {
   const list = (targets && targets[name]) || [];
   const target = mergeTargetOf(targets, name, chosen);
-  const blockOf = (t) => (name === 'app' ? appMergeBlock({ outputs: { app_access: access } }, t) : '');
-  const open = list.find((t) => !blockOf(t)) || null;
-  const block = target ? blockOf(target) : '';
-  const optionText = (t) => [t.name, `holds ${mergeTargetText(t)}`, name === 'app' ? ACCESS_SHORT[t.access] : '', blockOf(t) ? 'per-user use cases cannot join' : '']
-    .filter(Boolean).join(' · ');
+  const open = list[0] || null;
+  const optionText = (t) => `${t.name} · holds ${mergeTargetText(t)}`;
   return (
     <div className="pl-7 space-y-1.5" data-merge={name}>
       <div className="flex flex-wrap items-center gap-2">
@@ -1517,20 +1637,15 @@ function MergeChoice({ name, label, chosen, targets, targetsError, access, onPic
         </div>
         {!chosen && targets === null && <span className="text-[11px] text-text-tertiary"><Loader2 size={11} className="inline animate-spin" /> Finding the ones Inspire built</span>}
         {!chosen && targets !== null && !targetsError && !list.length && <span className="text-[11px] text-text-tertiary">Inspire has built none yet</span>}
-        {!chosen && targets !== null && !targetsError && list.length > 0 && !open && <span className="text-[11px] text-text-tertiary">none can take a per-user use case</span>}
       </div>
       {targetsError && <p className="text-[11px] text-text-tertiary">Inspire could not list the {label}s it built ({targetsError}), so Genie creates a new one.</p>}
       {chosen && (
         <>
           <select aria-label={`${label} to add this use case to`} className={inputCls} value={chosen} onChange={(e) => onPick(mergeTargetOf(targets, name, e.target.value))}>
             {!target && <option value={chosen}>{chosen}</option>}
-            {list.map((t) => <option key={t.id} value={t.id} disabled={Boolean(blockOf(t)) && t.id !== chosen}>{optionText(t)}</option>)}
+            {list.map((t) => <option key={t.id} value={t.id}>{optionText(t)}</option>)}
           </select>
-          {target && !block && name === 'app' && (
-            <p role="note" aria-label="The App this use case joins" className="text-[11px] text-text-secondary">{joinedAppText(target)}</p>
-          )}
           {!target && targets !== null && <p className="text-[11px] text-error-fg">{chosen} is not one Inspire built that you can open: pick another, or choose Create new.</p>}
-          {block && <p className="text-[11px] text-error-fg">{block}</p>}
         </>
       )}
     </div>

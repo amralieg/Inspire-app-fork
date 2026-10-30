@@ -71,6 +71,7 @@ function makeApp(overrides = {}, { mount } = {}) {
         if (unknown) throw new Error(`[UNRESOLVED_COLUMN.WITH_SUGGESTION] A column, variable, or function parameter with name \`${unknown}\` cannot be resolved.`);
         return { rows: state.history };
       }
+      if (sql.includes('u.business_domain AS domain')) return { rows: state.useCaseScope || [] };
       if (sql.includes('__inspire_usecases')) return { rows: state.useCase ? [state.useCase] : [] };
       if (sql.includes('_summary` WHERE use_case_id = :uc')) return { rows: state.moneySummary || [] };
       if (sql.includes('_assumptions` WHERE use_case_id = :uc')) return { rows: state.moneyEdits || [] };

@@ -187,10 +187,11 @@ test('each Full MVP step runs the checks of every section it shows, and only tho
   assert.deepEqual(w.IMPLEMENT_STEPS.map((s) => [s.id, s.label]), [['choose', 'Choose'], ['data', 'Data'], ['results', 'Results'], ['delivery', 'Delivery']]);
   assert.deepEqual(w.APP_STEPS.map((s) => [s.id, s.label]), [['app_access', 'App access'], ['app_look', 'App look']]);
   assert.deepEqual([w.VIBES_STEP.id, w.VIBES_STEP.label, w.VIBES_STEP.sections], ['vibes', 'Vibes', ['vibes']]);
-  const shown = [...w.IMPLEMENT_STEPS, ...w.APP_STEPS, w.VIBES_STEP].flatMap((s) => s.sections);
-  assert.deepEqual([...shown].sort(), ['alert', 'app_access', 'app_look', 'app_owners', 'configure', 'data', 'holdout', 'results', 'schedule', 'use_case', 'use_it', 'vibes']);
-  for (const s of [...w.IMPLEMENT_STEPS, ...w.APP_STEPS, w.VIBES_STEP]) assert.ok(s.advanced.every((a) => s.sections.includes(a)), s.id);
-  assert.deepEqual(w.BUILD_STEP_IDS, ['delivery', 'app_access', 'app_look', 'vibes']);
+  const shown = [...w.IMPLEMENT_STEPS, w.APP_PLACE_STEP, ...w.APP_STEPS, w.VIBES_STEP].flatMap((s) => s.sections);
+  assert.deepEqual([...shown].sort(), ['alert', 'app_access', 'app_look', 'app_owners', 'app_place', 'configure', 'data', 'holdout', 'results', 'schedule', 'use_case', 'use_it', 'vibes']);
+  for (const s of [...w.IMPLEMENT_STEPS, w.APP_PLACE_STEP, ...w.APP_STEPS, w.VIBES_STEP]) assert.ok(s.advanced.every((a) => s.sections.includes(a)), s.id);
+  assert.deepEqual(w.BUILD_STEP_IDS, ['delivery', 'app_place', 'app_access', 'app_look', 'vibes']);
+  assert.deepEqual([w.APP_PLACE_STEP.id, w.APP_PLACE_STEP.label, w.APP_PLACE_STEP.sections], ['app_place', 'App placement', ['app_place']]);
   const spec = w.defaultSpecFromUseCase(UC, { warehouseId: '', inspireDatabase: 'main.inspire' });
   const bad = { ...spec, use_case: { ...spec.use_case, decision_owner: '' }, schedule: { ...spec.schedule, enabled: true, cron: '0 0 25 * * ?' },
     config: { ...spec.config, result_table: 'main.inspire' },
@@ -198,7 +199,6 @@ test('each Full MVP step runs the checks of every section it shows, and only tho
   assert.deepEqual(w.stepErrors('data', bad), ['name the decision owner', 'pick a SQL warehouse']);
   assert.deepEqual(w.stepErrors('results', bad), ['pick a catalog and a schema, and name the result table']);
   assert.deepEqual(w.stepErrors('delivery', bad), [
-    'app name must be 3-30 lowercase letters, digits and dashes',
     w.GENIE_FOR_APP_NOTE,
     'an alert needs at least one recipient email or notification destination',
     "the cron is not valid: the hour value '25' is not 0 to 23",
@@ -206,7 +206,8 @@ test('each Full MVP step runs the checks of every section it shows, and only tho
   assert.deepEqual(w.advancedErrors('delivery', bad), [
     'an alert needs at least one recipient email or notification destination',
     "the cron is not valid: the hour value '25' is not 0 to 23",
-  ], 'the App name lives on the main view, so it never opens Advanced');
+  ], 'the App name lives on App placement, so Delivery never checks it');
+  assert.deepEqual(w.stepErrors('app_place', bad), ['app name must be 3-30 lowercase letters, digits and dashes']);
   assert.deepEqual(w.advancedErrors('data', bad), w.stepErrors('data', bad));
   assert.deepEqual(w.advancedErrors('results', bad), [], 'the result table lives on its own step, never under Advanced');
   assert.deepEqual(w.stepErrors('app_access', bad), [], 'the App starts reading as its service principal, so the step passes as made');
@@ -726,38 +727,188 @@ test('the business Hub App is inspire-hub- and the business name, at most 30 cha
   assert.equal(w.defaultSpecFromUseCase(UC, { businessName: '***' }).outputs.app_name, 'predict-churn');
 });
 
-test('a use case goes into its business Hub App by default only when that Hub exists, can take it, and nothing else was chosen', async () => {
+test('a domain App is inspire-, the business and the domain, at most 30 characters, with the domain kept to 15', async () => {
   const w = await load();
-  const hub = { id: 'inspire-hub-acme', name: 'inspire-hub-acme', access: 'sp', per_user_block: 'inspire-hub-acme signs everyone in with its own service principal', look: { palette: 'ocean' } };
-  const legacy = { id: 'ops-desk', name: 'ops-desk', access: 'sp' };
-  const on = w.withOutput(w.defaultSpecFromUseCase(UC, { businessName: 'Acme' }), 'app', true);
-  const merged = w.withHubDefault(on, { app: [legacy, hub] }, 'Acme', {});
-  assert.deepEqual([merged.outputs.merge.app, merged.outputs.app_name, merged.outputs.app_look.palette], ['inspire-hub-acme', 'inspire-hub-acme', 'ocean']);
-  assert.equal(w.withHubDefault(on, { app: [legacy] }, 'Acme', {}), on, 'an App Inspire built for one use case is not the Hub');
-  assert.equal(w.withHubDefault(on, { app: [hub] }, 'Other Co', {}), on, 'another business has another Hub');
-  assert.equal(w.withHubDefault(on, null, 'Acme', {}), on);
-  assert.equal(w.withHubDefault(on, { app: [hub] }, 'Acme', { app: 'predict-churn' }), on, 'a use case with its own App keeps it');
-  const fresh = w.defaultSpecFromUseCase(UC, { businessName: 'Acme' });
-  assert.equal(w.withHubDefault(fresh, { app: [hub] }, 'Acme', {}).outputs.merge.app, 'inspire-hub-acme', 'the App is on by default, so a new use case joins its Hub');
-  const off = w.withOutput(fresh, 'app', false);
-  assert.equal(w.withHubDefault(off, { app: [hub] }, 'Acme', {}), off, 'no App asked, nothing joins');
-  const picked = w.withMergeTarget(on, 'app', legacy);
-  assert.equal(w.withHubDefault(picked, { app: [hub] }, 'Acme', {}), picked, 'a choice already made stays');
-  const perUser = w.withAppAccess(on, 'user');
-  assert.equal(w.withHubDefault(perUser, { app: [hub] }, 'Acme', {}), perUser, 'a per-user use case cannot join a service-principal Hub');
+  assert.equal(w.domainAppName('Acme', 'Customer'), 'inspire-acme-customer');
+  assert.equal(w.domainAppName('TPCDS Retail V130 Ship', 'Merchandising and Pricing'), 'inspire-tpcds-merchandising');
+  assert.equal(w.domainAppName('', 'Finance'), 'inspire-finance');
+  assert.equal(w.domainAppName('Acme', ''), '', 'no domain, no domain App');
+  assert.equal(w.domainAppName('Acme', '&&&'), '');
+  assert.equal(w.domainAppName(undefined, undefined), '');
+  for (const [biz, domain] of [['Supercalifragilisticexpialidocious', 'Operations'], ['x'.repeat(80), 'y'.repeat(80)], ['Société Générale', 'Risk & Compliance']]) {
+    const name = w.domainAppName(biz, domain);
+    assert.ok(w.APP_NAME_RE.test(name) && name.length <= 30 && name.startsWith('inspire-'), `${biz}/${domain}: ${name}`);
+  }
+  const uc = { ...UC, business_domain: 'Customer' };
+  const spec = w.defaultSpecFromUseCase(uc, { businessName: 'Acme' });
+  assert.deepEqual([spec.outputs.app_placement, spec.outputs.app_name], ['domain', 'inspire-acme-customer'], 'a new use case defaults to its domain App');
+  assert.equal(w.defaultSpecFromUseCase(UC, { businessName: 'Acme' }).outputs.app_name, 'inspire-hub-acme', 'a use case with no domain takes the business App');
+  assert.equal(w.domainOf({ _domain: ' Finance ' }), 'Finance');
+  assert.equal(w.domainOf({ 'Business Domain': 'Risk' }), 'Risk');
+  assert.equal(w.domainOf(null), '');
+  assert.equal(w.caseAppNameOf(UC), 'predict-churn');
 });
 
-test('an output that no longer exists is not held, so the use case can join the Hub, and the wizard says which one is gone', async () => {
+const ACME = { business: 'Acme', domain: 'Customer' };
+const holder = (use_case_id, business, domain, extra = {}) => ({ session_id: '42', use_case_id, name: use_case_id, business, domain, placement: 'domain', updated_at: '2026-10-20T00:00:00Z', ...extra });
+const appTarget = (id, useCases, extra = {}) => ({ id, name: id, access: 'sp', per_user_block: `${id} signs everyone in with its own service principal`, use_cases: useCases, ...extra });
+
+test('an App is Recommended only when it holds this business and domain, flags other domains, and is Not recommended for another business or an unknown one', async () => {
+  const w = await load();
+  const fit = (target, placement = 'domain', scope = ACME) => w.appPlacementFit(target, { ...scope, placement });
+  assert.deepEqual(fit(appTarget('a', [holder('N01-U01', 'Acme', 'Customer')])), { fit: 'recommended', label: 'Recommended', reason: '' });
+  assert.equal(fit(appTarget('a', [holder('N01-U01', ' acme ', 'CUSTOMER ')])).fit, 'recommended', 'names match without case or spaces');
+  assert.deepEqual(fit(appTarget('a', [holder('N01-U01', 'Acme', 'Customer'), holder('N02-U01', 'Acme', 'Finance'), holder('N03-U01', 'Acme', 'Risk')])),
+    { fit: 'other_domains', label: 'Also holds Finance and Risk', reason: 'People who open it for Customer also see its Finance and Risk use cases.' });
+  assert.deepEqual(fit(appTarget('a', [holder('N02-U01', 'Acme', 'Finance')])), { fit: 'not_recommended', label: 'Not recommended',
+    reason: "It holds only Finance use cases, not Customer, so the people who use it could see another domain's data or use cases unrelated to their work." });
+  assert.equal(fit(appTarget('a', [holder('N02-U01', 'Acme', 'Finance')]), 'business').fit, 'recommended', 'one App for all use cases takes every domain of the business');
+  assert.deepEqual(fit(appTarget('a', [holder('N01-U01', 'Acme', 'Customer'), holder('N09-U01', 'Globex', 'Customer')]), 'business'), { fit: 'not_recommended', label: 'Not recommended',
+    reason: "It holds use cases of Globex, another business, so the people who use it could see that business's data." });
+  assert.equal(fit(appTarget('a', [holder('N09-U01', '', 'Customer')])).reason,
+    "It holds use cases of an unnamed business, another business, so the people who use it could see that business's data.");
+  const unknown = { fit: 'not_recommended', label: 'Not recommended', reason: 'Inspire cannot tell which business and domain its use cases belong to, so it cannot tell who should use it.' };
+  assert.deepEqual(fit(appTarget('a', [holder('N01-U01', null, null)])), unknown, 'a use case Inspire cannot place is never Recommended');
+  assert.deepEqual(fit(appTarget('a', [holder('N01-U01', 'Acme', 'Customer'), holder('N01-U02', 'Acme', null)])), unknown);
+  assert.deepEqual(fit(appTarget('a', [])), unknown);
+  assert.deepEqual(fit(null), unknown);
+  assert.equal(fit(appTarget('a', [holder('N01-U01', 'Acme', '')]), 'domain', { business: 'Acme', domain: '' }).fit, 'recommended');
+  assert.equal(fit(appTarget('a', [holder('N01-U01', 'Acme', 'Customer')]), 'domain', { business: 'Acme', domain: '' }).label, 'Not recommended');
+});
+
+test('the Apps to join list Recommended first, then Apps with other domains, then Not recommended, and say which ones a per-user use case cannot join', async () => {
+  const w = await load();
+  const other = appTarget('inspire-acme-finance', [holder('N02-U01', 'Acme', 'Finance')]);
+  const mixed = appTarget('ops-desk', [holder('N01-U03', 'Acme', 'Customer'), holder('N02-U02', 'Acme', 'Finance')]);
+  const same = appTarget('inspire-acme-customer', [holder('N01-U02', 'Acme', 'Customer')]);
+  const spec = w.withOutput(w.defaultSpecFromUseCase({ ...UC, business_domain: 'Customer' }, { businessName: 'Acme' }), 'app', true);
+  const choices = w.appPlacementChoices(spec, { app: [other, mixed, same] }, ACME);
+  assert.deepEqual(choices.map((c) => [c.target.id, c.fit, c.block]), [['inspire-acme-customer', 'recommended', ''], ['ops-desk', 'other_domains', ''], ['inspire-acme-finance', 'not_recommended', '']]);
+  const perUser = w.appPlacementChoices(w.withAppAccess(spec, 'user'), { app: [same] }, ACME);
+  assert.equal(perUser[0].block, 'inspire-acme-customer signs everyone in with its own service principal');
+  assert.deepEqual(w.appPlacementChoices(spec, null, ACME), []);
+  assert.deepEqual(w.appPlacementChoices(spec, { app: [] }, ACME), []);
+});
+
+test('the wizard remembers the last App placement of the business, and says so, but never one of another business', async () => {
+  const w = await load();
+  const targets = { app: [
+    appTarget('a', [holder('N01-U01', 'Acme', 'Customer', { placement: 'domain', updated_at: '2026-10-20T00:00:00Z' })]),
+    appTarget('b', [holder('N01-U02', 'acme', 'Finance', { placement: 'use_case', updated_at: '2026-10-22T00:00:00Z' }),
+      holder('N01-U03', 'Acme', 'Finance', { placement: '', updated_at: '2026-10-29T00:00:00Z' })]),
+    appTarget('c', [holder('N09-U01', 'Globex', 'Customer', { placement: 'business', updated_at: '2026-10-30T00:00:00Z' })]),
+  ] };
+  assert.equal(w.rememberedPlacement(targets, 'Acme'), 'use_case', 'the newest placement of this business wins; a use case with none is skipped');
+  assert.equal(w.placementMemoryText(targets, 'Acme'), 'Last time for Acme: One App per use case.');
+  assert.equal(w.rememberedPlacement(targets, 'Globex'), 'business');
+  assert.equal(w.rememberedPlacement(targets, 'Initech'), 'domain', 'a business with no App yet gets one App per business domain');
+  assert.equal(w.placementMemoryText(targets, 'Initech'), '');
+  assert.equal(w.rememberedPlacement(targets, ''), 'domain', 'an unnamed business remembers nothing');
+  assert.equal(w.placementMemoryText(null, 'Acme'), '');
+  assert.equal(w.rememberedPlacement(undefined, 'Acme'), w.APP_PLACEMENT_DEFAULT);
+  assert.deepEqual(w.APP_PLACEMENTS.map((p) => [p.id, p.label]),
+    [['domain', 'One App per business domain'], ['use_case', 'One App per use case'], ['business', 'One App for all use cases']]);
+});
+
+test('the new App name follows the placement and never takes the name of an App Inspire already built', async () => {
+  const w = await load();
+  const scope = { ...ACME, useCaseAppName: 'predict-churn' };
+  assert.equal(w.placementAppName('use_case', scope), 'predict-churn');
+  assert.equal(w.placementAppName('business', scope), 'inspire-hub-acme');
+  assert.equal(w.placementAppName('domain', scope), 'inspire-acme-customer');
+  assert.equal(w.placementAppName('domain', { ...scope, domain: '' }), 'inspire-hub-acme', 'with no domain the domain App is the business App');
+  assert.equal(w.placementAppName('business', { ...scope, business: '' }), 'predict-churn');
+  assert.equal(w.placementAppName('domain', scope, { app: [{ id: 'inspire-acme-customer' }] }), 'inspire-acme-customer-2');
+  assert.equal(w.placementAppName('domain', scope, { app: [{ id: 'inspire-acme-customer' }, { id: 'inspire-acme-customer-2' }] }), 'inspire-acme-customer-3');
+  assert.equal(w.placementAppName('use_case', { ...scope, useCaseAppName: '' }), '');
+});
+
+test('a placement joins the App of that placement when it fits, else creates one, and never joins an App another use case made for itself', async () => {
+  const w = await load();
+  const uc = { ...UC, business_domain: 'Customer' };
+  const spec = w.withOutput(w.defaultSpecFromUseCase(uc, { businessName: 'Acme' }), 'app', true);
+  const scope = { ...ACME, useCaseAppName: 'predict-churn' };
+  const domainApp = appTarget('inspire-acme-customer', [holder('N01-U02', 'Acme', 'Customer')], { look: { palette: 'ocean' } });
+  const hub = appTarget('inspire-hub-acme', [holder('N02-U01', 'Acme', 'Finance', { placement: 'business' })]);
+  const ownApp = appTarget('score-suppliers', [holder('N01-U03', 'Acme', 'Customer', { placement: 'use_case' })]);
+  const joined = w.withAppPlacement(spec, 'domain', { app: [domainApp, hub] }, scope);
+  assert.deepEqual([joined.outputs.app_placement, joined.outputs.merge.app, joined.outputs.app_name, joined.outputs.app_look.palette],
+    ['domain', 'inspire-acme-customer', 'inspire-acme-customer', 'ocean']);
+  const business = w.withAppPlacement(spec, 'business', { app: [domainApp, hub] }, scope);
+  assert.deepEqual([business.outputs.merge.app, business.outputs.app_name], ['inspire-hub-acme', 'inspire-hub-acme']);
+  const own = w.withAppPlacement(spec, 'domain', { app: [ownApp] }, scope);
+  assert.deepEqual([own.outputs.merge?.app || '', own.outputs.app_name], ['', 'inspire-acme-customer'], 'an App placed per use case is not taken over');
+  const placedByDomain = appTarget('customer-desk', [holder('N01-U04', 'Acme', 'Customer', { placement: 'domain' })]);
+  assert.equal(w.withAppPlacement(spec, 'domain', { app: [ownApp, placedByDomain] }, scope).outputs.merge.app, 'customer-desk',
+    'an App whose use cases chose one App per domain is that domain App, whatever its name');
+  const perCase = w.withAppPlacement(spec, 'use_case', { app: [domainApp, hub] }, scope);
+  assert.deepEqual([perCase.outputs.merge?.app || '', perCase.outputs.app_name], ['', 'predict-churn'], 'one App per use case never joins');
+  const blocked = w.withAppPlacement(w.withAppAccess(spec, 'user'), 'domain', { app: [domainApp] }, scope);
+  assert.deepEqual([blocked.outputs.merge?.app || '', blocked.outputs.app_name], ['', 'inspire-acme-customer-2'], 'a per-user use case gets its own domain App');
+  const mixedHub = appTarget('inspire-hub-acme', [holder('N02-U01', 'Acme', 'Finance'), holder('N09-U01', 'Globex', 'Finance')]);
+  assert.equal(w.withAppPlacement(spec, 'business', { app: [mixedHub] }, scope).outputs.app_name, 'inspire-hub-acme-2', 'a Hub holding another business is not joined');
+  const fresh = w.withNewApp(joined, 'domain', { app: [domainApp] }, scope);
+  assert.deepEqual([fresh.outputs.merge.app, fresh.outputs.app_name, fresh.outputs.app_placement], ['', 'inspire-acme-customer-2', 'domain'], 'Create new leaves the App it had joined');
+  const renamed = w.withNewApp(spec, 'use_case', null, { ...scope, useCaseAppName: '' });
+  assert.equal(renamed.outputs.app_name, spec.outputs.app_name, 'with no name to give, the App keeps its name');
+});
+
+test('the App placement default keeps a rebuild where it is, takes the remembered placement, and does nothing without an App', async () => {
+  const w = await load();
+  const uc = { ...UC, business_domain: 'Customer' };
+  const spec = w.withOutput(w.defaultSpecFromUseCase(uc, { businessName: 'Acme' }), 'app', true);
+  const scope = { ...ACME, useCaseAppName: 'predict-churn' };
+  const domainApp = appTarget('inspire-acme-customer', [holder('N01-U02', 'Acme', 'Customer')]);
+  const remembered = appTarget('other-desk', [holder('N01-U05', 'Acme', 'Finance', { placement: 'use_case', updated_at: '2026-10-29T00:00:00Z' })]);
+  assert.equal(w.withPlacementDefault(spec, { app: [domainApp] }, scope).outputs.merge.app, 'inspire-acme-customer', 'a new use case joins its domain App');
+  const asked = w.withPlacementDefault(spec, { app: [domainApp, remembered] }, scope);
+  assert.deepEqual([asked.outputs.app_placement, asked.outputs.merge?.app || '', asked.outputs.app_name], ['use_case', '', 'predict-churn'], 'the business last chose one App per use case');
+  const saved = w.withPlacementDefault(spec, { app: [domainApp] }, { ...scope, saved: 'business', savedApp: true });
+  assert.deepEqual([saved.outputs.app_placement, saved.outputs.merge?.app || '', saved.outputs.app_name], ['business', '', spec.outputs.app_name], 'a rebuild keeps its own placement and App');
+  const typed = w.withPlacementDefault({ ...spec, outputs: { ...spec.outputs, app_name: 'my-churn' } }, { app: [domainApp] }, { ...scope, saved: 'domain', savedApp: true });
+  assert.deepEqual([typed.outputs.merge?.app || '', typed.outputs.app_name], ['', 'my-churn'], 'a failed build keeps the App name the person typed');
+  const later = w.withPlacementDefault(spec, { app: [domainApp] }, { ...scope, saved: 'domain' });
+  assert.equal(later.outputs.merge.app, 'inspire-acme-customer', 'an App ticked on only now joins its domain App');
+  const legacy = w.withPlacementDefault(spec, { app: [domainApp, remembered] }, { ...scope, savedApp: true });
+  assert.deepEqual([legacy.outputs.app_placement, legacy.outputs.merge?.app || '', legacy.outputs.app_name], ['use_case', '', spec.outputs.app_name], 'a version saved before App placement keeps its App and takes the business placement');
+  const held = w.withPlacementDefault(spec, { app: [domainApp] }, { ...scope, held: { app: 'predict-churn' } });
+  assert.deepEqual([held.outputs.app_placement, held.outputs.merge?.app || '', held.outputs.app_name], ['domain', '', spec.outputs.app_name], 'a use case with its own App keeps it');
+  const picked = w.withMergeTarget(spec, 'app', remembered);
+  assert.equal(w.withPlacementDefault(picked, { app: [domainApp] }, scope).outputs.merge.app, 'other-desk', 'a choice already made stays');
+  const off = w.withOutput(spec, 'app', false);
+  assert.equal(w.withPlacementDefault(off, { app: [domainApp] }, scope), off);
+  assert.equal(w.withPlacementDefault(spec, null, scope).outputs.app_name, 'inspire-acme-customer');
+});
+
+test('an output that no longer exists is not held, so the use case can join its domain App, and the wizard says which one is gone', async () => {
   const w = await load();
   assert.deepEqual(w.heldAssets({ dashboard: 'd1', genie_space: 'g1', app: 'old-desk', alert: 'a1' }, ['app', 'dashboard']), { genie_space: 'g1', alert: 'a1' });
   assert.deepEqual(w.heldAssets({ app: 'old-desk' }, undefined), { app: 'old-desk' });
   assert.deepEqual(w.heldAssets(undefined, ['app']), {});
   assert.equal(w.goneAssetText('App', 'old-desk'), 'The App this use case had, old-desk, no longer exists, so Genie can add the use case to one Inspire built or create a new one.');
-  const hub = { id: 'inspire-hub-acme', name: 'inspire-hub-acme', access: 'sp' };
-  const on = w.withOutput(w.defaultSpecFromUseCase(UC, { businessName: 'Acme' }), 'app', true);
+  const uc = { ...UC, business_domain: 'Customer' };
+  const spec = w.withOutput(w.defaultSpecFromUseCase(uc, { businessName: 'Acme' }), 'app', true);
+  const targets = { app: [appTarget('inspire-acme-customer', [holder('N01-U02', 'Acme', 'Customer')])] };
   const assets = { app: 'old-desk' };
-  assert.equal(w.withHubDefault(on, { app: [hub] }, 'Acme', w.heldAssets(assets, [])).outputs.merge.app, '', 'a live App of its own stays');
-  assert.equal(w.withHubDefault(on, { app: [hub] }, 'Acme', w.heldAssets(assets, ['app'])).outputs.merge.app, 'inspire-hub-acme', 'a gone App of its own lets it join the Hub');
+  assert.equal(w.withPlacementDefault(spec, targets, { ...ACME, held: w.heldAssets(assets, []) }).outputs.merge?.app || '', '', 'a live App of its own stays');
+  assert.equal(w.withPlacementDefault(spec, targets, { ...ACME, held: w.heldAssets(assets, ['app']) }).outputs.merge.app, 'inspire-acme-customer', 'a gone App of its own lets it join');
+  const gone = w.withPlacementDefault(spec, targets, { ...ACME, held: w.heldAssets(assets, ['app']), saved: 'domain', savedApp: false });
+  assert.equal(gone.outputs.merge.app, 'inspire-acme-customer', 'a saved placement still finds a new home for a gone App');
+  const own = w.withPlacementDefault(spec, targets, { ...ACME, held: w.heldAssets(assets, ['app']), saved: 'use_case', savedApp: false });
+  assert.deepEqual([own.outputs.merge?.app || '', own.outputs.app_placement], ['', 'use_case'], 'one App per use case makes a new App for it');
+});
+
+test('the App placement step checks the placement, the App name and the App it joins', async () => {
+  const w = await load();
+  const spec = w.withOutput(w.defaultSpecFromUseCase({ ...UC, business_domain: 'Customer' }, { businessName: 'Acme', warehouseId: 'w' }), 'app', true);
+  assert.deepEqual(w.stepErrors('app_place', spec), []);
+  assert.deepEqual(w.stepErrors('app_place', { ...spec, outputs: { ...spec.outputs, app_placement: 'team' } }), ['choose how Inspire organizes Apps']);
+  assert.deepEqual(w.stepErrors('app_place', { ...spec, outputs: { ...spec.outputs, app_name: 'X' } }), ['app name must be 3-30 lowercase letters, digits and dashes']);
+  const target = appTarget('inspire-acme-customer', [holder('N01-U02', 'Acme', 'Customer')]);
+  const perUser = w.withMergeTarget(w.withAppAccess(spec, 'user'), 'app', target);
+  assert.ok(w.stepErrors('app_place', perUser, { mergeTargets: { app: [target] } }).includes('inspire-acme-customer signs everyone in with its own service principal'));
+  assert.equal(w.APP_NEXT_NOTE, 'You pick where it goes next.');
+  assert.throws(() => w.stepErrors('app_place', w.withOutput(spec, 'app', false)), /unknown wizard step 'app_place'/, 'without an App there is no App placement step');
 });
 
 test('a rebuild that inherits a swap to a gone table goes back to the use case\'s own table, clears what pointed at the gone one, and says so', async () => {
@@ -799,10 +950,15 @@ test('Edit opens the wizard on the step it was asked for, and on Choose otherwis
   assert.equal(w.initialStepIndex({ step: 'review' }), 4, 'review lands on the last step, Vibes');
   assert.equal(w.initialStepIndex({ step: 'vibes' }), 4);
   const withApp = { outputs: { app: true } };
-  assert.equal(w.initialStepIndex({ step: 'review' }, 'mvp', withApp), 6, 'review lands on Vibes, after App look when the App is ticked');
-  assert.equal(w.initialStepIndex({ step: 'vibes' }, 'mvp', withApp), 6);
+  assert.equal(w.initialStepIndex({ step: 'review' }, 'mvp', withApp), 7, 'review lands on Vibes, after App look when the App is ticked');
+  assert.equal(w.initialStepIndex({ step: 'vibes' }, 'mvp', withApp), 7);
+  assert.equal(w.initialStepIndex({ step: 'app_place' }, 'mvp', withApp), 4, 'App placement comes right after Delivery');
+  const joining = { outputs: { app: true, merge: { app: 'inspire-acme-customer' } } };
+  assert.deepEqual(w.wizardSteps('mvp', joining).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'app_place', 'vibes'],
+    'an App it joins keeps its access and look, so those steps go away');
+  assert.equal(w.initialStepIndex({ step: 'app_place' }), 0, 'no App, no App placement step');
   assert.equal(w.initialStepIndex({ step: 'vibes' }, 'notebook'), 0, 'Notebook only has no Vibes step');
-  assert.equal(w.initialStepIndex({ step: 'app_access' }, 'mvp', withApp), 4);
+  assert.equal(w.initialStepIndex({ step: 'app_access' }, 'mvp', withApp), 5);
   assert.equal(w.initialStepIndex({ step: 'app_access' }), 0, 'no App, no App access step');
   assert.equal(w.initialStepIndex({ step: 'nope' }), 0);
   assert.equal(w.initialStepIndex(null), 0);

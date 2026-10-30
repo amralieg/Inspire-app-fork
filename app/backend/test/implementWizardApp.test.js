@@ -101,7 +101,7 @@ test('ticking the App ticks the Genie Agent and locks it, and the lock refuses a
   assert.deepEqual([off.outputs.app, off.outputs.genie_space], [false, true], 'unticking the App leaves the Genie Agent as it is');
   assert.equal(w.withOutput(off, 'genie_space', false).outputs.genie_space, false);
   assert.deepEqual(w.withOutput(spec, 'alert', true).outputs.alert_recipients, w.defaultAlertRecipients(spec));
-  assert.deepEqual(w.wizardSteps('mvp', ticked).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'app_access', 'app_look', 'vibes']);
+  assert.deepEqual(w.wizardSteps('mvp', ticked).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'app_place', 'app_access', 'app_look', 'vibes']);
   assert.deepEqual(w.wizardSteps('mvp', off).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'vibes']);
   assert.deepEqual(w.stepErrors('delivery', { ...ticked, outputs: { ...ticked.outputs, genie_space: false } }), [w.GENIE_FOR_APP_NOTE]);
 });
@@ -117,8 +117,9 @@ test('joining an existing App deploys to it with its look, Create new brings the
   assert.deepEqual([joined.outputs.merge.app, joined.outputs.app_name], ['churn-desk', 'churn-desk']);
   assert.deepEqual(joined.outputs.app_look, { style: 'b', layout: 'sidebar', palette: 'ocean', theme: 'light' });
   assert.equal(w.appMergeBlock(joined, sp), 'churn-desk is internal only');
-  assert.deepEqual(w.stepErrors('delivery', joined, { mergeTargets: targets }), ['churn-desk is internal only'], 'the block shows where the App is picked');
-  assert.deepEqual(w.stepErrors('delivery', w.withAppAccess(joined, 'sp'), { mergeTargets: targets }), []);
+  assert.deepEqual(w.stepErrors('app_place', joined, { mergeTargets: targets }), ['churn-desk is internal only'], 'the block shows where the App is picked');
+  assert.deepEqual(w.stepErrors('delivery', joined, { mergeTargets: targets }), [], 'Delivery no longer picks the App');
+  assert.deepEqual(w.stepErrors('app_place', w.withAppAccess(joined, 'sp'), { mergeTargets: targets }), []);
   assert.equal(w.appMergeBlock(w.withMergeTarget(spec, 'app', user), user), '', 'per-user may join a per-user App');
   const back = w.withMergeTarget(joined, 'app', null, 'predict-churn');
   assert.deepEqual([back.outputs.merge.app, back.outputs.app_name], ['', 'predict-churn']);
@@ -140,8 +141,8 @@ test('a use case that joins an existing App skips App access and App look, shows
   const joined = w.withMergeTarget(spec, 'app', hub, 'predict-churn');
   const fresh = w.withMergeTarget(joined, 'app', null, 'predict-churn');
   assert.deepEqual([w.joinsApp(joined), w.joinsApp(fresh), w.joinsApp({ ...joined, outputs: { ...joined.outputs, app: false } }), w.joinsApp(null)], [true, false, false, false]);
-  assert.deepEqual(w.wizardSteps('mvp', joined).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'vibes'], 'the existing App keeps its sign-in, data source and look');
-  assert.deepEqual(w.wizardSteps('mvp', fresh).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'app_access', 'app_look', 'vibes']);
+  assert.deepEqual(w.wizardSteps('mvp', joined).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'app_place', 'vibes'], 'the existing App keeps its sign-in, data source and look');
+  assert.deepEqual(w.wizardSteps('mvp', fresh).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'app_place', 'app_access', 'app_look', 'vibes']);
   assert.throws(() => w.stepErrors('app_access', joined, { mergeTargets: targets }), /unknown wizard step 'app_access'/);
   assert.deepEqual(w.stepErrors('delivery', joined, { mergeTargets: targets }), [], 'no hidden App owner blocks Next');
   assert.deepEqual(w.advancedErrors('delivery', joined, { mergeTargets: targets }), []);

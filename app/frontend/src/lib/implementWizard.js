@@ -21,6 +21,8 @@ export const APP_STEPS = [
   { id: 'app_look', label: 'App look', sections: ['app_look'], advanced: [] },
 ];
 
+export const APP_PLACE_STEP = { id: 'app_place', label: 'App placement', sections: ['app_place'], advanced: [] };
+
 export const VIBES_STEP = { id: 'vibes', label: 'Vibes', sections: ['vibes'], advanced: [] };
 
 export const NOTEBOOK_STEPS = [
@@ -34,12 +36,23 @@ export function joinsApp(spec) {
 }
 
 export function wizardSteps(mode, spec = null) {
-  if (mode === 'mvp') return [...IMPLEMENT_STEPS, ...(spec?.outputs?.app && !joinsApp(spec) ? APP_STEPS : []), VIBES_STEP];
+  if (mode === 'mvp') {
+    const app = Boolean(spec?.outputs?.app);
+    return [...IMPLEMENT_STEPS, ...(app ? [APP_PLACE_STEP] : []), ...(app && !joinsApp(spec) ? APP_STEPS : []), VIBES_STEP];
+  }
   if (mode === 'notebook') return NOTEBOOK_STEPS;
   throw new Error(`unknown implement mode '${mode}'`);
 }
 
-export const BUILD_STEP_IDS = ['delivery', ...APP_STEPS.map((s) => s.id), VIBES_STEP.id];
+export const BUILD_STEP_IDS = ['delivery', APP_PLACE_STEP.id, ...APP_STEPS.map((s) => s.id), VIBES_STEP.id];
+
+export const APP_PLACEMENTS = [
+  { id: 'domain', label: 'One App per business domain', blurb: 'Use cases of the same domain share one App, so the people of that domain find them in one place.' },
+  { id: 'use_case', label: 'One App per use case', blurb: 'Each use case gets an App of its own.' },
+  { id: 'business', label: 'One App for all use cases', blurb: 'Every use case of this business goes into one App, whatever its domain.' },
+];
+export const APP_PLACEMENT_IDS = APP_PLACEMENTS.map((p) => p.id);
+export const APP_PLACEMENT_DEFAULT = 'domain';
 
 export const APP_ACCESS_CHOICES = [
   { id: 'sp', label: 'Internal data: the App uses its own service principal',
@@ -238,7 +251,7 @@ export function withAppPage(spec, id, on) {
   return APP_SCREENS.includes(id) ? withAppScreen(spec, id, on) : spec;
 }
 export const GENIE_FOR_APP_NOTE = 'Ask Genie in the App needs a Genie Agent.';
-export const APP_NEXT_NOTE = 'You pick its access and look next.';
+export const APP_NEXT_NOTE = 'You pick where it goes next.';
 export const RESULT_TABLE_MOVE_NOTE = 'Moving the table later copies its history to the new table and keeps the old one.';
 export const MERGE_OUTPUTS = ['dashboard', 'genie_space', 'app'];
 
@@ -383,6 +396,17 @@ export function hubAppName(businessName) {
   return APP_NAME_RE.test(name) ? name : '';
 }
 
+const DOMAIN_APP_PREFIX = 'inspire';
+const DOMAIN_APP_DOMAIN_MAX = 15;
+
+export function domainAppName(businessName, domainName) {
+  const domain = fitAppName(dashed(domainName), DOMAIN_APP_DOMAIN_MAX);
+  if (!domain) return '';
+  const business = fitAppName(dashed(businessName), APP_NAME_MAX - DOMAIN_APP_PREFIX.length - domain.length - 2);
+  const name = [DOMAIN_APP_PREFIX, business, domain].filter(Boolean).join('-');
+  return APP_NAME_RE.test(name) ? name : '';
+}
+
 export function nextAppName(name) {
   const counted = /^(.+)-(\d{1,2})$/.exec(String(name || ''));
   const [base, n] = counted && Number(counted[2]) >= 2 ? [counted[1], Number(counted[2]) + 1] : [String(name || ''), 2];
@@ -396,6 +420,14 @@ export function caseIdOf(uc) {
 
 export function caseNameOf(uc) {
   return String(uc?.Name || uc?.use_case || uc?.name || '').trim();
+}
+
+export function domainOf(uc) {
+  return String(uc?.business_domain || uc?._domain || uc?.['Business Domain'] || '').trim();
+}
+
+export function caseAppNameOf(uc) {
+  return appNameOf(uc?.short_name || caseNameOf(uc), caseIdOf(uc));
 }
 
 function tableNames(text) {
@@ -645,7 +677,8 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, sessi
       genie_space_name: '',
       genie_questions: [],
       genie_space_vibes: '',
-      app_name: hubAppName(businessName) || appNameOf(uc?.short_name || useCaseName, id),
+      app_name: placementAppName(APP_PLACEMENT_DEFAULT, { business: businessName, domain: domainOf(uc), useCaseAppName: caseAppNameOf(uc) }),
+      app_placement: APP_PLACEMENT_DEFAULT,
       app_purpose: '',
       app_access: APP_ACCESS_DEFAULT,
       app_look: { ...APP_LOOK_DEFAULT },
@@ -949,15 +982,24 @@ export function cronRunsPerMonth(cron) {
 }
 
 const WIDGET_NUMBER_RE = /^-?[0-9]+(?:\.[0-9]+)?$/;
-const ALLOWED_RE = /^(?:(whole number)(?:, |$))?(?:(-?[0-9]+(?:\.[0-9]+)?) to (-?[0-9]+(?:\.[0-9]+)?)|at least (-?[0-9]+(?:\.[0-9]+)?)|at most (-?[0-9]+(?:\.[0-9]+)?))?$/;
+const ALLOWED_NUMBER = '(-?[0-9]+(?:\\.[0-9]+)?)';
+const ALLOWED_RE = new RegExp(`^(?:(whole number)(?:, |$))?(?:${ALLOWED_NUMBER} to ${ALLOWED_NUMBER}|(at least|above|greater than|more than) ${ALLOWED_NUMBER}(?: and (at most|below|less than) ${ALLOWED_NUMBER})?|(at most|below|less than) ${ALLOWED_NUMBER})?$`);
+const ALLOWED_OPEN_WORDS = ['above', 'greater than', 'more than', 'below', 'less than'];
 
 export function allowedRule(text) {
   const value = String(text ?? '').trim();
   const match = ALLOWED_RE.exec(value.toLowerCase() === 'any' ? '' : value);
   if (!match) return null;
-  const low = match[2] !== undefined ? match[2] : match[4];
-  const high = match[3] !== undefined ? match[3] : match[5];
-  return { low: low !== undefined ? Number(low) : null, high: high !== undefined ? Number(high) : null, whole: Boolean(match[1]) };
+  const [, whole, from, to, lowWord, lowValue, highWord, highValue, onlyHighWord, onlyHighValue] = match;
+  const low = from ?? lowValue;
+  const high = to ?? highValue ?? onlyHighValue;
+  return {
+    low: low !== undefined ? Number(low) : null,
+    high: high !== undefined ? Number(high) : null,
+    whole: Boolean(whole),
+    lowOpen: ALLOWED_OPEN_WORDS.includes(lowWord),
+    highOpen: ALLOWED_OPEN_WORDS.includes(highWord ?? onlyHighWord),
+  };
 }
 
 function numberText(value) {
@@ -965,11 +1007,13 @@ function numberText(value) {
 }
 
 export function allowedText(rule) {
-  const { low = null, high = null, whole = false } = rule || {};
-  let bounds = '';
-  if (low !== null && high !== null) bounds = `${numberText(low)} to ${numberText(high)}`;
-  else if (low !== null) bounds = `at least ${numberText(low)}`;
-  else if (high !== null) bounds = `at most ${numberText(high)}`;
+  const { low = null, high = null, whole = false, lowOpen = false, highOpen = false } = rule || {};
+  const bounds = low !== null && high !== null && !lowOpen && !highOpen
+    ? `${numberText(low)} to ${numberText(high)}`
+    : [
+      low !== null ? `${lowOpen ? 'above' : 'at least'} ${numberText(low)}` : '',
+      high !== null ? `${highOpen ? 'below' : 'at most'} ${numberText(high)}` : '',
+    ].filter(Boolean).join(' and ');
   if (!whole) return bounds;
   return bounds ? `whole number, ${bounds}` : 'whole number';
 }
@@ -979,7 +1023,9 @@ export function widgetValueProblem(name, value, allowed) {
   if (!rule || (rule.low === null && rule.high === null && !rule.whole)) return '';
   const text = String(value ?? '').trim();
   const number = WIDGET_NUMBER_RE.test(text) && !(rule.whole && text.includes('.')) ? Number(text) : null;
-  if (number === null || (rule.low !== null && number < rule.low) || (rule.high !== null && number > rule.high)) {
+  const belowLow = rule.low !== null && (rule.lowOpen ? number <= rule.low : number < rule.low);
+  const aboveHigh = rule.high !== null && (rule.highOpen ? number >= rule.high : number > rule.high);
+  if (number === null || belowLow || aboveHigh) {
     return `${name} is '${text}'; allowed: ${allowedText(rule)}`;
   }
   return '';
@@ -1234,19 +1280,15 @@ export function sectionErrors(section, spec, extras = {}) {
   }
   if (section === 'use_it') {
     if (!IMPLEMENT_OUTPUTS.some((o) => spec.outputs[o.id])) errors.push('pick at least one way to use it');
-    if (spec.outputs.app && !APP_NAME_RE.test(spec.outputs.app_name || '')) {
-      errors.push('app name must be 3-30 lowercase letters, digits and dashes');
-    }
     if (spec.outputs.app && !spec.outputs.genie_space) errors.push(GENIE_FOR_APP_NOTE);
+    errors.push(...mergePickProblems(spec, extras, MERGE_OUTPUTS.filter((name) => name !== 'app')));
+  }
+  if (section === 'app_place' && spec.outputs.app) {
+    if (!APP_PLACEMENT_IDS.includes(spec.outputs.app_placement)) errors.push('choose how Inspire organizes Apps');
+    if (!APP_NAME_RE.test(spec.outputs.app_name || '')) errors.push('app name must be 3-30 lowercase letters, digits and dashes');
     const block = appMergeBlock(spec, mergeTargetOf(extras.mergeTargets, 'app', joinsApp(spec) ? spec.outputs.merge.app : ''));
     if (block) errors.push(block);
-    for (const name of MERGE_OUTPUTS) {
-      const id = spec.outputs.merge?.[name];
-      if (!spec.outputs[name] || !id || !extras.mergeTargets || extras.held?.[name] === id) continue;
-      if (!mergeTargetOf(extras.mergeTargets, name, id)) {
-        errors.push(`pick a ${IMPLEMENT_OUTPUTS.find((o) => o.id === name).label} Inspire built to add to, or choose Create new`);
-      }
-    }
+    errors.push(...mergePickProblems(spec, extras, ['app']));
   }
   if (section === 'vibes') errors.push(...vibesProblems(spec));
   if (section === 'holdout') errors.push(...holdoutProblems(spec));
@@ -1267,6 +1309,13 @@ export function sectionErrors(section, spec, extras = {}) {
     }
   }
   return errors;
+}
+
+function mergePickProblems(spec, extras, names) {
+  return names.filter((name) => {
+    const id = spec.outputs.merge?.[name];
+    return spec.outputs[name] && id && extras.mergeTargets && extras.held?.[name] !== id && !mergeTargetOf(extras.mergeTargets, name, id);
+  }).map((name) => `pick a ${IMPLEMENT_OUTPUTS.find((o) => o.id === name).label} Inspire built to add to, or choose Create new`);
 }
 
 function stepOf(id, mode, spec) {
@@ -1370,10 +1419,102 @@ export function goneAssetText(label, id) {
   return `The ${label} this use case had, ${id}, no longer exists, so Genie can add the use case to one Inspire built or create a new one.`;
 }
 
-export function withHubDefault(spec, targets, businessName, held = {}) {
-  if (!spec.outputs.app || held?.app || spec.outputs.merge?.app) return spec;
-  const hub = mergeTargetOf(targets, 'app', hubAppName(businessName));
-  return hub && !appMergeBlock(spec, hub) ? withMergeTarget(spec, 'app', hub) : spec;
+const scopeKey = (value) => String(value ?? '').trim().toLowerCase();
+
+function distinctScopes(values) {
+  return values.filter((v, i) => values.findIndex((w) => scopeKey(w) === scopeKey(v)) === i);
+}
+
+function andList(items) {
+  return items.length > 2 ? `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}` : items.join(' and ');
+}
+
+export function appPlacementFit(target, { business, domain, placement }) {
+  const uses = target?.use_cases || [];
+  if (!uses.length || uses.some((u) => u.business == null || u.domain == null)) {
+    return { fit: 'not_recommended', label: 'Not recommended',
+      reason: 'Inspire cannot tell which business and domain its use cases belong to, so it cannot tell who should use it.' };
+  }
+  const others = distinctScopes(uses.map((u) => u.business).filter((b) => scopeKey(b) !== scopeKey(business)));
+  if (others.length) {
+    return { fit: 'not_recommended', label: 'Not recommended',
+      reason: `It holds use cases of ${andList(others.map((b) => b || 'an unnamed business'))}, another business, so the people who use it could see that business's data.` };
+  }
+  const outside = distinctScopes(uses.map((u) => u.domain).filter((d) => scopeKey(d) !== scopeKey(domain))).map((d) => d || 'no domain');
+  if (placement === 'business' || !outside.length) return { fit: 'recommended', label: 'Recommended', reason: '' };
+  const here = domain || 'no domain';
+  if (uses.some((u) => scopeKey(u.domain) === scopeKey(domain))) {
+    return { fit: 'other_domains', label: `Also holds ${andList(outside)}`, reason: `People who open it for ${here} also see its ${andList(outside)} use cases.` };
+  }
+  return { fit: 'not_recommended', label: 'Not recommended',
+    reason: `It holds only ${andList(outside)} use cases, not ${here}, so the people who use it could see another domain's data or use cases unrelated to their work.` };
+}
+
+export const APP_FIT_ORDER = { recommended: 0, other_domains: 1, not_recommended: 2 };
+
+function latestPlacement(targets, business) {
+  let latest = null;
+  if (scopeKey(business)) {
+    for (const target of targets?.app || []) {
+      for (const u of target.use_cases || []) {
+        if (scopeKey(u.business) !== scopeKey(business) || !APP_PLACEMENT_IDS.includes(u.placement)) continue;
+        if (!latest || String(u.updated_at || '') > String(latest.updated_at || '')) latest = u;
+      }
+    }
+  }
+  return latest;
+}
+
+export function rememberedPlacement(targets, business) {
+  return latestPlacement(targets, business)?.placement || APP_PLACEMENT_DEFAULT;
+}
+
+export function placementMemoryText(targets, business) {
+  const latest = latestPlacement(targets, business);
+  return latest ? `Last time for ${business}: ${APP_PLACEMENTS.find((p) => p.id === latest.placement).label}.` : '';
+}
+
+export function appPlacementChoices(spec, targets, scope) {
+  return ((targets && targets.app) || [])
+    .map((target) => ({ target, ...appPlacementFit(target, { ...scope, placement: spec.outputs.app_placement }), block: appMergeBlock(spec, target) }))
+    .sort((a, b) => APP_FIT_ORDER[a.fit] - APP_FIT_ORDER[b.fit]);
+}
+
+export function placementAppName(placement, { business, domain, useCaseAppName = '' }, targets = null) {
+  let name = placement === 'use_case' ? useCaseAppName
+    : placement === 'business' ? hubAppName(business) || useCaseAppName
+      : domainAppName(business, domain) || hubAppName(business) || useCaseAppName;
+  const taken = new Set((targets?.app || []).map((t) => t.id));
+  for (let i = 0; name && taken.has(name) && i < 98; i += 1) name = nextAppName(name);
+  return name;
+}
+
+function placementTarget(spec, targets, scope) {
+  if (!['domain', 'business'].includes(scope.placement)) return null;
+  const fits = (t) => t && !appMergeBlock(spec, t) && appPlacementFit(t, scope).fit === 'recommended';
+  const named = mergeTargetOf(targets, 'app', placementAppName(scope.placement, scope));
+  if (fits(named)) return named;
+  return (targets?.app || []).find((t) => fits(t) && (t.use_cases || []).some((u) => u.placement === scope.placement)) || null;
+}
+
+export function withNewApp(spec, placement, targets, scope = {}) {
+  const next = { ...spec, outputs: { ...spec.outputs, app_placement: placement } };
+  const name = placementAppName(placement, { ...scope, placement }, targets);
+  if (next.outputs.merge?.app) return withMergeTarget(next, 'app', null, name);
+  return { ...next, outputs: { ...next.outputs, app_name: name || next.outputs.app_name } };
+}
+
+export function withAppPlacement(spec, placement, targets, scope = {}) {
+  const next = { ...spec, outputs: { ...spec.outputs, app_placement: placement } };
+  const target = placementTarget(next, targets, { ...scope, placement });
+  return target ? withMergeTarget(next, 'app', target) : withNewApp(next, placement, targets, scope);
+}
+
+export function withPlacementDefault(spec, targets, { held = {}, saved = '', savedApp = false, ...scope } = {}) {
+  if (!spec.outputs.app) return spec;
+  const placement = APP_PLACEMENT_IDS.includes(saved) ? saved : rememberedPlacement(targets, scope.business);
+  if (held?.app || savedApp || spec.outputs.merge?.app) return { ...spec, outputs: { ...spec.outputs, app_placement: placement } };
+  return withAppPlacement(spec, placement, targets, scope);
 }
 
 export function mergeTargetText(target) {
@@ -1588,7 +1729,7 @@ export function implementGroups(useCases, latestRows, notebookRun, query = '') {
     const id = caseIdOf(uc);
     const latest = latestById.get(id) || null;
     const notebook = notebookStatus(uc, notebookRun);
-    return { id, name: caseNameOf(uc) || id, domain: String(uc._domain || uc['Business Domain'] || ''), uc, latest, notebook, state: implementState(latest, notebook) };
+    return { id, name: caseNameOf(uc) || id, domain: domainOf(uc), uc, latest, notebook, state: implementState(latest, notebook) };
   }).filter((item) => {
     const text = `${item.id} ${item.name} ${subtitleOfUseCase(item.uc, item.name)} ${item.domain}`.toLowerCase();
     return terms.every((t) => text.includes(t));

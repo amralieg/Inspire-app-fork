@@ -46,8 +46,11 @@ const IMPLEMENT_MERGE_NOUNS = { app: 'an App', dashboard: 'a dashboard', genie_s
 const IMPLEMENT_MERGE_LABELS = { app: 'App', dashboard: 'dashboard', genie_space: 'Genie Agent' };
 const IMPLEMENT_APP_ACCESS_CHOICE = "choose who the App reads its data as: 'user' (each person sees only the rows and columns their Unity Catalog grants allow) or 'sp' (everyone sees the same data through the App's service principal)";
 const IMPLEMENT_APP_BACKEND_CHOICE = "choose where the App reads its data: 'lakebase' (its pages load instantly) or 'delta' (Delta tables, its pages take a few seconds to load)";
+const IMPLEMENT_APP_PLACEMENTS = ['domain', 'use_case', 'business'];
+const IMPLEMENT_APP_PLACEMENT_CHOICE = "choose how Inspire organizes Apps: 'domain' (one App per business domain), 'use_case' (one App per use case) or 'business' (one App for all use cases)";
 const IMPLEMENT_MERGE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const IMPLEMENT_MERGE_TARGET_CAP = 40;
+const IMPLEMENT_SCOPE_SESSION_CAP = 100;
 const IMPLEMENT_ALERT_TIER_SETS = { act_now: ['Act now'], act_now_review: ['Act now', 'Review'] };
 const IMPLEMENT_ALERT_OPERATORS = ['>=', '>', '=', '!=', '<', '<='];
 const IMPLEMENT_ALERT_THRESHOLD_BASES = ['fixed', 'baseline'];
@@ -462,6 +465,7 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
     app_look: app.look,
     app_options: app.options,
     app_backend: app.backend,
+    app_placement: app.placement,
     ...(app.charts ? { app_charts: app.charts } : {}),
     ...(app.pages ? { app_pages: app.pages } : {}),
     app_owners: appOwners(outputs, chosen.app, errors),
@@ -715,11 +719,11 @@ function appOwners(outputs, on, errors) {
 function appSettings(outputs, on, shell, errors, legacyAccess = '') {
   const look = { ...IMPLEMENT_APP_LOOK_DEFAULT };
   const options = Object.fromEntries(IMPLEMENT_APP_OPTION_KEYS.map((key) => [key, false]));
-  if (!on) return { access: '', look: {}, options: {}, backend: '', charts: [], pages: {} };
+  if (!on) return { access: '', look: {}, options: {}, backend: '', charts: [], pages: {}, placement: '' };
   const catalog = shell || appShellCatalog();
   if (!catalog.ok) {
     errors.push(`the App cannot be built: ${catalog.error}`);
-    return { access: '', look, options, backend: '' };
+    return { access: '', look, options, backend: '', placement: '' };
   }
   const charts = appChartKinds(outputs.app_charts, catalog.chart_kinds, errors);
   const pages = appScreens(outputs.app_pages, catalog.screens, errors);
@@ -756,8 +760,13 @@ function appSettings(outputs, on, shell, errors, legacyAccess = '') {
   const backendText = textValue(outputs.app_backend);
   const backend = backendText === '' ? fallback : backendText === null ? null : backendText.toLowerCase();
   if (!catalog.backends.includes(backend)) errors.push(`${IMPLEMENT_APP_BACKEND_CHOICE}, not ${shownValue(outputs.app_backend)}`);
+  const placementText = textValue(outputs.app_placement);
+  const placement = placementText === null ? null : placementText.toLowerCase();
+  if (placement === null || (placement && !IMPLEMENT_APP_PLACEMENTS.includes(placement))) {
+    errors.push(`${IMPLEMENT_APP_PLACEMENT_CHOICE}, not ${shownValue(outputs.app_placement)}`);
+  }
   return { access: catalog.auths.includes(access) ? access : '', look, options, backend: catalog.backends.includes(backend) ? backend : fallback,
-    ...(charts ? { charts } : {}), ...(pages ? { pages } : {}) };
+    ...(charts ? { charts } : {}), ...(pages ? { pages } : {}), placement: IMPLEMENT_APP_PLACEMENTS.includes(placement) ? placement : '' };
 }
 
 function appChartKinds(raw, kinds, errors) {
@@ -955,6 +964,7 @@ function mergeRegistry(rows, { sessionId, useCaseId, only = null } = {}) {
       use_case_name: str(isPlainObject(built.spec_json) ? built.spec_json.use_case_name : '').trim() || str(first.use_case_id),
       app_access: outputs.app_access === 'user' ? 'user' : 'sp',
       app_look: isPlainObject(outputs.app_look) ? outputs.app_look : null,
+      app_placement: IMPLEMENT_APP_PLACEMENTS.includes(outputs.app_placement) ? outputs.app_placement : '',
       updated_at: str(first.updated_at),
     };
     const assets = carriedAssets(sorted);
@@ -994,7 +1004,8 @@ function mergeTarget(name, entry, got, host = '') {
     const owner = entry.holders.find((h) => str(d.description).startsWith(appOwnerTag(h.use_case_id, h.session_id)));
     if (!owner) return null;
     const target = {
-      id: entry.id, name: str(d.name) || entry.id, url: str(d.url), use_cases: useCases,
+      id: entry.id, name: str(d.name) || entry.id, url: str(d.url),
+      use_cases: useCases.map((u, i) => ({ ...u, placement: entry.holders[i].app_placement, updated_at: entry.holders[i].updated_at })),
       access: entry.holders.some((h) => h.app_access === 'user') ? 'user' : 'sp',
       look: owner.app_look,
     };
@@ -1006,6 +1017,37 @@ function mergeTarget(name, entry, got, host = '') {
       use_cases: useCases };
   }
   return { id: entry.id, name: str(d.title) || entry.id, url: host ? `${str(host).replace(/\/+$/, '')}/genie/rooms/${entry.id}` : '', use_cases: useCases };
+}
+
+function scopeSessions(targets) {
+  const sessions = [];
+  for (const target of targets || []) {
+    for (const u of target.use_cases || []) {
+      if (/^\d+$/.test(str(u.session_id)) && !sessions.includes(str(u.session_id))) sessions.push(str(u.session_id));
+    }
+  }
+  return sessions.slice(0, IMPLEMENT_SCOPE_SESSION_CAP);
+}
+
+function useCaseScopeStatement(catalog, schema, sessions) {
+  const at = (name) => `\`${catalog}\`.\`${schema}\`.\`${name}\``;
+  return {
+    sql: 'SELECT CAST(u.session_id AS STRING) AS session_id, u.id AS use_case_id, u.business_domain AS domain, s.business_name AS business '
+      + `FROM ${at('__inspire_usecases')} u LEFT JOIN (SELECT session_id, max(business_name) AS business_name FROM ${at('__inspire_session')} `
+      + `GROUP BY session_id) s ON s.session_id = u.session_id WHERE u.session_id IN (${sessions.map((_, i) => `:s${i}`).join(', ')})`,
+    parameters: sessions.map((sid, i) => ({ name: `s${i}`, value: sid, type: 'BIGINT' })),
+  };
+}
+
+function withUseCaseScope(targets, rows) {
+  const scope = new Map((rows || []).map((r) => [`${str(r.session_id)}|${str(r.use_case_id)}`, r]));
+  return (targets || []).map((target) => ({
+    ...target,
+    use_cases: (target.use_cases || []).map((u) => {
+      const row = scope.get(`${str(u.session_id)}|${str(u.use_case_id)}`);
+      return { ...u, business: row ? str(row.business).trim() : null, domain: row ? str(row.domain).trim() : null };
+    }),
+  }));
 }
 
 function mergeProblems(spec, targets, held = {}) {
@@ -1271,16 +1313,25 @@ function implementJobParams(baseParams, useCaseId, specVersion) {
 
 const PARAMETERS_SECTION_RE = /^## (?:\d+\. )?Parameters[^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m;
 const WIDGET_ROW_RE = /^\|\s*`?([A-Za-z][A-Za-z0-9_]{0,40})`?\s*\|\s*(text|dropdown)\s*\|\s*(.*?)\s*\|(?:\s*(.*?)\s*\|)?\s*(.*?)\s*\|\s*$/;
-const ALLOWED_RE = /^(?:(whole number)(?:, |$))?(?:(-?[0-9]+(?:\.[0-9]+)?) to (-?[0-9]+(?:\.[0-9]+)?)|at least (-?[0-9]+(?:\.[0-9]+)?)|at most (-?[0-9]+(?:\.[0-9]+)?))?$/;
+const ALLOWED_NUMBER = '(-?[0-9]+(?:\\.[0-9]+)?)';
+const ALLOWED_RE = new RegExp(`^(?:(whole number)(?:, |$))?(?:${ALLOWED_NUMBER} to ${ALLOWED_NUMBER}|(at least|above|greater than|more than) ${ALLOWED_NUMBER}(?: and (at most|below|less than) ${ALLOWED_NUMBER})?|(at most|below|less than) ${ALLOWED_NUMBER})?$`);
+const ALLOWED_OPEN_WORDS = ['above', 'greater than', 'more than', 'below', 'less than'];
 const WIDGET_NUMBER_RE = /^-?[0-9]+(?:\.[0-9]+)?$/;
 
 function allowedRule(text) {
   const value = str(text).trim();
   const match = ALLOWED_RE.exec(value.toLowerCase() === 'any' ? '' : value);
   if (!match) return null;
-  const low = match[2] !== undefined ? match[2] : match[4];
-  const high = match[3] !== undefined ? match[3] : match[5];
-  return { low: low !== undefined ? Number(low) : null, high: high !== undefined ? Number(high) : null, whole: Boolean(match[1]) };
+  const [, whole, from, to, lowWord, lowValue, highWord, highValue, onlyHighWord, onlyHighValue] = match;
+  const low = from ?? lowValue;
+  const high = to ?? highValue ?? onlyHighValue;
+  return {
+    low: low !== undefined ? Number(low) : null,
+    high: high !== undefined ? Number(high) : null,
+    whole: Boolean(whole),
+    lowOpen: ALLOWED_OPEN_WORDS.includes(lowWord),
+    highOpen: ALLOWED_OPEN_WORDS.includes(highWord ?? onlyHighWord),
+  };
 }
 
 function numberText(value) {
@@ -1288,11 +1339,13 @@ function numberText(value) {
 }
 
 function allowedText(rule) {
-  const { low = null, high = null, whole = false } = rule || {};
-  let bounds = '';
-  if (low !== null && high !== null) bounds = `${numberText(low)} to ${numberText(high)}`;
-  else if (low !== null) bounds = `at least ${numberText(low)}`;
-  else if (high !== null) bounds = `at most ${numberText(high)}`;
+  const { low = null, high = null, whole = false, lowOpen = false, highOpen = false } = rule || {};
+  const bounds = low !== null && high !== null && !lowOpen && !highOpen
+    ? `${numberText(low)} to ${numberText(high)}`
+    : [
+      low !== null ? `${lowOpen ? 'above' : 'at least'} ${numberText(low)}` : '',
+      high !== null ? `${highOpen ? 'below' : 'at most'} ${numberText(high)}` : '',
+    ].filter(Boolean).join(' and ');
   if (!whole) return bounds;
   return bounds ? `whole number, ${bounds}` : 'whole number';
 }
@@ -1302,7 +1355,9 @@ function widgetValueProblem(name, value, allowed) {
   if (!rule || (rule.low === null && rule.high === null && !rule.whole)) return '';
   const text = str(value).trim();
   const number = WIDGET_NUMBER_RE.test(text) && !(rule.whole && text.includes('.')) ? Number(text) : null;
-  if (number === null || (rule.low !== null && number < rule.low) || (rule.high !== null && number > rule.high)) {
+  const belowLow = rule.low !== null && (rule.lowOpen ? number <= rule.low : number < rule.low);
+  const aboveHigh = rule.high !== null && (rule.highOpen ? number >= rule.high : number > rule.high);
+  if (number === null || belowLow || aboveHigh) {
     return `${name} is '${text}'; allowed: ${allowedText(rule)}`;
   }
   return '';
@@ -2272,9 +2327,14 @@ module.exports = {
   IMPLEMENT_APP_CHARTS_MIN,
   IMPLEMENT_MERGE_OUTPUTS,
   IMPLEMENT_MERGE_TARGET_CAP,
+  IMPLEMENT_APP_PLACEMENTS,
+  IMPLEMENT_SCOPE_SESSION_CAP,
   legacyAppAccess,
   implementRegistryStatement,
   mergeRegistry,
+  scopeSessions,
+  useCaseScopeStatement,
+  withUseCaseScope,
   mergeTargetPath,
   mergeTarget,
   mergeProblems,

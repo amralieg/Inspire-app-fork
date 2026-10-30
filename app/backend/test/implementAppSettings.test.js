@@ -338,6 +338,72 @@ test('the App lists the merge targets Inspire built and confirms each one live',
   }
 });
 
+test('an App target carries where each of its use cases was placed and when, and the wizard learns their business and domain from Inspire\'s tables', () => {
+  const rows = [
+    row('42', 'N01-U02', 2, { app_name: 'churn-desk', dashboard_id: 'd1', spec_json: named('Forecast demand', { app_placement: 'domain' }) }),
+    row('77', 'N04-U01', 1, { app_name: 'churn-desk', spec_json: named('Route trucks', { app_placement: 'team' }) }),
+  ].map(I.parseImplementRow);
+  const reg = I.mergeRegistry(rows, { sessionId: '42', useCaseId: 'N01-U01' });
+  const description = 'Inspire use case N01-U02 (session 42): Forecast demand';
+  const app = I.mergeTarget('app', reg.app[0], { ok: true, data: { name: 'churn-desk', description } });
+  assert.deepEqual(app.use_cases.map((u) => [u.use_case_id, u.placement, u.updated_at]),
+    [['N01-U02', 'domain', '2026-10-22T00:00:00Z'], ['N04-U01', '', '2026-10-21T00:00:00Z']], 'a placement Inspire does not know reads as none');
+  const dash = I.mergeTarget('dashboard', reg.dashboard[0], { ok: true, data: { display_name: 'Demand' } });
+  assert.deepEqual(Object.keys(dash.use_cases[0]), ['session_id', 'use_case_id', 'name'], 'App placement means nothing to a dashboard');
+  const many = [{ use_cases: Array.from({ length: 150 }, (_, i) => ({ session_id: String(1000 + i) })) }];
+  assert.deepEqual(I.scopeSessions([{ use_cases: [{ session_id: '42' }, { session_id: '42' }, { session_id: 'x; DROP' }, { session_id: '' }] }, { use_cases: [{ session_id: '77' }] }]), ['42', '77'],
+    'only whole-number sessions, once each');
+  assert.equal(I.scopeSessions(many).length, I.IMPLEMENT_SCOPE_SESSION_CAP);
+  assert.deepEqual(I.scopeSessions(undefined), []);
+  const statement = I.useCaseScopeStatement('main', 'inspire', ['42', '77']);
+  assert.match(statement.sql, /FROM `main`\.`inspire`\.`__inspire_usecases` u LEFT JOIN \(SELECT session_id, max\(business_name\) AS business_name FROM `main`\.`inspire`\.`__inspire_session` GROUP BY session_id\) s/);
+  assert.match(statement.sql, /WHERE u\.session_id IN \(:s0, :s1\)$/);
+  assert.deepEqual(statement.parameters, [{ name: 's0', value: '42', type: 'BIGINT' }, { name: 's1', value: '77', type: 'BIGINT' }]);
+  const scoped = I.withUseCaseScope([app], [
+    { session_id: '42', use_case_id: 'N01-U02', business: ' Acme ', domain: 'Customer ' },
+    { session_id: '77', use_case_id: 'N04-U02', business: 'Globex', domain: 'Logistics' },
+  ]);
+  assert.deepEqual(scoped[0].use_cases.map((u) => [u.use_case_id, u.business, u.domain]), [['N01-U02', 'Acme', 'Customer'], ['N04-U01', null, null]],
+    'a use case Inspire cannot find has no business or domain, so the wizard never recommends its App');
+  assert.deepEqual(I.withUseCaseScope([{ use_cases: [{ session_id: '42', use_case_id: 'N01-U02' }] }], [{ session_id: '42', use_case_id: 'N01-U02', business: null, domain: null }])[0].use_cases[0],
+    { session_id: '42', use_case_id: 'N01-U02', business: '', domain: '' });
+  assert.deepEqual(I.withUseCaseScope(null, []), []);
+});
+
+test('the merge targets route adds each App use case\'s business and domain, and a missing Inspire table leaves them unknown instead of failing', async () => {
+  const useCaseScope = [{ session_id: '42', use_case_id: 'N01-U02', business: 'Acme', domain: 'Customer' }];
+  const { app, sqlCalls } = makeApp({ registry: REGISTRY, ...REST, useCaseScope });
+  const srv = await listen(app);
+  try {
+    const got = await call(srv.url, `/api/inspire/implement/merge-targets?${Q}`);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.deepEqual(got.data.targets.app[0].use_cases.map((u) => [u.use_case_id, u.business, u.domain, u.placement]), [['N01-U02', 'Acme', 'Customer', '']]);
+    const scopeCall = sqlCalls.find((c) => c.sql.includes('u.business_domain AS domain'));
+    assert.deepEqual(scopeCall.parameters, [{ name: 's0', value: '42', type: 'BIGINT' }]);
+  } finally {
+    await srv.close();
+  }
+  for (const [message, status] of [['[TABLE_OR_VIEW_NOT_FOUND] __inspire_session', 200], ['[UNRESOLVED_COLUMN] business_domain', 200], ['warehouse is stopped', 500]]) {
+    const broken = makeApp({ registry: REGISTRY, ...REST, useCaseScope, sqlErrors: { 'u.business_domain AS domain': message } });
+    const server = await listen(broken.app);
+    try {
+      const got = await call(server.url, `/api/inspire/implement/merge-targets?${Q}`);
+      assert.equal(got.status, status, message);
+      if (status === 200) assert.deepEqual(got.data.targets.app[0].use_cases.map((u) => [u.business, u.domain]), [[null, null]], message);
+    } finally {
+      await server.close();
+    }
+  }
+  const empty = makeApp({ registry: [], ...REST });
+  const server = await listen(empty.app);
+  try {
+    assert.equal((await call(server.url, `/api/inspire/implement/merge-targets?${Q}`)).status, 200);
+    assert.equal(empty.sqlCalls.some((c) => c.sql.includes('u.business_domain AS domain')), false, 'no App, no scope lookup');
+  } finally {
+    await server.close();
+  }
+});
+
 test('plan and submit refuse a per-user use case joining a service-principal App, and accept the internal one', async () => {
   const { app, jobs, fetches } = makeApp({ registry: REGISTRY, ...REST });
   const srv = await listen(app);

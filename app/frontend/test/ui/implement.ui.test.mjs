@@ -6,7 +6,7 @@ import { buildAgainHint, lostTablesText } from '../../src/lib/implementWizard.js
 import {
   HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID, OWNER, RESULT_TABLE, STUDIO_STATE, built, builtSpec,
 } from './implementFixtures.js';
-import { closeBrowser, lowContrast, openUi, onStep, startMvp, toVibes, until } from './uiSupport.mjs';
+import { closeBrowser, lowContrast, openUi, onStep, startMvp, toAppAccess, toVibes, until } from './uiSupport.mjs';
 
 const GONE = '[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`s`.`returns` cannot be found. Verify the spelling. SQLSTATE: 42P01';
 
@@ -60,8 +60,7 @@ async function toDelivery(page) {
 }
 
 async function throughApp(page, access = /^Internal data/) {
-  await next(page);
-  await onStep(page, 'App access');
+  await toAppAccess(page);
   await page.getByRole('radio', { name: access }).check();
   await next(page);
   await onStep(page, 'App look');
@@ -80,7 +79,7 @@ function submittedSpec(made) {
 test('the wizard starts with the dashboard, Genie Agent and App ticked, drops App access and App look while the App is unticked, and Start MVP launches one run', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
-  const withApp = ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App access', '6. App look', '7. Vibes'];
+  const withApp = ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App placement', '6. App access', '7. App look', '8. Vibes'];
   try {
     await onStep(page, 'Choose');
     assert.deepEqual(await page.locator('ol li').allTextContents(), withApp);
@@ -103,8 +102,7 @@ test('the wizard starts with the dashboard, Genie Agent and App ticked, drops Ap
     assert.equal(await page.getByRole('button', { name: 'Start MVP', exact: true }).count(), 0, 'without an App, Delivery leads on to Vibes');
     await page.getByRole('checkbox', { name: /^App / }).check();
     assert.deepEqual(await page.locator('ol li').allTextContents(), withApp);
-    assert.equal(await page.getByLabel('App name').inputValue(), 'inspire-hub-acme', 'a new App is the business Hub');
-    await page.getByText("'inspire-hub-acme' is free").waitFor();
+    assert.equal(await page.getByLabel('App name').count(), 0, 'the App name waits for App placement');
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
     await page.getByText(`Emails ${OWNER} when Act now rows in the latest run >= 1.`).waitFor();
     const fresh = page.getByRole('group', { name: 'Keep it fresh' });
@@ -112,8 +110,16 @@ test('the wizard starts with the dashboard, Genie Agent and App ticked, drops Ap
     await fresh.getByRole('button', { name: 'Weekly' }).click();
     assert.equal(await fresh.getByRole('button', { name: 'Weekly' }).getAttribute('aria-pressed'), 'true');
     assert.equal(made.jobs.length, 0);
-    assert.equal(await page.getByRole('button', { name: 'Start MVP', exact: true }).count(), 0, 'with an App, Delivery leads on to App access');
-    await throughApp(page);
+    assert.equal(await page.getByRole('button', { name: 'Start MVP', exact: true }).count(), 0, 'with an App, Delivery leads on to App placement');
+    await next(page);
+    await onStep(page, 'App placement');
+    assert.equal(await page.getByLabel('App name').inputValue(), 'inspire-hub-acme', 'a new App of a use case with no domain is the business Hub');
+    await page.getByText("'inspire-hub-acme' is free").waitFor();
+    await next(page);
+    await onStep(page, 'App access');
+    await page.getByRole('radio', { name: /^Internal data/ }).check();
+    await next(page);
+    await onStep(page, 'App look');
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
 
@@ -198,6 +204,8 @@ test('Edit of a failed version the old wizard saved under the use case id names 
   try {
     await toData(ui.page);
     await toDelivery(ui.page);
+    await next(ui.page);
+    await onStep(ui.page, 'App placement');
     assert.equal(await ui.page.getByLabel('App name').inputValue(), 'inspire-hub-acme', 'the App is the business Hub, not named after the use case id');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
@@ -489,17 +497,25 @@ test('an App name another App already uses offers the next name, and Implement w
     await toData(page);
     await toDelivery(page);
     await page.getByRole('checkbox', { name: /^App / }).check();
+    await next(page);
+    await onStep(page, 'App placement');
     await page.getByText("'inspire-hub-acme' is used by another App in this workspace; pick another name.", { exact: false }).waitFor();
+    await page.getByRole('button', { name: 'Back' }).click();
+    await onStep(page, 'Delivery');
     await throughApp(page);
     await toVibes(page);
-    await page.locator('[role="alert"] p', { hasText: "App name: 'inspire-hub-acme' is used by another App in this workspace; pick another name (fix it on Delivery)" }).waitFor();
+    await page.locator('[role="alert"] p', { hasText: "App name: 'inspire-hub-acme' is used by another App in this workspace; pick another name (fix it on App placement)" }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Start MVP', exact: true }).isDisabled(), true);
     for (let i = 0; i < 3; i += 1) await page.getByRole('button', { name: 'Back' }).click();
-    await onStep(page, 'Delivery');
+    await onStep(page, 'App placement');
     await page.getByRole('button', { name: 'Use inspire-hub-acme-2' }).click();
     assert.equal(await page.getByLabel('App name').inputValue(), 'inspire-hub-acme-2');
     await page.getByText("'inspire-hub-acme-2' is free").waitFor();
-    await throughApp(page);
+    await next(page);
+    await onStep(page, 'App access');
+    await page.getByRole('radio', { name: /^Internal data/ }).check();
+    await next(page);
+    await onStep(page, 'App look');
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     assert.equal(submittedSpec(made).outputs.app_name, 'inspire-hub-acme-2');
@@ -1239,8 +1255,7 @@ test('a version saved while the App offered downloads rebuilds and opens in Edit
   try {
     await toData(edit.page);
     await toDelivery(edit.page);
-    await next(edit.page);
-    await onStep(edit.page, 'App access');
+    await toAppAccess(edit.page);
     const access = edit.page.getByRole('region', { name: 'App access' });
     assert.equal(await access.getByRole('checkbox', { name: /^Let people edit data/ }).isChecked(), true, 'the saved choices come back');
     await access.getByRole('checkbox', { name: /^Record decisions/ }).check();
@@ -1287,7 +1302,7 @@ test('a dropped source table stops the re-run with its name, and Edit opens the 
   }
 });
 
-test('Edit of a use case whose own App no longer exists says so and puts the use case in the business Hub by default', async () => {
+test('Edit of a use case whose own App no longer exists says so and puts the use case in its domain App by default', async () => {
   const hubRow = {
     session_id: '42', use_case_id: 'N01-U05', spec_version: 1, status: 'ready', updated_at: '2026-10-26T00:00:00Z', asset_status: null,
     spec_json: JSON.stringify({ use_case_id: 'N01-U05', use_case_name: 'Price promos', outputs: { app: true, app_access: 'sp' } }),
@@ -1296,17 +1311,20 @@ test('Edit of a use case whose own App no longer exists says so and puts the use
   const ui = await openUi('wizard', {
     me: { userName: OWNER, displayName: 'Owner' }, history: [built()], registry: [hubRow],
     appsByName: { 'inspire-hub-acme': { name: 'inspire-hub-acme', description: 'Inspire use case N01-U05 (session 42): Price promos' } },
+    useCaseScope: [{ session_id: '42', use_case_id: 'N01-U05', business: 'Acme', domain: '' }],
   });
   const { page, made } = ui;
   try {
     await toData(page);
     await toDelivery(page);
     await page.getByText('The App this use case had, churn-desk, no longer exists, so Genie can add the use case to one Inspire built or create a new one.').waitFor();
-    const app = page.locator('[data-merge="app"]');
-    assert.match(await app.getByLabel('App to add this use case to').locator('option:checked').textContent(), /^inspire-hub-acme · holds Price promos · /);
-    await app.getByRole('note', { name: 'The App this use case joins' }).waitFor();
-    assert.equal(await app.getByRole('button', { name: 'Add to an existing one' }).getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('[data-merge="dashboard"]').count(), 0, 'a dashboard that still exists is updated in place');
+    await next(page);
+    await onStep(page, 'App placement');
+    const place = page.getByRole('region', { name: 'App placement' });
+    await place.getByRole('note', { name: 'The App this use case joins' }).waitFor();
+    assert.equal(await place.locator('[data-app-target="inspire-hub-acme"] input[type="radio"]').isChecked(), true);
+    assert.match(await place.locator('[data-app-target="inspire-hub-acme"]').textContent(), /Holds Price promos/);
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     const spec = submittedSpec(made);
@@ -1341,8 +1359,7 @@ test('Edit of a version whose swapped table is gone goes back to the use case\'s
     assert.equal(await row.getByText('instead of', { exact: false }).count(), 0, 'the row shows the use case\'s own table');
     assert.doesNotMatch(await row.getAttribute('class'), /border-error/);
     await toDelivery(page);
-    await next(page);
-    await onStep(page, 'App access');
+    await toAppAccess(page);
     await next(page);
     await onStep(page, 'App look');
     await implementWhenReady(page);
@@ -1366,8 +1383,7 @@ test('Edit of a version whose swapped table and own table are both gone marks th
     await row.getByText('not found', { exact: true }).waitFor();
     await page.getByLabel('Table to use for main.s.returns').waitFor();
     await toDelivery(page);
-    await next(page);
-    await onStep(page, 'App access');
+    await toAppAccess(page);
     await next(page);
     await onStep(page, 'App look');
     await toVibes(page);
@@ -1513,8 +1529,12 @@ test('Edit after notebook edits asks on Delivery whether to overwrite them, and 
     await toData(fresh.page);
     await toDelivery(fresh.page);
     assert.equal(await fresh.page.getByRole('checkbox', { name: /^Overwrite the edits/ }).count(), 0, 'no recorded edit, no question');
-    assert.equal(await fresh.page.getByLabel('App name').inputValue(), 'churn-desk', 'an edit keeps the live App name');
     assert.equal(await fresh.page.locator('[data-merge]').count(), 0, 'an output the use case already has is updated in place, never moved');
+    await next(fresh.page);
+    await onStep(fresh.page, 'App placement');
+    await fresh.page.getByText('This use case already has its App, churn-desk, so Genie rebuilds it there.').waitFor();
+    assert.equal(await fresh.page.getByLabel('App name').inputValue(), 'churn-desk', 'an edit keeps the live App name');
+    assert.equal(await fresh.page.locator('[data-app-target]').count(), 0, 'an App the use case already has is never moved');
     await next(fresh.page);
     await onStep(fresh.page, 'App access');
     assert.equal(await fresh.page.getByRole('radio', { name: /^Internal data/ }).isChecked(), true,

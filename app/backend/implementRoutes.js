@@ -488,7 +488,13 @@ function registerImplementRoutes(app, deps) {
       const warehouseId = warehouseOf(req);
       const { catalog, schema } = dbOf(req, splitInspireDatabase);
       const useCaseId = I.validateUseCaseId(q(req, 'use_case_id'));
-      res.json({ targets: await loadMergeTargets(req, warehouseId, catalog, schema, sid, useCaseId), cap: I.IMPLEMENT_MERGE_TARGET_CAP });
+      const targets = await loadMergeTargets(req, warehouseId, catalog, schema, sid, useCaseId);
+      const sessions = I.scopeSessions(targets.app);
+      const scope = sessions.length
+        ? await sqlRows(req.dbHost, req.dbToken, warehouseId, I.useCaseScopeStatement(catalog, schema, sessions))
+          .catch((err) => { if (isMissingTableError(err) || I.isMissingColumnError(err)) return []; throw err; })
+        : [];
+      res.json({ targets: { ...targets, app: I.withUseCaseScope(targets.app, scope) }, cap: I.IMPLEMENT_MERGE_TARGET_CAP });
     } catch (err) {
       sendError(res, err);
     }

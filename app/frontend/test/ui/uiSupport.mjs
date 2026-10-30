@@ -49,6 +49,14 @@ export async function onStep(page, label) {
   }
 }
 
+export async function toAppAccess(page) {
+  await page.getByRole('button', { name: 'Next' }).click();
+  await onStep(page, 'App placement');
+  await page.getByText('Finding the Apps Inspire built').waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Next' }).click();
+  await onStep(page, 'App access');
+}
+
 export async function toVibes(page) {
   for (let i = 0; i < 8 && await page.getByRole('button', { name: 'Next' }).count(); i += 1) {
     const from = await page.locator('[aria-current="step"]').innerText();
