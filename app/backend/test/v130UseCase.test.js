@@ -57,6 +57,56 @@ test('the KPI line matches the agent writers character for character', async () 
   assert.equal(lib.kpiText({ name: ' ' }), '');
 });
 
+const STALE_ZERO = { value: 0, window_days: 7, measured_on: '2026-10-29' };
+const STALE_KPIS = [
+  { name: 'Weekly trips served', direction: 'increase', unit: '', computable: true, baseline: STALE_ZERO },
+  { name: 'Weekly fare revenue', direction: 'increase', unit: 'USD', computable: true, baseline: { ...STALE_ZERO, window_anchor: 'newest data' } },
+  { name: 'Zones served', direction: 'increase', unit: '', computable: true, baseline: { value: 120, window_days: 7, measured_on: '2026-10-29' } },
+  { name: 'Open tickets', direction: 'decrease', unit: '', computable: true, baseline: { value: 0, measured_on: '2026-10-29' } },
+];
+const STALE_NOTE = '0 (Weekly trips served, last 7 days, measured 2026-10-29)';
+const KEPT_NOTE = '0 (Weekly fare revenue, last 7 days, measured 2026-10-29)';
+
+test('a KPI baseline of 0 counted back from today, before the window was anchored on the newest data, is not shown', async () => {
+  const lib = await load();
+  assert.equal(lib.kpiText(STALE_KPIS[0]), 'Weekly trips served (↑)');
+  assert.equal(lib.kpiBaselineShown(STALE_ZERO), null);
+  assert.equal(lib.kpiBaselineShown({ ...STALE_ZERO, value: '0' }), null);
+  assert.equal(lib.kpiText(STALE_KPIS[1]), 'Weekly fare revenue (↑ USD): baseline 0, last 7 days, measured 2026-10-29');
+  assert.equal(lib.kpiText(STALE_KPIS[2]), 'Zones served (↑): baseline 120, last 7 days, measured 2026-10-29');
+  assert.equal(lib.kpiText(STALE_KPIS[3]), 'Open tickets (↓): baseline 0, measured 2026-10-29');
+  for (const empty of [null, undefined, {}, [], 'x']) assert.equal(lib.kpiBaselineShown(empty), null);
+});
+
+test('the view clears the stale 0 baked into key results and benefits and keeps every other baseline as written', async () => {
+  const lib = await load();
+  const view = lib.v130View({
+    KPIs: STALE_KPIS,
+    'Expected Key Results': [{ statement: `Raise weekly trips served from ${STALE_NOTE} to [TARGET]`, source: 'proposed' },
+      { statement: `Raise weekly fare revenue from ${KEPT_NOTE} to [TARGET]`, source: 'proposed' }],
+    'Measures of Success': [`Trips up from ${STALE_NOTE}, twice: ${STALE_NOTE}`],
+    'Financial Benefits': [`Fares grow from ${KEPT_NOTE}`],
+    'Non-Financial Benefits': [`Riders wait less than at ${STALE_NOTE}`],
+  });
+  assert.deepEqual(view.keyResults.map((kr) => kr.statement), [
+    `Raise weekly trips served from ${lib.KPI_BASELINE_PENDING} to [TARGET]`, `Raise weekly fare revenue from ${KEPT_NOTE} to [TARGET]`]);
+  assert.deepEqual(view.measures, [`Trips up from ${lib.KPI_BASELINE_PENDING}, twice: ${lib.KPI_BASELINE_PENDING}`]);
+  assert.deepEqual(view.financial, [`Fares grow from ${KEPT_NOTE}`]);
+  assert.deepEqual(view.nonFinancial, [`Riders wait less than at ${lib.KPI_BASELINE_PENDING}`]);
+  assert.deepEqual(view.kpis.map((k) => k.baseline), [null, STALE_KPIS[1].baseline, STALE_KPIS[2].baseline, STALE_KPIS[3].baseline]);
+});
+
+test('the value of an implemented use case never shows a change counted from a stale 0', async () => {
+  const lib = await load();
+  assert.deepEqual(lib.trackedKpiValue({ baseline: STALE_ZERO, current: { value: 3043 }, change: 3043 }), { baseline: null, change: null });
+  const anchored = { ...STALE_ZERO, window_anchor: 'newest data' };
+  assert.deepEqual(lib.trackedKpiValue({ baseline: anchored, current: { value: 3043 }, change: 3043 }), { baseline: anchored, change: 3043 });
+  const real = { value: 120, window_days: 7, measured_on: '2026-10-29' };
+  assert.deepEqual(lib.trackedKpiValue({ baseline: real, change: '-4.5' }), { baseline: real, change: -4.5 });
+  assert.deepEqual(lib.trackedKpiValue({ baseline: real, change: null }), { baseline: real, change: null });
+  for (const empty of [null, undefined, {}, { baseline: null, change: 5 }]) assert.deepEqual(lib.trackedKpiValue(empty), { baseline: null, change: null });
+});
+
 test('results_json keys and tracking columns give the same view', async () => {
   const lib = await load();
   const fromResults = lib.v130View(RESULTS_UC);

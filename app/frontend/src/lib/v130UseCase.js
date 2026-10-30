@@ -117,13 +117,16 @@ export function v130View(uc) {
   const hasStrategyData =
     alignments.length > 0 || !!pathText ||
     Array.isArray(parseJson(u['Strategy Alignment'])) || Array.isArray(parseJson(u.strategy_alignment));
-  const kpis = objectList(fieldOf(u, 'KPIs', 'kpis')).filter((k) => String(k.name ?? '').trim());
+  const storedKpis = objectList(fieldOf(u, 'KPIs', 'kpis')).filter((k) => String(k.name ?? '').trim());
+  const stale = staleBaselineNotes(storedKpis);
+  const clear = (text) => stale.reduce((out, note) => out.split(note).join(KPI_BASELINE_PENDING), text);
+  const kpis = storedKpis.map((k) => ({ ...k, baseline: kpiBaselineShown(k.baseline) }));
   const keyResults = objectList(fieldOf(u, 'Expected Key Results', 'expected_key_results'))
-    .map((kr) => ({ ...kr, statement: String(kr.statement ?? '').trim(), source: kr.source === 'strategy' ? 'strategy' : 'proposed' }))
+    .map((kr) => ({ ...kr, statement: clear(String(kr.statement ?? '').trim()), source: kr.source === 'strategy' ? 'strategy' : 'proposed' }))
     .filter((kr) => kr.statement);
-  const measures = textList(fieldOf(u, 'Measures of Success', 'measures_of_success'));
-  const financial = textList(fieldOf(u, 'Financial Benefits', 'financial_benefits'));
-  const nonFinancial = textList(fieldOf(u, 'Non-Financial Benefits', 'non_financial_benefits'));
+  const measures = textList(fieldOf(u, 'Measures of Success', 'measures_of_success')).map(clear);
+  const financial = textList(fieldOf(u, 'Financial Benefits', 'financial_benefits')).map(clear);
+  const nonFinancial = textList(fieldOf(u, 'Non-Financial Benefits', 'non_financial_benefits')).map(clear);
   const evidence = parseJson(fieldOf(u, 'Data Evidence', 'data_evidence'));
   const evidenceTables = evidence && typeof evidence === 'object' && !Array.isArray(evidence) && evidence.tables && typeof evidence.tables === 'object'
     ? evidence.tables : {};
@@ -239,12 +242,34 @@ function finiteNumber(value) {
   return null;
 }
 
+export const KPI_WINDOW_ANCHOR = 'newest data';
+export const KPI_BASELINE_PENDING = '[BASELINE: measured by the KPI query]';
+
+export function kpiBaselineShown(baseline) {
+  if (!baseline || typeof baseline !== 'object' || Array.isArray(baseline) || !Object.keys(baseline).length) return null;
+  if (finiteNumber(baseline.value) === 0 && baseline.window_days && baseline.window_anchor !== KPI_WINDOW_ANCHOR) return null;
+  return baseline;
+}
+
+export function trackedKpiValue(entry) {
+  const baseline = kpiBaselineShown(entry?.baseline);
+  const change = baseline ? finiteNumber(entry.change) : null;
+  return { baseline, change };
+}
+
+function staleBaselineNotes(kpis) {
+  return kpis
+    .filter((k) => k.baseline && typeof k.baseline === 'object' && String(k.name ?? '') && k.baseline.measured_on
+      && kpiBaselineShown(k.baseline) === null)
+    .map((k) => `${formatBaseline(k.baseline.value)} (${k.name}, last ${k.baseline.window_days} days, measured ${k.baseline.measured_on})`);
+}
+
 export function kpiText(spec) {
   const name = String(spec?.name ?? '').trim();
   if (!name) return '';
   const details = [kpiDirectionArrow(spec.direction), String(spec.unit ?? '').trim()].filter(Boolean).join(' ');
   const text = details ? `${name} (${details})` : name;
-  const baseline = spec.baseline && typeof spec.baseline === 'object' ? spec.baseline : null;
+  const baseline = kpiBaselineShown(spec.baseline);
   const value = baseline ? finiteNumber(baseline.value) : null;
   if (value == null) return text;
   const date = String(baseline.measured_on ?? '');

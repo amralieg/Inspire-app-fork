@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronRight, Compass, Eye, Layers, Lock, MessageSquareText } from 'lucide-react';
-import { STRATEGY_PATH_SEPARATOR, dataAccessSummary, excludedFeedbackText, feedbackLabel, formatBaseline } from '../lib/v130UseCase';
+import { STRATEGY_PATH_SEPARATOR, dataAccessSummary, excludedFeedbackText, feedbackLabel, formatBaseline, trackedKpiValue } from '../lib/v130UseCase';
 
 export function SidebarFilterPanel({ title, subtitle, icon, open, onToggle, allLabel, allCount, options, value, onChange }) {
   const Icon = icon;
@@ -327,19 +327,22 @@ export function FeedbackPanel({ results, feedback }) {
                 </tr>
               </thead>
               <tbody>
-                {tracking.map((t, i) => (
+                {tracking.map((t, i) => {
+                  const shown = trackedKpiValue(t);
+                  return (
                   <tr key={`${t.use_case_key}-${i}`} className="border-t border-border align-top">
                     <td className="py-1 pr-2 text-text-primary">{t.title}</td>
                     <td className="py-1 pr-2 text-text-secondary">{t.kpi}</td>
-                    <td className="py-1 pr-2 font-mono text-text-secondary">{valueText(t.baseline)}</td>
+                    <td className="py-1 pr-2 font-mono text-text-secondary">{valueText(shown.baseline)}</td>
                     <td className="py-1 pr-2 font-mono text-text-secondary">
                       {t.status === 'measured' ? valueText(t.current) : t.status === 'query_only' ? 'Query only' : 'Unavailable'}
                     </td>
                     <td className="py-1 font-mono text-text-secondary">
-                      {t.change != null && Number.isFinite(Number(t.change)) ? formatBaseline(t.change) : '—'}
+                      {shown.change != null ? formatBaseline(shown.change) : '—'}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
