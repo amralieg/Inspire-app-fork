@@ -65,7 +65,7 @@ import {
   LAKEBASE_CHECKING,
   appBackendOf,
   lakebaseBlock,
-  specWithBackend,
+  sentSpec,
   withAppBackend,
   APP_OPTIONS,
   APP_NO_DOWNLOADS,
@@ -76,7 +76,9 @@ import {
   APP_STYLES,
   APP_LAYOUTS,
   APP_THEMES,
-  joinedLookText,
+  joinedAppText,
+  joinsApp,
+  APP_NEXT_NOTE,
   lookLabel,
   lookText,
   APP_LOOK_TABS,
@@ -483,7 +485,7 @@ export default function ImplementWizard({
     }
   };
 
-  const sent = useMemo(() => specWithBackend(spec, lakebase), [spec, lakebase]);
+  const sent = useMemo(() => sentSpec(spec, lakebase), [spec, lakebase]);
   const specKey = JSON.stringify(sent);
   const ownErrorsKey = ownErrors.join('|');
   const buildStep = BUILD_STEP_IDS.includes(stepId);
@@ -709,7 +711,6 @@ export default function ImplementWizard({
   const implementBlocked = busy || checksBusy || Boolean(plan?.unchanged)
     || (!ownErrors.length && (!preflight || !preflight.ok || !plan || Boolean(planError)));
   const mergeFresh = defaultSpecFromUseCase(ucRow, { businessName: context?.business_name }).outputs.app_name;
-  const appTarget = mergeTargetOf(targets, 'app', spec.outputs.app ? spec.outputs.merge.app : '');
   const palette = (look?.palette_colors || []).find((p) => p.id === spec.outputs.app_look.palette) || null;
 
   const pickTable = (original, value) => {
@@ -1059,6 +1060,7 @@ export default function ImplementWizard({
                             </span>
                             <span className={`block text-[11px] mt-1 ${cannot ? 'text-error-fg' : 'text-text-secondary'}`}>
                               {!cannot && (locked ? GENIE_FOR_APP_NOTE : item.blurb)}
+                              {!cannot && item.id === 'app' && !joinsApp(spec) && ` ${APP_NEXT_NOTE}`}
                               {cannot && noAppAccess && `Inspire cannot create this App: ${outputCheck.app.detail}.${on ? ' Turn it off, or fix the access and check again.' : ''}`}
                               {cannot && !noAppAccess && (on ? 'You cannot create this in this workspace any more. Turn it off, or ask a workspace admin.' : 'You cannot create this in this workspace.')}
                             </span>
@@ -1188,10 +1190,14 @@ export default function ImplementWizard({
                 <div className="space-y-2">
                   <h4 className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">App</h4>
                   <textarea className={inputCls} rows={3} placeholder="What the App should let people do" value={spec.outputs.app_purpose} onChange={(e) => patch('outputs.app_purpose', e.target.value)} />
-                  <Field label={APP_OWNERS_LABEL}>
-                    <ListInput className={inputCls} separator="," value={spec.outputs.app_owners} onChange={(list) => patch('outputs.app_owners', list)} />
-                  </Field>
-                  <p className="text-[11px] text-text-tertiary">{APP_OWNERS_HELP}</p>
+                  {!joinsApp(spec) && (
+                    <>
+                      <Field label={APP_OWNERS_LABEL}>
+                        <ListInput className={inputCls} separator="," value={spec.outputs.app_owners} onChange={(list) => patch('outputs.app_owners', list)} />
+                      </Field>
+                      <p className="text-[11px] text-text-tertiary">{APP_OWNERS_HELP}</p>
+                    </>
+                  )}
                 </div>
               )}
               {spec.outputs.alert && (
@@ -1338,7 +1344,6 @@ export default function ImplementWizard({
         {stepId === 'app_access' && (
           <AppAccessStep
             spec={spec}
-            target={appTarget}
             lakebase={lakebase}
             onAccess={(access) => setSpec((prev) => withAppAccess(prev, access))}
             onOption={(key, value) => setSpec((prev) => withAppOption(prev, key, value))}
@@ -1352,7 +1357,6 @@ export default function ImplementWizard({
             look={look}
             lookError={lookError}
             palette={palette}
-            target={appTarget}
             title={title}
             onLook={(key, value) => setSpec((prev) => withAppLook(prev, key, value))}
           />
@@ -1494,10 +1498,8 @@ function MergeChoice({ name, label, chosen, targets, targetsError, access, onPic
             {!target && <option value={chosen}>{chosen}</option>}
             {list.map((t) => <option key={t.id} value={t.id} disabled={Boolean(blockOf(t)) && t.id !== chosen}>{optionText(t)}</option>)}
           </select>
-          {target && !block && (
-            <p className="text-[11px] text-text-secondary">
-              Adds this use case to {target.name}, which holds {mergeTargetText(target)}{name === 'app' ? `; ${target.access === 'user' ? 'each person signs in as themselves' : 'it signs in with its own service principal'}` : ''}.
-            </p>
+          {target && !block && name === 'app' && (
+            <p role="note" aria-label="The App this use case joins" className="text-[11px] text-text-secondary">{joinedAppText(target)}</p>
           )}
           {!target && targets !== null && <p className="text-[11px] text-error-fg">{chosen} is not one Inspire built that you can open: pick another, or choose Create new.</p>}
           {block && <p className="text-[11px] text-error-fg">{block}</p>}
@@ -1611,7 +1613,7 @@ function HoldoutSetting({ spec, onEnabled, onPercent }) {
   );
 }
 
-function AppBackendChoice({ spec, target, lakebase, onBackend }) {
+function AppBackendChoice({ spec, lakebase, onBackend }) {
   const absent = lakebase?.state === 'absent';
   const backend = appBackendOf(spec, lakebase);
   const block = lakebaseBlock(spec, lakebase);
@@ -1620,11 +1622,7 @@ function AppBackendChoice({ spec, target, lakebase, onBackend }) {
   return (
     <fieldset className="space-y-1.5">
       <legend className="text-sm font-semibold text-text-primary">Where does the App read its data?</legend>
-      {target ? (
-        <p className="text-[11px] text-text-secondary" role="note" aria-label="Why the data source is set">
-          This use case joins {target.name}, which keeps reading its data where it does today.
-        </p>
-      ) : absent ? (
+      {absent ? (
         <p className="text-[11px] text-text-secondary" role="note" aria-label="Why the App reads Delta tables">
           The App reads Delta tables through the SQL warehouse{lakebase.detail ? `, because ${lakebase.detail}` : ''}.
         </p>
@@ -1660,29 +1658,26 @@ function AppBackendChoice({ spec, target, lakebase, onBackend }) {
   );
 }
 
-function AppAccessStep({ spec, target, lakebase, onAccess, onOption, onBackend }) {
+function AppAccessStep({ spec, lakebase, onAccess, onOption, onBackend }) {
   const access = spec.outputs.app_access;
   const options = spec.outputs.app_options;
-  const block = appMergeBlock({ outputs: { app_access: 'user' } }, target);
   return (
     <section className="space-y-4" aria-label="App access">
       <fieldset className="space-y-2">
         <legend className="text-sm font-semibold text-text-primary">Who does the App sign people in as?</legend>
         <p className="text-[11px] text-text-tertiary">
-          {APP_ACCESS_NOTE}{target ? ` This use case joins ${target.name}.` : ''}
+          {APP_ACCESS_NOTE}
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
           {APP_ACCESS_CHOICES.map((choice) => {
             const Icon = ACCESS_ICONS[choice.id];
-            const blocked = choice.id === 'user' && Boolean(block);
             const checked = access === choice.id;
             return (
               <label
                 key={choice.id}
-                aria-disabled={blocked ? 'true' : undefined}
-                className={`flex items-start gap-2.5 border rounded-lg p-3 glow-focus ${blocked ? 'cursor-not-allowed border-dashed border-border bg-bg-subtle' : `cursor-pointer ${checked ? 'border-db-red bg-db-red-50' : 'border-border hover:border-border-strong'}`}`}
+                className={`flex items-start gap-2.5 border rounded-lg p-3 glow-focus cursor-pointer ${checked ? 'border-db-red bg-db-red-50' : 'border-border hover:border-border-strong'}`}
               >
-                <input type="radio" name="app-access" value={choice.id} checked={checked} disabled={blocked} onChange={() => onAccess(choice.id)} className="mt-0.5" />
+                <input type="radio" name="app-access" value={choice.id} checked={checked} onChange={() => onAccess(choice.id)} className="mt-0.5" />
                 <span className="space-y-1">
                   <span className="flex items-start gap-1.5 text-sm font-semibold text-text-primary"><Icon size={14} className="mt-0.5 shrink-0" aria-hidden="true" />{choice.label}</span>
                   <span className="block text-[12px] text-text-secondary">{choice.blurb}</span>
@@ -1691,12 +1686,8 @@ function AppAccessStep({ spec, target, lakebase, onAccess, onOption, onBackend }
             );
           })}
         </div>
-        {block && <p className="text-[11px] text-error-fg" role="note" aria-label="Why per-user sign-in is off">{block}</p>}
-        {target && target.access === 'user' && access === 'sp' && (
-          <p className="text-[11px] text-text-secondary">{target.name} signs each person in as themselves, so this use case&apos;s page does too.</p>
-        )}
       </fieldset>
-      <AppBackendChoice spec={spec} target={target} lakebase={lakebase} onBackend={onBackend} />
+      <AppBackendChoice spec={spec} lakebase={lakebase} onBackend={onBackend} />
       <fieldset className="space-y-2">
         <legend className={LEGEND}>What people can do in the App</legend>
         <p className="text-[11px] text-text-tertiary">Each one stays off unless you turn it on.</p>
@@ -1829,12 +1820,12 @@ function LayoutPreview({ layout, palette, theme }) {
   );
 }
 
-function LookCard({ name, value, checked, onChange, label, badge = '', blurb = '', disabled = false, children }) {
+function LookCard({ name, value, checked, onChange, label, badge = '', blurb = '', children }) {
   return (
-    <label className={`block border rounded-lg p-2 space-y-1.5 glow-focus ${disabled ? 'cursor-default' : 'cursor-pointer'} ${checked ? 'border-db-red bg-db-red-50' : `border-border ${disabled ? '' : 'hover:border-border-strong'}`}`}>
+    <label className={`block border rounded-lg p-2 space-y-1.5 glow-focus cursor-pointer ${checked ? 'border-db-red bg-db-red-50' : 'border-border hover:border-border-strong'}`}>
       {children}
       <span className="flex items-center gap-2">
-        <input type="radio" name={name} value={value} checked={checked} disabled={disabled} onChange={onChange} />
+        <input type="radio" name={name} value={value} checked={checked} onChange={onChange} />
         <span className="text-[12px] font-semibold text-text-primary">{label}</span>
         {badge && <span className="ml-auto rounded-full border border-border bg-surface px-1.5 py-px text-[10px] text-text-secondary">{badge}</span>}
       </span>
@@ -1843,9 +1834,8 @@ function LookCard({ name, value, checked, onChange, label, badge = '', blurb = '
   );
 }
 
-function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) {
+function AppLookStep({ spec, look, lookError, palette, title, onLook }) {
   const chosen = spec.outputs.app_look;
-  const locked = Boolean(target);
   const palettes = look?.palette_colors || [];
   const [tab, setTab] = useState('style');
   const [pageId, setPageId] = useState('fix');
@@ -1869,11 +1859,7 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
     <section className="space-y-2" aria-label="App look">
       <div>
         <h3 className="text-sm font-semibold text-text-primary">How should the App look?</h3>
-        {locked ? (
-          <p role="note" aria-label="Look of the App this use case joins" className="text-[11px] text-text-secondary">{joinedLookText(target)}</p>
-        ) : (
-          <p className="text-[11px] text-text-tertiary">Each preview draws with the palette and the mode you pick.</p>
-        )}
+        <p className="text-[11px] text-text-tertiary">Each preview draws with the palette and the mode you pick.</p>
         {lookError && <p className="text-[11px] text-error-fg">Inspire could not read the App looks from its agent notebook: {lookError}</p>}
       </div>
       <div role="tablist" aria-label="App look sections" onKeyDown={tabKeys} className="flex gap-5 border-b border-border">
@@ -1899,7 +1885,7 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
           <div className="grid grid-cols-3 gap-3 pt-1">
             {APP_STYLES.map((s) => (
               <LookCard key={s.id} name="app-style" value={s.id} checked={chosen.style === s.id} onChange={() => onLook('style', s.id)}
-                label={s.label} badge={s.id === 'a' ? 'Lakeview look' : ''} blurb={s.blurb} disabled={locked}>
+                label={s.label} badge={s.id === 'a' ? 'Lakeview look' : ''} blurb={s.blurb}>
                 <StylePreview style={s.id} palette={palette} theme={chosen.theme} />
               </LookCard>
             ))}
@@ -1917,8 +1903,8 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
                 const colors = typeof p === 'string' ? null : p[chosen.theme === 'dark' ? 'dark' : 'light'];
                 const checked = chosen.palette === id;
                 return (
-                  <label key={id} className={`block rounded-md p-1 glow-focus ${locked ? 'cursor-default' : 'cursor-pointer'} ${checked ? 'bg-db-red-50 ring-2 ring-db-red' : locked ? '' : 'hover:bg-bg-subtle'}`}>
-                    <input type="radio" name="app-palette" value={id} className="sr-only" checked={checked} disabled={locked} onChange={() => onLook('palette', id)} />
+                  <label key={id} className={`block rounded-md p-1 glow-focus cursor-pointer ${checked ? 'bg-db-red-50 ring-2 ring-db-red' : 'hover:bg-bg-subtle'}`}>
+                    <input type="radio" name="app-palette" value={id} className="sr-only" checked={checked} onChange={() => onLook('palette', id)} />
                     <span aria-hidden="true" data-swatch={id} className="flex h-6 gap-px overflow-hidden rounded p-[3px]"
                       style={colors ? { background: colors.base.bg, border: `1px solid ${colors.base['line-strong'] || colors.base.line}` } : undefined}>
                       {colors && Object.values(colors.hues).map((hue, i) => <span key={i} className="block flex-1 rounded-[1px]" style={{ background: hue.line }} />)}
@@ -1938,9 +1924,8 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
                   key={t.id}
                   type="button"
                   aria-pressed={chosen.theme === t.id}
-                  disabled={locked}
                   onClick={() => onLook('theme', t.id)}
-                  className={`px-4 py-1.5 text-xs font-medium border-r border-border last:border-r-0 ${chosen.theme === t.id ? 'bg-db-red-solid text-white' : `bg-surface text-text-secondary ${locked ? '' : 'hover:text-text-primary'}`}`}
+                  className={`px-4 py-1.5 text-xs font-medium border-r border-border last:border-r-0 ${chosen.theme === t.id ? 'bg-db-red-solid text-white' : 'bg-surface text-text-secondary hover:text-text-primary'}`}
                 >
                   {t.label}
                 </button>
@@ -1954,7 +1939,7 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
           <legend className={LEGEND}>Layout</legend>
           <div className="grid grid-cols-3 gap-3 pt-1">
             {APP_LAYOUTS.map((l) => (
-              <LookCard key={l.id} name="app-layout" value={l.id} checked={chosen.layout === l.id} onChange={() => onLook('layout', l.id)} label={l.label} blurb={l.blurb} disabled={locked}>
+              <LookCard key={l.id} name="app-layout" value={l.id} checked={chosen.layout === l.id} onChange={() => onLook('layout', l.id)} label={l.label} blurb={l.blurb}>
                 <LayoutPreview layout={l.id} palette={palette} theme={chosen.theme} />
               </LookCard>
             ))}
@@ -1993,7 +1978,7 @@ function AppLookStep({ spec, look, lookError, palette, target, title, onLook }) 
           <p data-page-blurb="" className="text-[11px] leading-snug text-text-secondary">{pages.find((p) => p.id === shownPage).blurb}</p>
         </div>
       </div>
-      <AppSample palette={palette} look={chosen} appName={target?.name || spec.outputs.app_name || 'Your App'} title={title}
+      <AppSample palette={palette} look={chosen} appName={spec.outputs.app_name || 'Your App'} title={title}
         view={view} shared={spec.outputs.app_access !== 'user'} label={sampleLabel} />
       <p className="text-[11px] text-text-tertiary">{APP_SAMPLE_NOTE}</p>
     </section>

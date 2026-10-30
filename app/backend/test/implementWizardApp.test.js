@@ -117,8 +117,8 @@ test('joining an existing App deploys to it with its look, Create new brings the
   assert.deepEqual([joined.outputs.merge.app, joined.outputs.app_name], ['churn-desk', 'churn-desk']);
   assert.deepEqual(joined.outputs.app_look, { style: 'b', layout: 'sidebar', palette: 'ocean', theme: 'light' });
   assert.equal(w.appMergeBlock(joined, sp), 'churn-desk is internal only');
-  assert.deepEqual(w.stepErrors('app_access', joined, { mergeTargets: targets }), ['churn-desk is internal only']);
-  assert.deepEqual(w.stepErrors('app_access', w.withAppAccess(joined, 'sp'), { mergeTargets: targets }), []);
+  assert.deepEqual(w.stepErrors('delivery', joined, { mergeTargets: targets }), ['churn-desk is internal only'], 'the block shows where the App is picked');
+  assert.deepEqual(w.stepErrors('delivery', w.withAppAccess(joined, 'sp'), { mergeTargets: targets }), []);
   assert.equal(w.appMergeBlock(w.withMergeTarget(spec, 'app', user), user), '', 'per-user may join a per-user App');
   const back = w.withMergeTarget(joined, 'app', null, 'predict-churn');
   assert.deepEqual([back.outputs.merge.app, back.outputs.app_name], ['', 'predict-churn']);
@@ -131,6 +131,28 @@ test('joining an existing App deploys to it with its look, Create new brings the
   assert.deepEqual(w.stepErrors('delivery', stale, { mergeTargets: targets }), ['pick a Dashboard Inspire built to add to, or choose Create new']);
   assert.deepEqual(w.stepErrors('delivery', stale, { mergeTargets: targets, held: { dashboard: 'gone' } }), [], 'the one it already holds is fine');
   assert.deepEqual(w.stepErrors('delivery', stale, {}), [], 'nothing is judged before the list loads');
+});
+
+test('a use case that joins an existing App skips App access and App look, shows and checks no App owners, and sends none', async () => {
+  const { w, spec } = await appSpec({ app_access: 'sp', app_owners: ['nope', 'lee@example.com'] });
+  const hub = { id: 'inspire-hub-acme', name: 'inspire-hub-acme', access: 'sp', use_cases: [{ use_case_id: 'N01-U02', name: 'Forecast demand' }] };
+  const targets = { app: [hub], dashboard: [], genie_space: [] };
+  const joined = w.withMergeTarget(spec, 'app', hub, 'predict-churn');
+  const fresh = w.withMergeTarget(joined, 'app', null, 'predict-churn');
+  assert.deepEqual([w.joinsApp(joined), w.joinsApp(fresh), w.joinsApp({ ...joined, outputs: { ...joined.outputs, app: false } }), w.joinsApp(null)], [true, false, false, false]);
+  assert.deepEqual(w.wizardSteps('mvp', joined).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'vibes'], 'the existing App keeps its sign-in, data source and look');
+  assert.deepEqual(w.wizardSteps('mvp', fresh).map((s) => s.id), ['choose', 'data', 'results', 'delivery', 'app_access', 'app_look', 'vibes']);
+  assert.throws(() => w.stepErrors('app_access', joined, { mergeTargets: targets }), /unknown wizard step 'app_access'/);
+  assert.deepEqual(w.stepErrors('delivery', joined, { mergeTargets: targets }), [], 'no hidden App owner blocks Next');
+  assert.deepEqual(w.advancedErrors('delivery', joined, { mergeTargets: targets }), []);
+  assert.deepEqual(w.stepErrors('delivery', fresh, { mergeTargets: targets }), ['App owners must be email addresses: nope'], 'a new App still checks its owners');
+  assert.deepEqual(w.sentSpec(joined, null).outputs.app_owners, [], 'owners typed before picking the existing App are not sent');
+  assert.deepEqual(w.sentSpec(fresh, null).outputs.app_owners, ['nope', 'lee@example.com']);
+  const plain = w.withMergeTarget({ ...spec, outputs: { ...spec.outputs, app_owners: [] } }, 'app', hub);
+  assert.deepEqual(w.sentSpec(plain, null), w.specWithBackend(plain, null), 'nothing to drop sends the spec as it is');
+  assert.doesNotMatch(w.joinedAppText(hub), /[\u2013\u2014]/);
+  assert.doesNotMatch(w.joinedAppText(hub), /access and look next/, 'the join text never promises the App steps it skips');
+  assert.doesNotMatch(w.IMPLEMENT_OUTPUTS.find((o) => o.id === 'app').blurb, /next/, 'the App tile says what comes next only for a new App');
 });
 
 test('the App reads Lakebase by default when the workspace has it, Delta tables otherwise, and a per-user App always reads Delta tables', async () => {

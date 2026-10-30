@@ -446,7 +446,16 @@ const MERGE_STATE = {
   },
 };
 
-test('each asset can be built new or added to one Inspire built, the list shows its use cases and sign-in, and per-user cannot join a service-principal App', async () => {
+const JOIN_NOTE = 'The App this use case joins';
+const appTile = (page) => page.locator('[data-output="app"] label').first().textContent();
+const stepLabels = (page) => page.locator('ol li').allTextContents();
+const ownersShown = async (page) => {
+  const toggle = page.getByRole('button', { name: 'Advanced settings' });
+  if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+  return page.getByLabel('App owners (comma separated)').count();
+};
+
+test('each asset can be built new or added to one Inspire built, the list shows its use cases and sign-in, and a joined App skips App access and App look', async () => {
   const ui = await openUi('wizard', MERGE_STATE);
   const { page, made } = ui;
   try {
@@ -462,37 +471,44 @@ test('each asset can be built new or added to one Inspire built, the list shows 
       'ops-desk · holds Forecast demand · its own service principal',
       'care-desk · holds Score suppliers · each person signs in',
     ], 'only Apps Inspire built, never one whose description is not an Inspire owner tag');
-    await app.getByText('Adds this use case to ops-desk, which holds Forecast demand; it signs in with its own service principal.').waitFor();
+    assert.equal(await app.getByRole('note', { name: JOIN_NOTE }).textContent(),
+      'It keeps the look of ops-desk (Style B, Top tabs, the Ocean palette and Light mode), its sign-in and its data source, '
+      + 'so everyone who opens it sees the same rows. For your own, choose Create new.');
+    assert.doesNotMatch(await appTile(page), /access and look next/, 'a joined App tile does not promise the steps it skips');
     assert.equal(await page.getByLabel('App name').count(), 0, 'a joined App keeps its own name');
+    assert.equal(await ownersShown(page), 0, 'the App it joins keeps its own owners');
     const genie = page.locator('[data-merge="genie_space"]');
     await genie.getByText('Inspire has built none yet').waitFor();
     assert.equal(await genie.getByRole('button', { name: 'Add to an existing one' }).isDisabled(), true);
+    const steps = await stepLabels(page);
+    assert.ok(!steps.some((s) => /App access|App look/.test(s)), `no App access or App look step: ${steps.join(', ')}`);
+    await next(page);
+    await onStep(page, 'Vibes');
+    await page.getByRole('button', { name: 'Back' }).click();
+    await onStep(page, 'Delivery');
+    await app.getByRole('button', { name: 'Create new' }).click();
+    await page.getByLabel('App name').waitFor();
+    assert.equal(await ownersShown(page), 1, 'a new App names its owners');
+    assert.match(await appTile(page), /You pick its access and look next\.$/);
     await next(page);
     await onStep(page, 'App access');
     const access = page.getByRole('region', { name: 'App access' });
-    assert.equal(await access.getByRole('radio', { name: /^Sensitive data/ }).isDisabled(), true, 'per-user cannot join a service-principal App');
-    await access.getByRole('note', { name: 'Why per-user sign-in is off' })
-      .getByText('ops-desk signs everyone in with its own service principal, so a per-user (sensitive) use case cannot join it: create a new App, or choose Internal data').waitFor();
-    await page.getByRole('button', { name: 'Back' }).click();
-    await onStep(page, 'Delivery');
-    await pick.selectOption('care-desk');
-    await next(page);
-    await onStep(page, 'App access');
     await access.getByRole('radio', { name: /^Sensitive data/ }).check();
     await page.getByRole('button', { name: 'Back' }).click();
     await onStep(page, 'Delivery');
+    await app.getByRole('button', { name: 'Add to an existing one' }).click();
+    assert.equal(await pick.inputValue(), 'care-desk', 'with per-user chosen, the App that signs each person in is offered first');
     assert.equal(await pick.locator('option[value="ops-desk"]').isDisabled(), true, 'with per-user chosen, the service-principal App cannot be picked');
     assert.match(await pick.locator('option[value="ops-desk"]').textContent(), /per-user use cases cannot join$/);
+    assert.equal(await app.getByRole('note', { name: JOIN_NOTE }).textContent(),
+      'It keeps the look of care-desk, its sign-in and its data source, so each person sees only the rows their own access allows. '
+      + 'For your own, choose Create new.', 'never a guessed look, and no shared rows');
     await next(page);
-    await onStep(page, 'App access');
-    await next(page);
-    await onStep(page, 'App look');
-    assert.equal(await page.getByRole('region', { name: 'App look' }).getByRole('note', { name: 'Look of the App this use case joins' }).textContent(),
-      'This use case joins care-desk, so it shows in that App\'s look, which Inspire has no record of. The use case that built care-desk sets its look. '
-      + 'For a look of its own, choose Create new for the App in the Delivery step.');
+    await onStep(page, 'Vibes');
     await startWhenReady(page);
     const spec = submittedSpec(made);
-    assert.deepEqual([spec.outputs.app_access, spec.outputs.app_name, spec.outputs.merge], ['user', 'care-desk', { app: 'care-desk', dashboard: '', genie_space: '' }]);
+    assert.deepEqual([spec.outputs.app_access, spec.outputs.app_name, spec.outputs.merge, spec.outputs.app_owners],
+      ['user', 'care-desk', { app: 'care-desk', dashboard: '', genie_space: '' }, []]);
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -517,7 +533,8 @@ test('a ticked App goes into the business Hub by default, Create new stays put o
     await toDelivery(page);
     await page.getByRole('checkbox', { name: /^App / }).check();
     const app = page.locator('[data-merge="app"]');
-    await app.getByText('Adds this use case to inspire-hub-acme, which holds Route trucks, Price promos; it signs in with its own service principal.').waitFor();
+    assert.match(await app.getByLabel('App to add this use case to').locator('option:checked').textContent(), /^inspire-hub-acme · holds Route trucks, Price promos · /);
+    await app.getByRole('note', { name: JOIN_NOTE }).waitFor();
     assert.equal(await app.getByRole('button', { name: 'Add to an existing one' }).getAttribute('aria-pressed'), 'true');
     assert.equal(await app.getByLabel('App to add this use case to').inputValue(), 'inspire-hub-acme');
     await app.getByRole('button', { name: 'Create new' }).click();
@@ -526,33 +543,14 @@ test('a ticked App goes into the business Hub by default, Create new stays put o
     assert.equal(await app.getByRole('button', { name: 'Create new' }).getAttribute('aria-pressed'), 'true', 'the person chose Create new, so the Hub default does not come back');
     await app.getByRole('button', { name: 'Add to an existing one' }).click();
     await app.getByLabel('App to add this use case to').selectOption('inspire-hub-acme');
+    assert.match(await app.getByRole('note', { name: JOIN_NOTE }).textContent(),
+      /^It keeps the look of inspire-hub-acme \(Style C, Home cards, the Earth palette and Dark mode\), its sign-in and its data source/);
     await next(page);
-    await onStep(page, 'App access');
-    await page.getByRole('region', { name: 'App access' }).getByRole('radio', { name: /^Internal data/ }).check();
-    await next(page);
-    await onStep(page, 'App look');
-    const look = page.getByRole('region', { name: 'App look' });
-    assert.equal(await look.getByRole('note', { name: 'Look of the App this use case joins' }).textContent(),
-      'This use case joins inspire-hub-acme, so it shows in that App\'s look: Style C, Home cards, the Earth palette and Dark mode. '
-      + 'The use case that built inspire-hub-acme sets its look. For a look of its own, choose Create new for the App in the Delivery step.');
-    assert.equal(await look.getByText('Each preview draws with the palette and the mode you pick.').count(), 0, 'no promise of a pick it cannot make');
-    const styles = look.getByRole('radio', { name: /^Style [ABC]/ });
-    assert.deepEqual(await styles.evaluateAll((rs) => rs.map((r) => [r.value, r.checked, r.disabled])), [['a', false, true], ['b', false, true], ['c', true, true]]);
-    await look.getByRole('tab', { name: 'Palette' }).click();
-    assert.deepEqual(await look.locator('input[name="app-palette"]').evaluateAll((rs) => [rs.length, rs.every((r) => r.disabled), rs.filter((r) => r.checked).map((r) => r.value)]),
-      [13, true, ['earth']]);
-    assert.deepEqual(await look.getByRole('group', { name: 'Light or dark' }).getByRole('button').evaluateAll((bs) => bs.map((b) => [b.textContent, b.disabled])),
-      [['Light', true], ['Dark', true]]);
-    await look.getByText('Ocean', { exact: true }).click({ force: true });
-    await look.getByRole('tab', { name: 'Layout' }).click();
-    assert.deepEqual(await look.locator('input[name="app-layout"]').evaluateAll((rs) => rs.map((r) => [r.value, r.checked, r.disabled])),
-      [['sidebar', false, true], ['tabs', false, true], ['home', true, true]]);
-    await look.getByRole('tab', { name: 'Pages' }).click();
-    assert.equal(await look.getByRole('group', { name: 'Pages of the App' }).getByRole('button').first().isDisabled(), false, 'the sample can still be explored');
+    await onStep(page, 'Vibes');
     await startWhenReady(page);
     const spec = submittedSpec(made);
     assert.deepEqual([spec.outputs.app_name, spec.outputs.merge.app], ['inspire-hub-acme', 'inspire-hub-acme']);
-    assert.deepEqual(spec.outputs.app_look, hubLook, 'the look of the use case that built the Hub, not the joiner listed first, and a click on a locked swatch changes nothing');
+    assert.deepEqual(spec.outputs.app_look, hubLook, 'the look of the use case that built the Hub, not the joiner listed first');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();

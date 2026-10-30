@@ -29,8 +29,12 @@ export const NOTEBOOK_STEPS = [
   { id: 'notebook', label: 'Notebook', sections: [], advanced: [] },
 ];
 
+export function joinsApp(spec) {
+  return Boolean(spec?.outputs?.app && spec.outputs.merge?.app);
+}
+
 export function wizardSteps(mode, spec = null) {
-  if (mode === 'mvp') return [...IMPLEMENT_STEPS, ...(spec?.outputs?.app ? APP_STEPS : []), VIBES_STEP];
+  if (mode === 'mvp') return [...IMPLEMENT_STEPS, ...(spec?.outputs?.app && !joinsApp(spec) ? APP_STEPS : []), VIBES_STEP];
   if (mode === 'notebook') return NOTEBOOK_STEPS;
   throw new Error(`unknown implement mode '${mode}'`);
 }
@@ -75,6 +79,11 @@ export function lakebaseBlock(spec, offer) {
 export function specWithBackend(spec, offer) {
   const backend = appBackendOf(spec, offer);
   return !spec?.outputs?.app || backend === spec.outputs.app_backend ? spec : { ...spec, outputs: { ...spec.outputs, app_backend: backend } };
+}
+
+export function sentSpec(spec, offer) {
+  const out = specWithBackend(spec, offer);
+  return joinsApp(out) && out.outputs.app_owners?.length ? { ...out, outputs: { ...out.outputs, app_owners: [] } } : out;
 }
 
 export function withAppBackend(spec, backend) {
@@ -138,10 +147,10 @@ export function lookText(look) {
     + `${lookLabel('theme', look.theme)} mode`;
 }
 
-export function joinedLookText(target) {
-  const look = target.look ? `: ${lookText({ ...APP_LOOK_DEFAULT, ...target.look })}` : ', which Inspire has no record of';
-  return `This use case joins ${target.name}, so it shows in that App's look${look}. The use case that built ${target.name} `
-    + 'sets its look. For a look of its own, choose Create new for the App in the Delivery step.';
+export function joinedAppText(target) {
+  const look = target.look ? ` (${lookText({ ...APP_LOOK_DEFAULT, ...target.look })})` : '';
+  const rows = target.access === 'user' ? 'each person sees only the rows their own access allows' : 'everyone who opens it sees the same rows';
+  return `It keeps the look of ${target.name}${look}, its sign-in and its data source, so ${rows}. For your own, choose Create new.`;
 }
 export const APP_LOOK_TABS = [
   { id: 'style', label: 'Style' }, { id: 'palette', label: 'Palette' }, { id: 'layout', label: 'Layout' }, { id: 'charts', label: 'Charts' }, { id: 'pages', label: 'Pages' },
@@ -172,6 +181,7 @@ export function appPagesOf(spec) {
   ];
 }
 export const GENIE_FOR_APP_NOTE = 'Ask Genie in the App needs a Genie Agent.';
+export const APP_NEXT_NOTE = 'You pick its access and look next.';
 export const RESULT_TABLE_MOVE_NOTE = 'Moving the table later copies its history to the new table and keeps the old one.';
 export const MERGE_OUTPUTS = ['dashboard', 'genie_space', 'app'];
 
@@ -184,7 +194,7 @@ export const FRESHNESS_OPTIONS = [
 export const IMPLEMENT_OUTPUTS = [
   { id: 'dashboard', label: 'Dashboard', blurb: 'Decision list, trend and run health.' },
   { id: 'genie_space', label: 'Genie Agent', blurb: 'An agent over the result and source tables, with 5 sample questions.' },
-  { id: 'app', label: 'App', blurb: 'A Databricks App with the decision list, row detail and Ask Genie. You pick its access and look next.' },
+  { id: 'app', label: 'App', blurb: 'A Databricks App with the decision list, row detail and Ask Genie.' },
   { id: 'alert', label: 'Alert', blurb: 'Emails you when the latest run has rows to act on. Genie writes the check.' },
 ];
 
@@ -1128,8 +1138,6 @@ export function sectionErrors(section, spec, extras = {}) {
     if (!APP_ACCESS_CHOICES.some((c) => c.id === spec.outputs.app_access)) {
       errors.push('choose who the App signs people in as: each person (per-user) or its own service principal');
     }
-    const block = appMergeBlock(spec, mergeTargetOf(extras.mergeTargets, 'app', spec.outputs.merge?.app));
-    if (block) errors.push(block);
     if (extras.lakebase === null && spec.outputs.app_access === 'sp' && !spec.outputs.merge?.app) errors.push(LAKEBASE_CHECKING);
   }
   if (section === 'app_look' && spec.outputs.app && extras.appLook) {
@@ -1166,6 +1174,8 @@ export function sectionErrors(section, spec, extras = {}) {
       errors.push('app name must be 3-30 lowercase letters, digits and dashes');
     }
     if (spec.outputs.app && !spec.outputs.genie_space) errors.push(GENIE_FOR_APP_NOTE);
+    const block = appMergeBlock(spec, mergeTargetOf(extras.mergeTargets, 'app', joinsApp(spec) ? spec.outputs.merge.app : ''));
+    if (block) errors.push(block);
     for (const name of MERGE_OUTPUTS) {
       const id = spec.outputs.merge?.[name];
       if (!spec.outputs[name] || !id || !extras.mergeTargets || extras.held?.[name] === id) continue;
@@ -1176,7 +1186,7 @@ export function sectionErrors(section, spec, extras = {}) {
   }
   if (section === 'vibes') errors.push(...vibesProblems(spec));
   if (section === 'holdout') errors.push(...holdoutProblems(spec));
-  if (section === 'app_owners' && spec.outputs.app) errors.push(...appOwnerProblems(spec.outputs.app_owners));
+  if (section === 'app_owners' && spec.outputs.app && !joinsApp(spec)) errors.push(...appOwnerProblems(spec.outputs.app_owners));
   if (section === 'alert' && spec.outputs.alert) {
     const recipients = spec.outputs.alert_recipients || [];
     const bad = recipients.filter((e) => !EMAIL_RE.test(String(e || '').trim()));

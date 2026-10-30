@@ -1194,14 +1194,16 @@ test('a joined App\'s look reads in plain words and says how to get a look of it
   assert.equal(w.lookText(look), 'Style A, Top tabs, the Ocean palette and Dark mode');
   assert.deepEqual([w.lookLabel('palette', ''), w.lookLabel('style', 'z'), w.lookLabel('layout', undefined), w.lookLabel('other', 'x')], ['', 'z', '', 'x'],
     'an unknown value shows as it is');
-  const tail = 'The use case that built inspire-hub-acme sets its look. For a look of its own, choose Create new for the App in the Delivery step.';
-  const text = w.joinedLookText({ name: 'inspire-hub-acme', look });
-  assert.equal(text, `This use case joins inspire-hub-acme, so it shows in that App's look: Style A, Top tabs, the Ocean palette and Dark mode. ${tail}`);
-  assert.equal(w.joinedLookText({ name: 'inspire-hub-acme', look: { palette: 'earth' } }),
-    `This use case joins inspire-hub-acme, so it shows in that App's look: Style A, Sidebar, the Earth palette and Light mode. ${tail}`,
+  const hub = { name: 'inspire-hub-acme', access: 'sp', use_cases: [{ use_case_id: 'N01-U01', name: 'Forecast demand' }] };
+  const head = 'It keeps the look of inspire-hub-acme';
+  const tail = 'its sign-in and its data source, so everyone who opens it sees the same rows. For your own, choose Create new.';
+  const text = w.joinedAppText({ ...hub, look });
+  assert.equal(text, `${head} (Style A, Top tabs, the Ocean palette and Dark mode), ${tail}`);
+  assert.equal(w.joinedAppText({ ...hub, look: { palette: 'earth' } }), `${head} (Style A, Sidebar, the Earth palette and Light mode), ${tail}`,
     'a partly recorded look fills in the defaults the agent fills in');
-  assert.equal(w.joinedLookText({ name: 'inspire-hub-acme', look: null }),
-    `This use case joins inspire-hub-acme, so it shows in that App's look, which Inspire has no record of. ${tail}`, 'never a guessed look');
+  assert.equal(w.joinedAppText({ ...hub, look: null }), `${head}, ${tail}`, 'never a guessed look');
+  assert.match(w.joinedAppText({ ...hub, access: 'user', look: null }), /so each person sees only the rows their own access allows\./,
+    'an App that signs each person in says so');
   assert.doesNotMatch(text, /[\u2013\u2014]/);
-  assert.match(text, new RegExp(w.IMPLEMENT_STEPS.find((s) => s.id === 'delivery').label), 'it names the step where Create new is');
+  assert.match(text, /choose Create new\.$/, 'it says how to get a look of its own, on the step where Create new is');
 });

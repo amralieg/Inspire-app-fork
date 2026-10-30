@@ -1303,10 +1303,10 @@ test('Edit of a use case whose own App no longer exists says so and puts the use
     await toDelivery(page);
     await page.getByText('The App this use case had, churn-desk, no longer exists, so Genie can add the use case to one Inspire built or create a new one.').waitFor();
     const app = page.locator('[data-merge="app"]');
-    await app.getByText('Adds this use case to inspire-hub-acme, which holds Price promos; it signs in with its own service principal.').waitFor();
+    assert.match(await app.getByLabel('App to add this use case to').locator('option:checked').textContent(), /^inspire-hub-acme · holds Price promos · /);
+    await app.getByRole('note', { name: 'The App this use case joins' }).waitFor();
     assert.equal(await app.getByRole('button', { name: 'Add to an existing one' }).getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('[data-merge="dashboard"]').count(), 0, 'a dashboard that still exists is updated in place');
-    await throughApp(page);
     await implementWhenReady(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     const spec = submittedSpec(made);
