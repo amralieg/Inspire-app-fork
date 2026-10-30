@@ -1494,7 +1494,11 @@ function placementTarget(spec, targets, scope) {
   const fits = (t) => t && !appMergeBlock(spec, t) && appPlacementFit(t, scope).fit === 'recommended';
   const named = mergeTargetOf(targets, 'app', placementAppName(scope.placement, scope));
   if (fits(named)) return named;
-  return (targets?.app || []).find((t) => fits(t) && (t.use_cases || []).some((u) => u.placement === scope.placement)) || null;
+  const apps = (targets?.app || []).filter(fits);
+  const placed = apps.find((t) => (t.use_cases || []).some((u) => u.placement === scope.placement));
+  if (placed || scope.placement !== 'domain') return placed || null;
+  const older = apps.filter((t) => (t.use_cases || []).every((u) => !u.placement));
+  return older.reduce((best, t) => (!best || t.use_cases.length > best.use_cases.length ? t : best), null);
 }
 
 export function withNewApp(spec, placement, targets, scope = {}) {

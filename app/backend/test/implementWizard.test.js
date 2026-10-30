@@ -841,6 +841,21 @@ test('a placement joins the App of that placement when it fits, else creates one
   const placedByDomain = appTarget('customer-desk', [holder('N01-U04', 'Acme', 'Customer', { placement: 'domain' })]);
   assert.equal(w.withAppPlacement(spec, 'domain', { app: [ownApp, placedByDomain] }, scope).outputs.merge.app, 'customer-desk',
     'an App whose use cases chose one App per domain is that domain App, whatever its name');
+  const before = { placement: '' };
+  const older = appTarget('n01-u02-retention', [holder('N01-U02', 'Acme', 'Customer', before)]);
+  const olderPair = appTarget('customer-pair', [holder('N01-U06', 'Acme', 'Customer', before), holder('N01-U07', 'Acme', 'Customer', before)]);
+  const olderFinance = appTarget('n02-u04-cash', [holder('N02-U04', 'Acme', 'Finance', before)]);
+  assert.equal(w.withAppPlacement(spec, 'domain', { app: [olderFinance, older] }, scope).outputs.merge.app, 'n01-u02-retention',
+    'an App built before App placement that holds only this domain is that domain App, whatever its name');
+  assert.equal(w.withAppPlacement(spec, 'domain', { app: [older, olderPair] }, scope).outputs.merge.app, 'customer-pair',
+    'of two such Apps, the one holding more use cases of this domain is joined');
+  assert.equal(w.withAppPlacement(spec, 'domain', { app: [ownApp, older] }, scope).outputs.merge.app, 'n01-u02-retention');
+  const mixedOlder = appTarget('mixed-desk', [holder('N01-U08', 'Acme', 'Customer', before), holder('N01-U09', 'Acme', 'Customer', { placement: 'use_case' })]);
+  assert.deepEqual([w.withAppPlacement(spec, 'domain', { app: [mixedOlder, olderFinance] }, scope).outputs.merge?.app || '',
+    w.withAppPlacement(spec, 'domain', { app: [mixedOlder, olderFinance] }, scope).outputs.app_name], ['', 'inspire-acme-customer'],
+    'an App one of its use cases made for itself, or one of another domain, is never joined');
+  assert.deepEqual([w.withAppPlacement(spec, 'business', { app: [older] }, scope).outputs.merge?.app || '', w.withAppPlacement(spec, 'business', { app: [older] }, scope).outputs.app_name],
+    ['', 'inspire-hub-acme'], 'one App for the business joins only its Hub, never an older App of one domain');
   const perCase = w.withAppPlacement(spec, 'use_case', { app: [domainApp, hub] }, scope);
   assert.deepEqual([perCase.outputs.merge?.app || '', perCase.outputs.app_name], ['', 'predict-churn'], 'one App per use case never joins');
   const blocked = w.withAppPlacement(w.withAppAccess(spec, 'user'), 'domain', { app: [domainApp] }, scope);

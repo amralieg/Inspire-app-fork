@@ -533,8 +533,11 @@ test('the App is picked on its own App placement step: Delivery only ticks it, a
       'only Apps Inspire built, the best fit first, never one whose description is not an Inspire owner tag');
     assert.match(await placeStep(page).locator('[data-app-target="care-desk"]').textContent(),
       /It holds only Finance use cases, not Customer, so the people who use it could see another domain's data or use cases unrelated to their work\./);
-    assert.equal(await placeStep(page).getByRole('radio', { name: /^Create a new App/ }).isChecked(), true,
-      'an App made before placements existed is not taken over by default');
+    await placeStep(page).getByRole('note', { name: JOIN_NOTE }).waitFor();
+    assert.equal(await targetRadio(page, 'ops-desk').isChecked(), true,
+      'an App built before App placement that holds only this business and domain is that domain App, so it is joined by default');
+    await placeStep(page).getByRole('radio', { name: /^Create a new App/ }).check();
+    await page.getByLabel('App name').waitFor();
     assert.equal(await policy(page, /^One App per business domain \(default\)/).isChecked(), true);
     assert.equal(await page.getByLabel('App name').inputValue(), 'inspire-acme-customer', 'the new App is named for the business and the domain');
     await policy(page, /^One App per use case/).check();
