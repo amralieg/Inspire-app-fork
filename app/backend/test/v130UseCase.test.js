@@ -10,17 +10,22 @@ const load = () => import(libUrl);
 const AGENT_KPI_TEXT = [
   [{ name: 'Repeat purchase rate', direction: 'increase', unit: '%', baseline: { value: 23.4, window_days: 90, measured_on: '2026-10-21' } },
     'Repeat purchase rate (↑ %): baseline 23.40, last 90 days, measured 2026-10-21'],
+  [{ name: 'Repeat purchase rate', direction: 'increase', unit: '%',
+    baseline: { value: 23.4, window_days: 90, measured_on: '2026-10-21', window_anchor: 'newest data' } },
+  'Repeat purchase rate (↑ %): baseline 23.40, last 90 days to the newest data, measured 2026-10-21'],
   [{ name: 'Stockout days', direction: 'reduce stockouts', unit: 'days', baseline: { value: 1234.5, measured_on: '2026-10-21' } },
-    'Stockout days (↓ days): baseline 1,234, measured 2026-10-21'],
+    'Stockout days (↓ days): baseline 1,234, all data, measured 2026-10-21'],
   [{ name: 'Orders', direction: '', unit: '', baseline: { value: 2500.5, window_days: 30, measured_on: '2026-10-20' } },
+    'Orders: baseline 2,500, last 30 days, measured 2026-10-20'],
+  [{ name: 'Orders', direction: '', unit: '', baseline: { value: 2500.5, window_days: 30, measured_on: '2026-10-20', window_anchor: 'today' } },
     'Orders: baseline 2,500, last 30 days, measured 2026-10-20'],
   [{ name: 'Margin', direction: 'maintain', unit: 'AED', baseline: null }, 'Margin (maintain AED)'],
   [{ name: 'Churn', direction: 'up or down', unit: '', baseline: { value: 7, measured_on: '2026-10-19' } },
-    'Churn (up or down): baseline 7, measured 2026-10-19'],
+    'Churn (up or down): baseline 7, all data, measured 2026-10-19'],
   [{ name: 'Basket', direction: 'Grow', unit: 'AED', baseline: { value: -0.125, window_days: 7, measured_on: '2026-10-18' } },
     'Basket (↑ AED): baseline -0.12, last 7 days, measured 2026-10-18'],
   [{ name: 'Big', direction: 'decline', unit: '', baseline: { value: 3500.5, measured_on: '2026-10-18' } },
-    'Big (↓): baseline 3,500, measured 2026-10-18'],
+    'Big (↓): baseline 3,500, all data, measured 2026-10-18'],
   [{ name: 'Str', direction: 'increase', unit: '', baseline: { value: '', measured_on: '2026-10-18' } }, 'Str (↑)'],
 ];
 
@@ -72,9 +77,9 @@ test('a KPI baseline of 0 counted back from today, before the window was anchore
   assert.equal(lib.kpiText(STALE_KPIS[0]), 'Weekly trips served (↑)');
   assert.equal(lib.kpiBaselineShown(STALE_ZERO), null);
   assert.equal(lib.kpiBaselineShown({ ...STALE_ZERO, value: '0' }), null);
-  assert.equal(lib.kpiText(STALE_KPIS[1]), 'Weekly fare revenue (↑ USD): baseline 0, last 7 days, measured 2026-10-29');
+  assert.equal(lib.kpiText(STALE_KPIS[1]), 'Weekly fare revenue (↑ USD): baseline 0, last 7 days to the newest data, measured 2026-10-29');
   assert.equal(lib.kpiText(STALE_KPIS[2]), 'Zones served (↑): baseline 120, last 7 days, measured 2026-10-29');
-  assert.equal(lib.kpiText(STALE_KPIS[3]), 'Open tickets (↓): baseline 0, measured 2026-10-29');
+  assert.equal(lib.kpiText(STALE_KPIS[3]), 'Open tickets (↓): baseline 0, all data, measured 2026-10-29');
   for (const empty of [null, undefined, {}, [], 'x']) assert.equal(lib.kpiBaselineShown(empty), null);
 });
 

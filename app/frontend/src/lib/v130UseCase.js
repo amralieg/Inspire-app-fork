@@ -273,8 +273,9 @@ export function kpiText(spec) {
   const value = baseline ? finiteNumber(baseline.value) : null;
   if (value == null) return text;
   const date = String(baseline.measured_on ?? '');
-  if (baseline.window_days) return `${text}: baseline ${formatBaseline(value)}, last ${baseline.window_days} days, measured ${date}`;
-  return `${text}: baseline ${formatBaseline(value)}, measured ${date}`;
+  if (!baseline.window_days) return `${text}: baseline ${formatBaseline(value)}, all data, measured ${date}`;
+  const newest = baseline.window_anchor === KPI_WINDOW_ANCHOR ? ' to the newest data' : '';
+  return `${text}: baseline ${formatBaseline(value)}, last ${baseline.window_days} days${newest}, measured ${date}`;
 }
 
 function kpiPart(part) {
