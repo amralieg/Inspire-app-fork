@@ -110,11 +110,22 @@ test('the App starts on with its Genie Agent locked on and the alert off, App ac
     assert.equal(await look.locator('[data-preview="layout-home"]').evaluate((el) => getComputedStyle(el).backgroundColor), rgb(nordic.dark.base.bg),
       'the previews draw with the palette and the mode picked');
     assert.equal(await look.locator('[data-preview="style-c"]').evaluate((el) => getComputedStyle(el).backgroundColor), rgb(nordic.dark.base.card));
+    await lookTab('Charts');
+    await look.locator('[data-chart-kind="split"] input').check();
+    await look.locator('[data-app-sample][data-sample-charts="trend,bars,split,pareto"]').waitFor();
+    await lookTab('Pages');
+    const alertsTile = look.locator('[data-app-page="alerts"]');
+    assert.deepEqual([await alertsTile.getByRole('switch').isChecked(), await alertsTile.getByRole('switch').isDisabled()], [false, true],
+      'a per-user App has Alerts off and locked');
+    await look.getByText(/^Alerts are off: /).waitFor();
+    await look.locator('[data-app-page="runs"]').getByRole('switch').uncheck();
     await startWhenReady(page);
     const spec = submittedSpec(made);
     assert.deepEqual([spec.outputs.app, spec.outputs.genie_space, spec.outputs.app_access], [true, true, 'user']);
     assert.deepEqual(spec.outputs.app_look, { style: 'c', layout: 'home', palette: 'nordic', theme: 'dark' });
     assert.deepEqual(spec.outputs.app_options, { modify: true, replace_edits: false, decisions: false, alerts: false });
+    assert.deepEqual(spec.outputs.app_charts, ['trend', 'bars', 'split', 'pareto'], 'the build gets the kinds of chart picked');
+    assert.deepEqual(spec.outputs.app_pages, { runs: false, impact: true }, 'and the pages turned off');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -181,20 +192,56 @@ test('App look has Style, Palette, Layout, Charts and Pages tabs over a sample p
     await sample.getByText('128 to fix · $412K at stake', { exact: true }).waitFor();
 
     await tab('Charts').click();
-    await shown({ 'app-sample': 'charts' });
-    await look.getByText('Genie picks at least 3 charts that fit your results. Each chart has an Explain button that asks Genie what the chart shows.', { exact: true }).waitFor();
-    assert.deepEqual(await look.getByRole('tabpanel').locator('li p:first-child').allTextContents(),
-      ['Trend over time', 'Bars by segment', 'Split by tier', 'Biggest first', 'Two measures']);
-    assert.equal(await sample.getByText('Explain', { exact: true }).count(), 4, 'every sample chart has its Explain button');
+    await shown({ 'app-sample': 'charts', 'sample-charts': 'trend,bars,pareto' });
+    await look.getByText(/^Pick the kinds of chart the App draws, at least 3\. Genie draws one of each/).waitFor();
+    const kinds = () => look.locator('[data-chart-kind]').evaluateAll((els) => els.map((e) => {
+      const input = e.querySelector('input');
+      return [e.dataset.chartKind, input.checked, input.disabled];
+    }));
+    assert.deepEqual(await kinds(), [['trend', true, true], ['bars', true, true], ['split', false, false], ['pareto', true, true], ['scatter', false, false]],
+      'Inspire\'s pick starts ticked, and none of the 3 can be unticked');
+    assert.deepEqual(await look.locator('[data-chart-kind] .font-semibold').allTextContents(),
+      ['Trend over time', 'Bars by segment', 'Share of a whole', 'Biggest first', 'Two measures']);
+    await look.getByText("Inspire's pick: trend over time, bars by segment and biggest first.", { exact: true }).waitFor();
+    assert.equal(await look.getByRole('button', { name: "Use Inspire's pick" }).count(), 0);
+    assert.equal(await sample.getByText('Explain', { exact: true }).count(), 3, 'every sample chart has its Explain button');
+    await look.locator('[data-chart-kind="scatter"] input').check();
+    await shown({ 'sample-charts': 'trend,bars,pareto,scatter' });
+    await sample.getByText('Money against records', { exact: true }).waitFor();
+    assert.deepEqual((await kinds()).map(([, on, locked]) => [on, locked]), [[true, false], [true, false], [false, false], [true, false], [true, false]]);
+    await look.getByText('Keep at least 3 kinds.', { exact: true }).waitFor();
+    await look.locator('[data-chart-kind="trend"] input').uncheck();
+    await shown({ 'sample-charts': 'bars,pareto,scatter' });
+    assert.equal(await look.locator('[data-chart-kind="bars"] input').isDisabled(), true, 'back at 3, none can be unticked');
+    await look.getByRole('button', { name: "Use Inspire's pick" }).click();
+    await shown({ 'sample-charts': 'trend,bars,pareto' });
+    for (const kind of ['split', 'scatter']) await look.locator(`[data-chart-kind="${kind}"] input`).check();
+    await shown({ 'sample-charts': 'trend,bars,split,pareto,scatter' });
+    assert.equal(await sample.getByText('Explain', { exact: true }).count(), 5);
 
     await tab('Pages').click();
     const pages = look.getByRole('group', { name: 'Pages of the App' });
     const pageNames = () => pages.getByRole('button').allTextContents();
     const blurb = look.locator('[data-page-blurb]');
-    assert.deepEqual(await pageNames(), ['Things to fix', 'Runs', 'Impact', 'Ask Genie'], 'no Alerts page while Send alerts is off');
+    const pageState = () => look.locator('[data-app-page]').evaluateAll((els) => els.map((e) => {
+      const toggle = e.querySelector('[role="switch"]');
+      return [e.dataset.appPage, toggle ? (toggle.checked ? 'on' : 'off') : e.querySelector('p').textContent, e.querySelector('button').disabled];
+    }));
+    assert.deepEqual(await pageNames(), ['Things to fix', 'Runs', 'Alerts', 'Impact', 'Ask Genie']);
+    assert.deepEqual(await pageState(), [['fix', 'Always on', false], ['runs', 'on', false], ['alerts', 'off', true], ['impact', 'on', false], ['genie', 'Always on', false]],
+      'Things to fix and Ask Genie are always on, and Alerts waits for Send alerts');
     assert.equal(await pages.getByRole('button', { name: /^Things to fix/ }).getAttribute('aria-pressed'), 'true');
-    assert.match(await blurb.textContent(), /^What needs action: the totals, at least 3 charts, and every flagged record with the reason Inspire flagged it\.$/,
+    assert.match(await blurb.textContent(), /^What needs action: the totals, the charts you pick, and every flagged record with the reason Inspire flagged it\.$/,
       'no edits and no decisions while those App options are off');
+    await look.locator('[data-app-page="impact"]').getByRole('switch').uncheck();
+    await shown({ 'app-sample': 'fix' });
+    assert.equal(await sample.getByText('Impact', { exact: true }).count(), 0, 'the sample drops Impact when it is off');
+    assert.equal(await pages.getByRole('button', { name: /^Impact/ }).isDisabled(), true);
+    await look.locator('[data-app-page="impact"]').getByRole('switch').check();
+    await sample.getByText('Impact', { exact: true }).first().waitFor();
+    await look.locator('[data-app-page="alerts"]').getByRole('switch').check();
+    assert.equal(await pages.getByRole('button', { name: /^Alerts/ }).isDisabled(), false, 'the Alerts switch turns on Send alerts');
+    await look.locator('[data-app-page="alerts"]').getByRole('switch').uncheck();
     await pages.getByRole('button', { name: /^Runs/ }).click();
     await shown({ 'app-sample': 'runs' });
     assert.equal(await blurb.textContent(), 'Every run of the notebook: when it ran, the data it read and the records it flagged.');

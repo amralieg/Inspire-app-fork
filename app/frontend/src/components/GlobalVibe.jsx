@@ -94,7 +94,7 @@ export default function GlobalVibe({ outputs, live, next, locked, lockedReason =
         <h3 className="text-[15px] font-semibold text-text-primary">Vibe these assets</h3>
         <p className="text-[12px] text-text-secondary">Say what to change. Inspire sends each ask to the asset it is about, builds v{next} with your words as strict asks, and checks every one.</p>
       </div>
-      <VibesEditor id="mvp" label="MVP" heading="" rows={3} disabled={locked} value={text} placeholder={vibePlaceholder(outputs)} onChange={setText} />
+      <VibesEditor id="mvp" label="MVP" heading="" disabled={locked} value={text} placeholder={vibePlaceholder(outputs)} onChange={setText} />
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" disabled={locked || !text.trim() || Boolean(problem)} onClick={() => setAsking(true)} className={PRIMARY_BUTTON}>
           <Wand2 size={12} /> Vibe it

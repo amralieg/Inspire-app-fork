@@ -149,7 +149,8 @@ test('a use case that joins an existing App skips App access and App look, shows
   assert.deepEqual(w.sentSpec(joined, null).outputs.app_owners, [], 'owners typed before picking the existing App are not sent');
   assert.deepEqual(w.sentSpec(fresh, null).outputs.app_owners, ['nope', 'lee@example.com']);
   const plain = w.withMergeTarget({ ...spec, outputs: { ...spec.outputs, app_owners: [] } }, 'app', hub);
-  assert.deepEqual(w.sentSpec(plain, null), w.specWithBackend(plain, null), 'nothing to drop sends the spec as it is');
+  const { app_charts: _charts, app_pages: _pages, ...kept } = w.specWithBackend(plain, null).outputs;
+  assert.deepEqual(w.sentSpec(plain, null), { ...w.specWithBackend(plain, null), outputs: kept }, 'with no owners typed, only the charts and pages are dropped, since the hub keeps its own');
   assert.doesNotMatch(w.joinedAppText(hub), /[\u2013\u2014]/);
   assert.doesNotMatch(w.joinedAppText(hub), /access and look next/, 'the join text never promises the App steps it skips');
   assert.doesNotMatch(w.IMPLEMENT_OUTPUTS.find((o) => o.id === 'app').blurb, /next/, 'the App tile says what comes next only for a new App');
@@ -319,4 +320,20 @@ test('an output the workspace cannot create starts off, an output already built 
   assert.equal(w.withoutUnavailableOutputs(fresh, ['app', 'genie_space'], {}).outputs.genie_space, false, 'the App goes off first, so its Genie Agent can too');
   assert.equal(w.withoutUnavailableOutputs(fresh, ['app'], { app: 'hub' }).outputs.app, true, 'an App already built stays, so Edit never drops it');
   assert.equal(w.withoutUnavailableOutputs(fresh, [], {}), fresh);
+});
+
+test('the wizard\'s chart kinds, Inspire\'s pick and the pages it can turn off are the App shell\'s own, with the labels Genie is told', async () => {
+  const w = await load();
+  assert.deepEqual(w.APP_CHART_KINDS.map((k) => k.id), SHELL.chart_kinds);
+  assert.deepEqual(w.APP_CHART_PICK, SHELL.chart_pick);
+  assert.deepEqual(w.APP_SCREENS, SHELL.screens);
+  assert.equal(w.APP_CHARTS_MIN, backend.IMPLEMENT_APP_CHARTS_MIN);
+  const sql = appShellPayload(bundledNotebookText()).files['shell_sql.py'];
+  const labels = sql.split('\n').find((line) => line.startsWith('CHART_KIND_LABELS = '));
+  const block = sql.slice(sql.indexOf(labels), sql.indexOf('}', sql.indexOf(labels)) + 1);
+  for (const kind of w.APP_CHART_KINDS) {
+    const m = block.match(new RegExp(`"${kind.id}": "([^"]+)"`));
+    assert.ok(m, `the shell labels ${kind.id}`);
+    assert.equal(kind.label, m[1], `the wizard calls ${kind.id} what Genie is told`);
+  }
 });

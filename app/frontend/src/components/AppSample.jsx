@@ -126,6 +126,25 @@ function Donut() {
   );
 }
 
+function Scatter() {
+  return (
+    <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="block h-full w-full" aria-hidden="true">
+      {SEGMENTS.map(([, v], i) => SEGMENTS.map(([, w], j) => (
+        <circle key={`${i}-${j}`} cx={8 + ((i * 4 + j) / 15) * 84} cy={36 - ((v * (j + 1)) / (w * 4 + v)) * 30} r="1.6"
+          style={{ fill: pv('coral-line') }} />
+      )))}
+    </svg>
+  );
+}
+
+const CHART_CARDS = {
+  trend: ['To fix by week', 'blue', () => <Trend />],
+  bars: ['Could save by segment', 'green', () => <Bars />],
+  split: ['Records by tier', 'amber', () => <Donut />],
+  pareto: ['Where most of the money sits', 'violet', () => <Bars pareto />],
+  scatter: ['Money against records', 'coral', () => <Scatter />],
+};
+
 function Kpis({ look }) {
   if (look.style === 'c') {
     return (
@@ -200,16 +219,17 @@ function FixPage({ look, title, compact }) {
   );
 }
 
-function Body({ look, view, title }) {
+function Body({ look, view, title, charts }) {
   if (view === 'charts') {
+    const shown = charts.filter((id) => CHART_CARDS[id]);
     return (
       <>
         <PageTitle look={look} title={title} sub="Charts drawn from this use case's results" />
-        <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-1.5">
-          <Card look={look} title="To fix by week" hue="blue" explain><Trend /></Card>
-          <Card look={look} title="Could save by segment" hue="green" explain><Bars /></Card>
-          <Card look={look} title="Records by tier" hue="amber" explain><Donut /></Card>
-          <Card look={look} title="Where most of the money sits" hue="violet" explain><Bars pareto /></Card>
+        <div className={`grid min-h-0 flex-1 auto-rows-fr gap-1.5 ${shown.length > 4 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          {shown.map((id) => {
+            const [name, hue, Draw] = CHART_CARDS[id];
+            return <Card key={id} look={look} title={name} hue={hue} explain><Draw /></Card>;
+          })}
         </div>
       </>
     );
@@ -272,7 +292,7 @@ function GeniePanel() {
   );
 }
 
-function TopBar({ look, appName, title, shared }) {
+function TopBar({ look, appName, title, shared, impact }) {
   const bar = look.style === 'b'
     ? { background: pv('brand-wash'), borderBottom: `1px solid ${pv('brand-bd')}` }
     : look.style === 'c' ? { background: pv('card'), boxShadow: `0 1px 0 ${pv('line')}` } : { background: pv('card'), borderBottom: `1px solid ${pv('line')}` };
@@ -286,7 +306,7 @@ function TopBar({ look, appName, title, shared }) {
       {look.layout === 'tabs' && (
         <span className="ml-2 flex min-w-0 items-end gap-2 self-stretch">
           <span className="flex max-w-[160px] items-center truncate text-[9px] font-semibold" style={{ color: pv('ink'), borderBottom: `2px solid ${pv('brand')}` }}>{title}</span>
-          <span className="flex items-center text-[9px]" style={{ color: pv('muted'), borderBottom: '2px solid transparent' }}>Impact</span>
+          {impact && <span className="flex items-center text-[9px]" style={{ color: pv('muted'), borderBottom: '2px solid transparent' }}>Impact</span>}
         </span>
       )}
       <span className="ml-auto shrink-0 text-[8px]" style={{ color: pv('muted') }}>{shared ? 'Shared view' : 'Your view'}</span>
@@ -295,7 +315,7 @@ function TopBar({ look, appName, title, shared }) {
   );
 }
 
-function SideNav({ look, title }) {
+function SideNav({ look, title, impact }) {
   return (
     <div className="flex w-[116px] shrink-0 flex-col gap-1 p-1.5" style={{ background: look.style === 'b' ? pv('panel') : pv('card'), borderRight: `1px solid ${pv('line')}` }}>
       <p className="px-1 text-[8px] font-semibold uppercase tracking-wide" style={{ color: pv('muted') }}>Use case</p>
@@ -303,19 +323,24 @@ function SideNav({ look, title }) {
         <p className="truncate text-[9px] font-semibold" style={{ color: pv('ink') }}>{title}</p>
         <p className="text-[8px]" style={{ color: pv('muted') }}>128 to fix</p>
       </div>
-      <span className="my-0.5 block h-px" style={{ background: pv('line') }} />
-      <div className="px-1.5 py-0.5">
-        <p className="text-[9px] font-semibold" style={{ color: pv('ink') }}>Impact</p>
-        <p className="text-[8px]" style={{ color: pv('muted') }}>What it delivered</p>
-      </div>
+      {impact && (
+        <>
+          <span className="my-0.5 block h-px" style={{ background: pv('line') }} />
+          <div className="px-1.5 py-0.5">
+            <p className="text-[9px] font-semibold" style={{ color: pv('ink') }}>Impact</p>
+            <p className="text-[8px]" style={{ color: pv('muted') }}>What it delivered</p>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function HomeCards({ look, title }) {
+function HomeCards({ look, title, impact }) {
+  const cards = [[title, '128 to fix · $412K at stake', 'coral'], ...(impact ? [['Impact', '$96K saved so far', 'green']] : [])];
   return (
     <div className="grid shrink-0 grid-cols-2 gap-1.5">
-      {[[title, '128 to fix · $412K at stake', 'coral'], ['Impact', '$96K saved so far', 'green']].map(([name, sub, hue]) => (
+      {cards.map(([name, sub, hue]) => (
         <div key={name} className="rounded-[6px] px-2 py-1" style={{ background: pv('card'), border: `1px solid ${pv('line')}`, boxShadow: `inset 0 2px 0 ${pv(`${hue}-line`)}` }}>
           <p className="truncate text-[9px] font-semibold" style={{ color: pv('ink') }}>{name}</p>
           <p className="truncate text-[8px]" style={{ color: pv('muted') }}>{sub}</p>
@@ -325,18 +350,19 @@ function HomeCards({ look, title }) {
   );
 }
 
-export default function AppSample({ palette, look, appName, title, view = 'fix', shared = true, label }) {
+export default function AppSample({ palette, look, appName, title, view = 'fix', shared = true, label, charts = ['trend', 'bars', 'pareto'], impact = true }) {
   const vars = paletteVars(palette, look.theme);
   if (!vars) return <div aria-hidden="true" data-app-sample="" className="h-[296px] rounded-lg bg-bg-subtle animate-pulse" />;
   return (
     <div role="img" aria-label={label} data-app-sample={view} data-sample-style={look.style} data-sample-layout={look.layout} data-sample-palette={look.palette} data-sample-theme={look.theme}
+      data-sample-charts={charts.filter((id) => CHART_CARDS[id]).join(',')} data-sample-impact={impact ? 'on' : 'off'}
       className="flex h-[296px] flex-col overflow-hidden rounded-lg text-left" style={{ ...vars, background: pv('bg'), border: `1px solid ${pv('line-strong')}`, colorScheme: look.theme }}>
-      <TopBar look={look} appName={appName} title={title} shared={shared} />
+      <TopBar look={look} appName={appName} title={title} shared={shared} impact={impact} />
       <div className="flex min-h-0 flex-1">
-        {look.layout === 'sidebar' && <SideNav look={look} title={title} />}
+        {look.layout === 'sidebar' && <SideNav look={look} title={title} impact={impact} />}
         <div className="flex min-w-0 flex-1 flex-col gap-1.5 overflow-hidden p-2">
-          {look.layout === 'home' && <HomeCards look={look} title={title} />}
-          <Body look={look} view={view} title={title} />
+          {look.layout === 'home' && <HomeCards look={look} title={title} impact={impact} />}
+          <Body look={look} view={view} title={title} charts={charts} />
         </div>
         {view === 'genie' && <GeniePanel />}
       </div>

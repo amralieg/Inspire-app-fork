@@ -14,6 +14,7 @@ const PLACEHOLDERS = {
 };
 
 const EXAMPLE_MAX_ROWS = 8;
+export const VIBES_ROWS = 8;
 
 function heightOfText(el, text) {
   const probe = el.cloneNode(false);
@@ -30,7 +31,7 @@ function heightOfText(el, text) {
   return Math.min(need, most);
 }
 
-export default function VibesEditor({ id, value, onChange, autoFocus = false, label = '', heading = '', rows = 3, disabled = false, placeholder = '' }) {
+export default function VibesEditor({ id, value, onChange, autoFocus = false, label = '', heading = '', disabled = false, placeholder = '' }) {
   const hint = useId();
   const box = useId();
   const ref = useRef(null);
@@ -66,11 +67,11 @@ export default function VibesEditor({ id, value, onChange, autoFocus = false, la
         aria-invalid={problem ? 'true' : undefined}
         autoFocus={autoFocus}
         disabled={disabled}
-        rows={rows}
+        rows={VIBES_ROWS}
         value={value}
         placeholder={example}
         onChange={(e) => onChange(e.target.value)}
-        className={`w-full px-2.5 py-2 text-sm leading-snug border rounded-md bg-surface text-text-primary glow-focus resize-none disabled:opacity-60 ${problem ? 'border-error' : 'border-border'}`}
+        className={`w-full px-2.5 py-2 text-sm leading-snug border rounded-md bg-surface text-text-primary glow-focus resize-y max-h-[60vh] disabled:opacity-60 ${problem ? 'border-error' : 'border-border'}`}
       />
       <div className="flex items-start justify-between gap-3 text-[11px]">
         <p id={hint} className="text-error-fg">{problem}</p>

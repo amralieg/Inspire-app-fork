@@ -454,3 +454,52 @@ test('alerts are off unless asked for, a shared App keeps them on, and a per-use
   assert.ok(SHELL.options.includes('alerts'), 'the bundled App shell offers alerts');
   assert.ok(SHELL.user_off.includes('alerts'), 'the bundled App shell turns alerts off for a per-user App');
 });
+
+test('the App charts and pages come from the shell: its kinds, Inspire\'s pick and the pages it can turn off', () => {
+  const payload = S.appShellPayload(S.bundledNotebookText());
+  const sql = payload.files['shell_sql.py'];
+  assert.deepEqual(SHELL.chart_kinds, ['trend', 'bars', 'split', 'pareto', 'scatter']);
+  assert.deepEqual(SHELL.chart_kinds, S.pythonTuple(sql, 'CHART_KINDS'));
+  assert.deepEqual(SHELL.chart_pick, S.pythonTuple(sql, 'CHART_PICK'));
+  assert.ok(SHELL.chart_pick.length >= I.IMPLEMENT_APP_CHARTS_MIN, 'Inspire\'s pick meets the minimum');
+  assert.deepEqual(SHELL.screens, S.pythonTuple(payload.files['shell_core.py'], 'SCREENS'));
+  assert.deepEqual(SHELL.screens, ['runs', 'impact']);
+  const stray = { ...payload.files, 'shell_sql.py': sql.replace(/^CHART_PICK = .*$/m, 'CHART_PICK = ("trend", "pie", "bars")') };
+  assert.throws(() => S.appShellLook({ ...payload, files: stray }), /CHART_PICK names pie, which CHART_KINDS does not have/);
+});
+
+test('picked charts are ordered the shell\'s way and need at least 3 kinds, and only Runs and Impact can be turned off', () => {
+  const picked = check({ app_charts: ['scatter', 'Trend', 'bars', 'trend'] });
+  assert.deepEqual(picked.errors, []);
+  assert.deepEqual(picked.spec.outputs.app_charts, ['trend', 'bars', 'scatter']);
+  assert.deepEqual(check({}).spec.outputs.app_charts, [], 'no pick is Inspire\'s pick');
+  assert.deepEqual(check({}).spec.outputs.app_pages, { runs: true, impact: true });
+  assert.deepEqual(check({ app_charts: ['trend', 'bars'] }).errors, ['pick at least 3 kinds of chart for the App, not 2']);
+  assert.deepEqual(check({ app_charts: 'trend' }).errors, ['the App charts must be a list of the kinds of chart the App draws, from trend, bars, split, pareto, scatter']);
+  assert.ok(check({ app_charts: ['trend', 'bars', 'pie'] }).errors.includes("the App has no kind of chart 'pie'; its kinds are trend, bars, split, pareto, scatter"));
+  const pages = check({ app_pages: { impact: false } });
+  assert.deepEqual([pages.errors, pages.spec.outputs.app_pages], [[], { runs: true, impact: false }]);
+  assert.deepEqual(check({ app_pages: { genie: false } }).errors,
+    ["the App has no page 'genie' to turn on or off; Things to fix and Ask Genie are always on, and only runs, impact can be turned off"]);
+  assert.deepEqual(check({ app_pages: { runs: 'off' } }).errors, ["the App page runs must be true or false, not 'off'"]);
+  const off = check({ app: false, app_charts: ['pie'], app_pages: { impact: 'no' } });
+  assert.deepEqual([off.errors, off.spec.outputs.app_charts, off.spec.outputs.app_pages], [[], [], {}], 'an App that is not built takes no charts or pages');
+});
+
+test('a shell without chart kinds or screens refuses a pick it cannot honour instead of dropping it, and takes Inspire\'s pick', () => {
+  const payload = S.appShellPayload(S.bundledNotebookText());
+  const core = payload.files['shell_core.py'].replace(/^SCREENS = .*$/m, '');
+  const { 'shell_sql.py': _sql, ...files } = { ...payload.files, 'shell_core.py': core };
+  const older = S.appShellLook({ ...payload, files });
+  assert.equal(older.chart_kinds, undefined);
+  assert.equal(older.screens, undefined);
+  const plain = check({}, { shell: older });
+  assert.deepEqual(plain.errors, []);
+  assert.equal(Object.prototype.hasOwnProperty.call(plain.spec.outputs, 'app_charts'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(plain.spec.outputs, 'app_pages'), false);
+  assert.deepEqual(check({ app_charts: [], app_pages: { runs: true } }, { shell: older }).errors, []);
+  assert.deepEqual(check({ app_charts: ['trend', 'bars', 'pareto'] }, { shell: older }).errors,
+    ['this Inspire agent notebook draws the charts Genie picks, so it cannot take the kinds of chart you picked; update Inspire to pick them']);
+  assert.deepEqual(check({ app_pages: { impact: false } }, { shell: older }).errors,
+    ['this Inspire agent notebook shows every App page, so it cannot turn one off; update Inspire to turn pages off']);
+});

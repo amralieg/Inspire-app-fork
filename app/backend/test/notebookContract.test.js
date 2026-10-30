@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -47,7 +48,9 @@ test('v1.2.0 generation widget only offers PDF and Presentation', () => {
 
 test('embedded backend fallback is byte-identical to the physical notebook', () => {
   const embedded = Buffer.from(require('../notebook_bundle'), 'base64');
-  assert.deepEqual(embedded, notebookBytes);
+  const sha = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+  assert.equal(sha(embedded), sha(notebookBytes), 'notebook_bundle.js is not the bundled notebook; run npm run bundle:agent-notebook');
+  assert.equal(embedded.length, notebookBytes.length);
 });
 
 test('launch UI exposes v1.2.0 quality modes and Auto-Genie widget 13', () => {

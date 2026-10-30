@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Loader2, NotebookPen, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check, Lock, UserRound, KeyRound } from 'lucide-react';
 import BodyPortal from '../components/BodyPortal';
 import VibesEditor from '../components/VibesEditor';
+import TabStrip, { tabPanel } from '../components/TabStrip';
 import AppSample, { paletteVars, pv } from '../components/AppSample';
 import { generationFolder, sharedFolderWarning } from '../lib/workspaceLinks';
 import { catalogRow } from '../lib/useCaseFacets';
@@ -84,7 +86,19 @@ import {
   APP_LOOK_TABS,
   APP_SAMPLE_NOTE,
   APP_CHARTS_NOTE,
+  APP_CHARTS_MIN,
+  APP_CHARTS_MIN_NOTE,
+  APP_CHARTS_RESET,
   APP_CHART_KINDS,
+  APP_PAGES_NOTE,
+  APP_ALWAYS_ON,
+  appChartsOf,
+  appChartsPicked,
+  appChartPickText,
+  appScreensOf,
+  withAppChart,
+  withInspireCharts,
+  withAppPage,
   appPagesOf,
   LAKEVIEW_STYLE_NOTE,
   GENIE_FOR_APP_NOTE,
@@ -105,7 +119,8 @@ import {
   goneAssetText,
   mergeTargetText,
   vibesKey,
-  vibesLabel,
+  vibesEntries,
+  vibesProblem,
   VIBES_STEP_TITLE,
   VIBES_STEP_NOTE,
   vibesSkippedText,
@@ -250,6 +265,7 @@ export default function ImplementWizard({
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState([]);
   const [attempted, setAttempted] = useState({ data: false, delivery: false });
+  const [vibesTab, setVibesTab] = useState('notebook');
   const [checking, setChecking] = useState('');
   const [advanced, setAdvanced] = useState({ data: false, delivery: false });
   const [columnsByTable, setColumnsByTable] = useState({});
@@ -435,7 +451,11 @@ export default function ImplementWizard({
     setAttempted((prev) => ({ ...prev, [id]: true }));
     if (!stepErrors(id, spec, extras, mode).length) return false;
     if (advancedErrors(id, spec, extras, mode).length) setAdvanced((prev) => ({ ...prev, [id]: true }));
-    if (id === 'vibes') bodyRef.current?.querySelector('[data-vibes] textarea[aria-invalid="true"]')?.focus();
+    const bad = id === 'vibes' && vibesEntries(spec).find((e) => vibesProblem(e.id, e.value));
+    if (bad) {
+      flushSync(() => setVibesTab(bad.id));
+      bodyRef.current?.querySelector(`[data-vibes="${bad.id}"] textarea`)?.focus();
+    }
     return true;
   };
 
@@ -1359,11 +1379,14 @@ export default function ImplementWizard({
             palette={palette}
             title={title}
             onLook={(key, value) => setSpec((prev) => withAppLook(prev, key, value))}
+            onChart={(id, on) => setSpec((prev) => withAppChart(prev, id, on, look))}
+            onInspireCharts={() => setSpec((prev) => withInspireCharts(prev))}
+            onPage={(id, on) => setSpec((prev) => withAppPage(prev, id, on))}
           />
         )}
 
         {stepId === 'vibes' && (
-          <VibesPanel spec={spec} onChange={(id, value) => patch(id === 'notebook' ? 'data.notes' : `outputs.${vibesKey(id)}`, value)} />
+          <VibesPanel spec={spec} tab={vibesTab} onTab={setVibesTab} onChange={(id, value) => patch(id === 'notebook' ? 'data.notes' : `outputs.${vibesKey(id)}`, value)} />
         )}
       </div>
 
@@ -1448,25 +1471,30 @@ function SegmentButton({ on, disabled = false, onClick, children }) {
   );
 }
 
-function VibesPanel({ spec, onChange }) {
+function VibesPanel({ spec, tab, onTab, onChange }) {
+  const entries = vibesEntries(spec);
+  const current = entries.some((o) => o.id === tab) ? tab : entries[0].id;
+  const tabs = entries.map((o) => {
+    const problem = Boolean(vibesProblem(o.id, o.value));
+    const filled = o.value.trim() !== '';
+    const state = problem ? 'problem' : filled ? 'filled' : '';
+    return {
+      id: o.id, label: o.label, icon: ICONS[o.id], ariaLabel: `${o.label}${problem ? ', too long' : filled ? ', has vibes' : ''}`,
+      mark: state && <span aria-hidden="true" data-vibes-mark={state} className={`h-1.5 w-1.5 rounded-full ${problem ? 'bg-error' : 'bg-db-red'}`} />,
+    };
+  });
   return (
     <section aria-label="Vibes" className="space-y-3">
       <div>
         <h3 className="text-sm font-semibold text-text-primary">{VIBES_STEP_TITLE}</h3>
         <p className="text-[11px] text-text-secondary">{VIBES_STEP_NOTE}</p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-        {[{ id: 'notebook' }, ...IMPLEMENT_OUTPUTS.filter((o) => spec.outputs[o.id])].map((o, i) => {
-          const Icon = ICONS[o.id];
-          const value = o.id === 'notebook' ? spec.data.notes : spec.outputs[vibesKey(o.id)];
-          return (
-            <div key={o.id} data-vibes={o.id} className="border border-border rounded-lg p-3 space-y-1.5">
-              <p className="flex items-center gap-2 text-sm font-semibold text-text-primary"><Icon size={14} aria-hidden="true" /> {vibesLabel(o.id)}</p>
-              <VibesEditor id={o.id} value={value || ''} onChange={(next) => onChange(o.id, next)} autoFocus={i === 0} />
-            </div>
-          );
-        })}
-      </div>
+      <TabStrip label="Vibes for each asset" idBase="vibes" tabs={tabs} current={current} onPick={onTab} />
+      {entries.map((o) => (
+        <div key={o.id} data-vibes={o.id} {...tabPanel('vibes', o.id, current)}>
+          <VibesEditor id={o.id} value={o.value} onChange={(next) => onChange(o.id, next)} autoFocus={o.id === current} />
+        </div>
+      ))}
       {vibesSkippedText(spec) && <p data-vibes-skipped="" className="text-[11px] text-text-secondary">{vibesSkippedText(spec)}</p>}
     </section>
   );
@@ -1834,27 +1862,22 @@ function LookCard({ name, value, checked, onChange, label, badge = '', blurb = '
   );
 }
 
-function AppLookStep({ spec, look, lookError, palette, title, onLook }) {
+function AppLookStep({ spec, look, lookError, palette, title, onLook, onChart, onInspireCharts, onPage }) {
   const chosen = spec.outputs.app_look;
   const palettes = look?.palette_colors || [];
   const [tab, setTab] = useState('style');
   const [pageId, setPageId] = useState('fix');
   const pages = appPagesOf(spec);
-  const shownPage = pages.some((p) => p.id === pageId) ? pageId : 'fix';
+  const shownPage = pages.some((p) => p.id === pageId && p.on) ? pageId : 'fix';
+  const charts = appChartsOf(spec, look);
+  const picked = appChartsPicked(spec);
+  const pickable = Array.isArray(look?.chart_kinds) && Array.isArray(look?.screens);
+  const perUserAlerts = pages.find((p) => p.id === 'alerts')?.off;
   const view = tab === 'charts' ? 'charts' : tab === 'pages' ? shownPage : 'fix';
   const named = (list, id) => list.find((x) => x.id === id)?.label || id;
   const viewLabel = view === 'charts' ? 'Charts' : named(pages, view);
   const sampleLabel = `Sample App page: ${viewLabel}, in ${lookText(chosen)}`;
-  const tabKeys = (e) => {
-    const i = APP_LOOK_TABS.findIndex((t) => t.id === tab);
-    const step = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: APP_LOOK_TABS.length - 1 }[e.key];
-    if (step === undefined) return;
-    e.preventDefault();
-    const id = APP_LOOK_TABS[(step + APP_LOOK_TABS.length) % APP_LOOK_TABS.length].id;
-    setTab(id);
-    document.getElementById(`app-look-tab-${id}`)?.focus();
-  };
-  const panel = (id) => ({ role: 'tabpanel', id: `app-look-panel-${id}`, 'aria-labelledby': `app-look-tab-${id}`, hidden: tab !== id });
+  const panel = (id) => tabPanel('app-look', id, tab);
   return (
     <section className="space-y-2" aria-label="App look">
       <div>
@@ -1862,23 +1885,7 @@ function AppLookStep({ spec, look, lookError, palette, title, onLook }) {
         <p className="text-[11px] text-text-tertiary">Each preview draws with the palette and the mode you pick.</p>
         {lookError && <p className="text-[11px] text-error-fg">Inspire could not read the App looks from its agent notebook: {lookError}</p>}
       </div>
-      <div role="tablist" aria-label="App look sections" onKeyDown={tabKeys} className="flex gap-5 border-b border-border">
-        {APP_LOOK_TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            id={`app-look-tab-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls={`app-look-panel-${t.id}`}
-            tabIndex={tab === t.id ? 0 : -1}
-            onClick={() => setTab(t.id)}
-            className={`-mb-px border-b-2 px-0.5 pb-1.5 text-xs font-semibold glow-focus ${tab === t.id ? 'border-db-red text-text-primary' : 'border-transparent text-text-secondary hover:text-text-primary'}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <TabStrip label="App look sections" idBase="app-look" tabs={APP_LOOK_TABS} current={tab} onPick={setTab} />
       <div {...panel('style')}>
         <fieldset className="space-y-2">
           <legend className={LEGEND}>Style</legend>
@@ -1947,39 +1954,63 @@ function AppLookStep({ spec, look, lookError, palette, title, onLook }) {
         </fieldset>
       </div>
       <div {...panel('charts')}>
-        <div className="space-y-2">
+        <fieldset className="space-y-2">
+          <legend className={LEGEND}>Kinds of chart</legend>
           <p className="text-[11px] text-text-secondary">{APP_CHARTS_NOTE}</p>
-          <ul className="grid grid-cols-5 gap-2">
-            {APP_CHART_KINDS.map((k) => (
-              <li key={k.id} className="rounded-lg border border-border p-2">
-                <p className="text-[12px] font-semibold text-text-primary">{k.label}</p>
-                <p className="text-[11px] leading-snug text-text-secondary">{k.blurb}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
+          <div className="grid grid-cols-5 gap-2">
+            {APP_CHART_KINDS.map((k) => {
+              const on = charts.includes(k.id);
+              const locked = !pickable || (on && charts.length <= APP_CHARTS_MIN);
+              return (
+                <label key={k.id} data-chart-kind={k.id} className={`block rounded-lg border p-2 ${on ? 'border-db-red bg-db-red-50' : 'border-border'} ${locked ? '' : 'cursor-pointer hover:border-border-strong'}`}>
+                  <span className="flex items-start gap-1.5">
+                    <input type="checkbox" className="mt-0.5" checked={on} disabled={locked} aria-describedby="app-charts-min"
+                      onChange={(e) => onChart(k.id, e.target.checked)} />
+                    <span className="min-w-0">
+                      <span className="block text-[12px] font-semibold text-text-primary">{k.label}</span>
+                      <span className="block text-[11px] leading-snug text-text-secondary">{k.blurb}</span>
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-3">
+            <p id="app-charts-min" className="text-[11px] text-text-tertiary">{picked ? APP_CHARTS_MIN_NOTE : appChartPickText(look)}</p>
+            {picked && <button type="button" className="text-[11px] font-medium text-db-red-fg glow-focus" onClick={onInspireCharts}>{APP_CHARTS_RESET}</button>}
+          </div>
+        </fieldset>
       </div>
       <div {...panel('pages')}>
-        <div className="space-y-2">
-          <p className="text-[11px] text-text-secondary">Pick a page to see it in the sample below.</p>
-          <div role="group" aria-label="Pages of the App" className="flex flex-wrap gap-1.5">
-            {pages.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                aria-pressed={shownPage === p.id}
-                onClick={() => setPageId(p.id)}
-                className={`rounded-full border px-3 py-1 text-xs font-medium glow-focus ${shownPage === p.id ? 'border-db-red bg-db-red-50 text-text-primary' : 'border-border text-text-secondary hover:border-border-strong hover:text-text-primary'}`}
-              >
-                {p.label}
-              </button>
-            ))}
+        <fieldset className="space-y-2">
+          <legend className={LEGEND}>Pages</legend>
+          <p className="text-[11px] text-text-secondary">{APP_PAGES_NOTE} Pick a page to see it in the sample below.</p>
+          <div role="group" aria-label="Pages of the App" className="grid grid-cols-5 gap-2">
+            {pages.map((p) => {
+              const locked = Boolean(p.off) || (!pickable && !p.option);
+              return (
+                <div key={p.id} data-app-page={p.id} className={`rounded-lg border p-2 ${shownPage === p.id ? 'border-db-red bg-db-red-50' : 'border-border'}`}>
+                  <button type="button" aria-pressed={shownPage === p.id} disabled={!p.on} onClick={() => setPageId(p.id)}
+                    className="block w-full text-left text-[12px] font-semibold text-text-primary disabled:text-text-tertiary glow-focus">
+                    {p.label}
+                  </button>
+                  {p.fixed ? <p className="mt-1 text-[11px] text-text-tertiary">{APP_ALWAYS_ON}</p> : (
+                    <label className={`mt-1 flex items-center gap-1.5 text-[11px] text-text-secondary ${locked ? '' : 'cursor-pointer'}`}>
+                      <input type="checkbox" role="switch" checked={p.on} disabled={locked} aria-label={`${p.label} page`}
+                        onChange={(e) => onPage(p.id, e.target.checked)} />
+                      {p.on ? 'On' : 'Off'}
+                    </label>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <p data-page-blurb="" className="text-[11px] leading-snug text-text-secondary">{pages.find((p) => p.id === shownPage).blurb}</p>
-        </div>
+          {perUserAlerts && <p className="text-[11px] leading-snug text-text-tertiary">Alerts are off: {PER_USER_REASON}</p>}
+        </fieldset>
       </div>
       <AppSample palette={palette} look={chosen} appName={spec.outputs.app_name || 'Your App'} title={title}
-        view={view} shared={spec.outputs.app_access !== 'user'} label={sampleLabel} />
+        view={view} shared={spec.outputs.app_access !== 'user'} label={sampleLabel} charts={charts} impact={appScreensOf(spec).impact} />
       <p className="text-[11px] text-text-tertiary">{APP_SAMPLE_NOTE}</p>
     </section>
   );

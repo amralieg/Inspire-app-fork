@@ -261,6 +261,21 @@ test('the wizard counts, limits and words vibes the way the backend does, and a 
   assert.deepEqual(w.planLines({ classes: ['rollback'], refill: false, rollback: ['app', 'dashboard'] }).slice(-1), ['Rolls back: App, Dashboard']);
 });
 
+test('the Vibes step has one tab per box, the notebook first and then each picked output in Delivery order, with its text as typed', async () => {
+  const w = await lib('implementWizard.js');
+  const picked = { data: { notes: 'Score on held-out rows' }, outputs: { dashboard: true, genie_space: false, app: true, alert: true, dashboard_vibes: '  weekly  ', genie_space_vibes: 'never shown', alert_vibes: 7 } };
+  assert.deepEqual(w.vibesEntries(picked), [
+    { id: 'notebook', label: 'Notebook', value: 'Score on held-out rows' },
+    { id: 'dashboard', label: 'Dashboard', value: '  weekly  ' },
+    { id: 'app', label: 'App', value: '' },
+    { id: 'alert', label: 'Alert', value: '7' },
+  ], 'an unpicked output has no tab even when it holds text, and a missing value is an empty box');
+  assert.deepEqual(w.vibesEntries(null), [{ id: 'notebook', label: 'Notebook', value: '' }], 'the notebook tab is always there');
+  const over = { ...picked, outputs: { ...picked.outputs, app_vibes: 'a'.repeat(2001), genie_space_vibes: 'g'.repeat(2001) } };
+  assert.deepEqual(w.vibesProblems(over), ['the App vibes are 2001 characters; at most 2000 are allowed'], 'only a tab that shows can block Start');
+  assert.deepEqual(w.vibesEntries(over).filter((e) => w.vibesProblem(e.id, e.value)).map((e) => e.id), ['app'], 'Start opens the first tab with a problem');
+});
+
 test('the Vibes step says every box is optional with gray example text, and names each output that has no box', async () => {
   const w = await lib('implementWizard.js');
   assert.equal(w.VIBES_STEP_TITLE, 'Anything else Genie should build in?');

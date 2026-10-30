@@ -14,7 +14,14 @@ test.after(closeBrowser);
 
 const next = (page) => page.getByRole('button', { name: 'Next' }).click();
 const footerErrors = (page) => page.locator('[role="alert"] p').allTextContents();
-const vibesBox = (page, name) => page.getByRole('textbox', { name, exact: true });
+const VIBES_TABS = { 'Notebook vibes': 'notebook', 'Vibes for the Dashboard': 'dashboard', 'Vibes for the Genie Agent': 'genie_space', 'App vibes': 'app', 'Vibes for the Alert': 'alert' };
+const vibesTabs = (page) => page.getByRole('tablist', { name: 'Vibes for each asset', exact: true });
+async function vibesBox(page, name) {
+  await vibesTabs(page).locator(`[data-tab="${VIBES_TABS[name]}"]`).click();
+  const box = page.getByRole('textbox', { name, exact: true });
+  await box.waitFor();
+  return box;
+}
 
 async function toDelivery(page) {
   await onStep(page, 'Choose');
@@ -50,10 +57,11 @@ async function readable(page, selectors, name) {
 }
 
 const STEPS_WITH_APP = ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App access', '6. App look', '7. Vibes'];
-const boxLabels = (panel) => panel.getByRole('textbox').evaluateAll((boxes) => boxes.map((b) => b.getAttribute('aria-label')));
+const boxLabels = (panel) => panel.locator('textarea').evaluateAll((boxes) => boxes.map((b) => b.getAttribute('aria-label')));
+const tabNames = (page) => vibesTabs(page).getByRole('tab').evaluateAll((tabs) => tabs.map((t) => t.textContent));
 
 async function grayExamples(page, panel) {
-  return panel.getByRole('textbox').evaluateAll((boxes) => boxes.map((b) => {
+  return panel.locator('textarea').evaluateAll((boxes) => boxes.map((b) => {
     const rgb = (c) => c.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
     return { label: b.getAttribute('aria-label'), text: b.placeholder, value: b.value, example: rgb(getComputedStyle(b, '::placeholder').color), typed: rgb(getComputedStyle(b).color) };
   }));
@@ -84,6 +92,7 @@ test('Vibes is the last step: Delivery asks for no vibes, each picked output get
     await panel.getByRole('heading', { name: 'Anything else Genie should build in?' }).waitFor();
     await panel.getByText('Each box is optional: leave it empty and Genie builds it the way Inspire would. The gray text in a box is only an example.', { exact: false }).waitFor();
     assert.deepEqual(await boxLabels(panel), ['Notebook vibes', 'Vibes for the Dashboard', 'Vibes for the Genie Agent'], 'the notebook, then one box per picked output');
+    assert.deepEqual(await tabNames(page), ['Notebook', 'Dashboard', 'Genie Agent'], 'one tab per box, in the same order');
     assert.equal(await panel.locator('[data-vibes-skipped]').textContent(),
       'No box for App and Alert: Genie builds only what you picked in the Delivery step. To vibe them, go Back to Delivery and pick them.');
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Notebook vibes', 'the first box has the focus');
@@ -106,8 +115,62 @@ test('Vibes is the last step: Delivery asks for no vibes, each picked output get
     await page.getByRole('radio', { name: /^Internal data/ }).check();
     await toVibes(page);
     assert.deepEqual(await boxLabels(panel), ['Notebook vibes', 'Vibes for the Dashboard', 'Vibes for the Genie Agent', 'App vibes', 'Vibes for the Alert']);
+    assert.deepEqual(await tabNames(page), ['Notebook', 'Dashboard', 'Genie Agent', 'App', 'Alert']);
     assert.equal(await panel.locator('[data-vibes-skipped]').count(), 0, 'every output picked, nothing to name');
     assertGray(await grayExamples(page, panel), 'every output');
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('the Vibes step shows one asset at a time in tabs, each with a full-width box that grows, and marks the tabs that hold asks', async () => {
+  const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
+  const { page } = ui;
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await toDelivery(page);
+    await page.getByRole('checkbox', { name: /^Alert/ }).check();
+    await page.getByText(`Emails ${OWNER} when`, { exact: false }).waitFor();
+    await next(page);
+    await onStep(page, 'App access');
+    await page.getByRole('radio', { name: /^Internal data/ }).check();
+    await toVibes(page);
+    const panel = page.getByRole('region', { name: 'Vibes' });
+    const states = () => vibesTabs(page).getByRole('tab').evaluateAll((tabs) => tabs.map((t) => [t.dataset.tab, t.getAttribute('aria-selected'), t.getAttribute('aria-label'), t.querySelector('[data-vibes-mark]')?.dataset.vibesMark || '']));
+    assert.deepEqual(await states(), [
+      ['notebook', 'true', 'Notebook', ''], ['dashboard', 'false', 'Dashboard', ''], ['genie_space', 'false', 'Genie Agent', ''], ['app', 'false', 'App', ''], ['alert', 'false', 'Alert', ''],
+    ], 'the notebook tab is open first and no tab holds an ask yet');
+    assert.equal(await panel.getByRole('textbox').count(), 1, 'one box shows at a time');
+    const notebook = await vibesBox(page, 'Notebook vibes');
+    const size = await notebook.evaluate((el) => ({ rows: el.rows, resize: getComputedStyle(el).resize, width: el.getBoundingClientRect().width, panel: el.closest('[role="tabpanel"]').getBoundingClientRect().width }));
+    assert.deepEqual([size.rows, size.resize], [8, 'vertical'], 'the box is 8 lines tall and the person can make it taller');
+    assert.ok(size.width >= size.panel - 2, `the box takes the full width of its tab (${size.width} of ${size.panel})`);
+    const before = await notebook.boundingBox();
+    await page.mouse.move(before.x + before.width - 3, before.y + before.height - 3);
+    await page.mouse.down();
+    await page.mouse.move(before.x + before.width - 3, before.y + before.height + 120, { steps: 6 });
+    await page.mouse.up();
+    const after = await notebook.boundingBox();
+    assert.ok(after.height > before.height + 60, `dragging the corner makes the box taller (${before.height} to ${after.height})`);
+
+    await (await vibesBox(page, 'Vibes for the Dashboard')).fill('Make the trend weekly');
+    await (await vibesBox(page, 'Vibes for the Alert')).fill('a'.repeat(2001));
+    assert.deepEqual(await states(), [
+      ['notebook', 'false', 'Notebook', ''], ['dashboard', 'false', 'Dashboard, has vibes', 'filled'], ['genie_space', 'false', 'Genie Agent', ''], ['app', 'false', 'App', ''], ['alert', 'true', 'Alert, too long', 'problem'],
+    ], 'a tab shows a dot when it holds an ask and a red dot when the ask is too long');
+    await vibesTabs(page).locator('[data-tab="alert"]').focus();
+    for (const [key, id] of [['Home', 'notebook'], ['ArrowLeft', 'alert'], ['ArrowRight', 'notebook'], ['ArrowRight', 'dashboard'], ['End', 'alert']]) {
+      await page.keyboard.press(key);
+      assert.equal(await page.evaluate(() => document.activeElement?.dataset.tab), id, `${key} moves to ${id}`);
+      assert.equal(await vibesTabs(page).locator(`[data-tab="${id}"]`).getAttribute('aria-selected'), 'true');
+    }
+    assert.equal(await (await vibesBox(page, 'Vibes for the Dashboard')).inputValue(), 'Make the trend weekly', 'switching tabs keeps what was typed');
+    await page.getByRole('button', { name: 'Back' }).click();
+    await onStep(page, 'App look');
+    await next(page);
+    await onStep(page, 'Vibes');
+    assert.equal(await vibesTabs(page).locator('[data-tab="dashboard"]').getAttribute('aria-selected'), 'true', 'coming back opens the same tab');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -123,11 +186,11 @@ test('every gray example on the Vibes step shows in full, on a desktop and on a 
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
     await page.getByText(`Emails ${OWNER} when`, { exact: false }).waitFor();
     await toVibes(page);
-    const boxes = page.getByRole('region', { name: 'Vibes', exact: true }).getByRole('textbox');
-    assert.equal(await boxes.count(), 5, 'the notebook and the 4 outputs');
-    assert.deepEqual(await clippedExamples(page, boxes), [], 'desktop');
-    await page.setViewportSize({ width: 390, height: 844 });
-    assert.deepEqual(await clippedExamples(page, boxes), [], 'phone');
+    assert.equal(await page.getByRole('region', { name: 'Vibes', exact: true }).locator('textarea').count(), 5, 'the notebook and the 4 outputs');
+    for (const [width, height, device] of [[1440, 900, 'desktop'], [390, 844, 'phone']]) {
+      await page.setViewportSize({ width, height });
+      for (const name of Object.keys(VIBES_TABS)) assert.deepEqual(await clippedExamples(page, await vibesBox(page, name)), [], `${device}: ${name}`);
+    }
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -147,30 +210,31 @@ test('the Vibes step keeps a live counter, an ask over 2000 characters stops Sta
     await toVibes(page);
     const panel = page.getByRole('region', { name: 'Vibes' });
     const dash = panel.locator('[data-vibes="dashboard"]');
-    await vibesBox(page, 'Vibes for the Dashboard').fill(`  ${LONG_ASK}  `);
+    await (await vibesBox(page, 'Vibes for the Dashboard')).fill(`  ${LONG_ASK}  `);
     assert.equal(await dash.locator('[data-vibes-count]').textContent(), `${LONG_ASK.length}/2000`, 'the counter counts the trimmed ask');
     const genie = panel.locator('[data-vibes="genie_space"]');
-    await vibesBox(page, 'Vibes for the Genie Agent').fill('g'.repeat(2001));
+    await (await vibesBox(page, 'Vibes for the Genie Agent')).fill('g'.repeat(2001));
     const count = genie.locator('[data-vibes-count]');
     assert.equal(await count.textContent(), '2001/2000');
     assert.match(await count.getAttribute('class'), /text-error-fg/, 'the counter turns to the error style over the limit');
     await genie.getByText('the Genie Agent vibes are 2001 characters; at most 2000 are allowed').waitFor();
-    assert.equal(await vibesBox(page, 'Vibes for the Genie Agent').getAttribute('aria-invalid'), 'true');
+    assert.equal(await (await vibesBox(page, 'Vibes for the Genie Agent')).getAttribute('aria-invalid'), 'true');
 
-    await vibesBox(page, 'Notebook vibes').focus();
+    await (await vibesBox(page, 'Notebook vibes')).focus();
     await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
     await page.locator('[role="alert"]').waitFor();
     assert.deepEqual(await footerErrors(page), ['the Genie Agent vibes are 2001 characters; at most 2000 are allowed']);
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Vibes for the Genie Agent', 'Start moves the focus to the box to shorten');
+    assert.equal(await vibesTabs(page).locator('[data-tab="genie_space"]').getAttribute('aria-selected'), 'true', 'and opens its tab');
     await onStep(page, 'Vibes');
     assert.equal(made.jobs.length, 0, 'an ask over the limit starts nothing');
     assert.equal(insertsOf(made).length, 0, 'and records no version');
 
-    await vibesBox(page, 'Vibes for the Genie Agent').fill('g'.repeat(2000));
+    await (await vibesBox(page, 'Vibes for the Genie Agent')).fill('g'.repeat(2000));
     assert.equal(await count.textContent(), '2000/2000');
     assert.doesNotMatch(await count.getAttribute('class'), /text-error-fg/);
     await page.locator('[role="alert"]').waitFor({ state: 'detached' });
-    await vibesBox(page, 'App vibes').fill('One page: the decision list on the left and the row detail on the right');
+    await (await vibesBox(page, 'App vibes')).fill('One page: the decision list on the left and the row detail on the right');
     await startMvp(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
     const [{ spec }] = insertsOf(made);
@@ -210,7 +274,7 @@ test('the Vibes step with every output picked fits 1440x900 with every box fille
     for (const [name, words] of [['Notebook vibes', 'Score the baseline and every model on the same held-out rows'], ['Vibes for the Dashboard', LONG_ASK],
       ['Vibes for the Genie Agent', 'Answer in plain words and always say which rows you counted'],
       ['App vibes', 'One page: the decision list on the left and the row detail on the right'], ['Vibes for the Alert', 'a'.repeat(2001)]]) {
-      await vibesBox(page, name).fill(words);
+      await (await vibesBox(page, name)).fill(words);
     }
     await fits('vibes-step-filled');
     await readable(page, ['[role="dialog"]'], 'vibes-step');
@@ -525,9 +589,9 @@ test('the notebook has its own vibes in the wizard and a card on the Build page 
     await toVibes(page);
     const panel = page.getByRole('region', { name: 'Vibes' });
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Notebook vibes', 'the notebook box comes first, with the focus');
-    await vibesBox(page, 'Notebook vibes').fill('n'.repeat(2001));
+    await (await vibesBox(page, 'Notebook vibes')).fill('n'.repeat(2001));
     await panel.locator('[data-vibes="notebook"]').getByText('the notebook vibes are 2001 characters; at most 2000 are allowed').waitFor();
-    await vibesBox(page, 'App vibes').focus();
+    await (await vibesBox(page, 'App vibes')).focus();
     await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
     await page.locator('[role="alert"]').waitFor();
     assert.deepEqual(await footerErrors(page), ['the notebook vibes are 2001 characters; at most 2000 are allowed']);

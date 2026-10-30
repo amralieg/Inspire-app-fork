@@ -7326,7 +7326,9 @@
         "app_options",
         "app_backend",
         "app_vibes",
-        "app_owners"
+        "app_owners",
+        "app_charts",
+        "app_pages"
       ],
       "alert": [
         "alert_name",
@@ -7340,6 +7342,7 @@
         "alert_vibes"
       ]
     },
+    "IMPLEMENT_APP_CHARTS_MIN": 3,
     "IMPLEMENT_APP_LOOK": {
       "style": "a",
       "layout": "sidebar",

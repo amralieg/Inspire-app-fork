@@ -86,7 +86,7 @@ const drawerTitle = (id) => DRAWER_TITLES[id] || (id.startsWith('app:') ? 'App' 
 const tower = (page) => page.getByRole('region', { name: 'Control tower' });
 const openDrawer = (page) => page.locator('[data-details-drawer]');
 const drawerOf = (page, id) => page.getByRole('dialog', { name: `${drawerTitle(id)} details`, exact: true });
-const partsOf = (drawer) => drawer.getByRole('navigation', { name: 'Pick a part to vibe' });
+const partsOf = (drawer) => drawer.getByRole('tablist', { name: 'Pick a part to vibe' });
 async function pick(page, id) {
   const drawer = drawerOf(page, id);
   if (!(await drawer.count())) {
@@ -97,7 +97,7 @@ async function pick(page, id) {
     await tower(page).getByRole('button', { name: `${drawerTitle(id)} details`, exact: true }).click();
     await drawer.waitFor();
   }
-  const part = partsOf(drawer).locator(`[data-asset="${id}"]`);
+  const part = partsOf(drawer).locator(`[data-tab="${id}"]`);
   if (await part.count()) await part.click();
   const card = drawer.locator(`[data-vibe-card="${id}"]`);
   await card.waitFor();
@@ -130,10 +130,15 @@ test('a click anywhere on a tile opens its card in a drawer that lists only that
     await tower(page).locator('[data-tile="app"]').click({ position: { x: 6, y: 6 } });
     const app = drawerOf(page, PAGE);
     await app.waitFor();
-    assert.deepEqual(await partsOf(app).getByRole('button').evaluateAll((items) => items.map((b) => [b.dataset.asset, b.getAttribute('aria-label'), b.getAttribute('aria-pressed')])), [
+    assert.deepEqual(await partsOf(app).getByRole('tab').evaluateAll((items) => items.map((b) => [b.dataset.tab, b.getAttribute('aria-label'), b.getAttribute('aria-selected')])), [
       [PAGE, 'Page: Decisions, Ready', 'true'], ['app:page:detail', 'Page: Row detail, Ready', 'false'],
-    ], 'one button per page of this App only, and the first is picked from the start');
+    ], 'one tab per page of this App only, and the first is picked from the start');
     const card = picked(page, PAGE);
+    const panel = app.getByRole('tabpanel');
+    assert.equal(await panel.getAttribute('aria-labelledby'), await partsOf(app).locator(`[data-tab="${PAGE}"]`).getAttribute('id'), 'the card is the picked tab\'s panel');
+    assert.equal(await panel.locator(`[data-vibe-card="${PAGE}"]`).count(), 1);
+    assert.deepEqual(await box(card).evaluate((el) => [el.rows, getComputedStyle(el).resize]), [8, 'vertical'],
+      'the same tall box as the wizard vibes, which the person can make taller');
     assert.equal(await card.getByRole('heading').textContent(), 'Page: Decisions');
     await card.getByText('App', { exact: true }).waitFor();
     await card.getByText('The rows to act on, with their filters', { exact: true }).waitFor();
@@ -146,10 +151,16 @@ test('a click anywhere on a tile opens its card in a drawer that lists only that
     assert.deepEqual(await versions.locator('[data-version]').evaluateAll((rows) => rows.map((r) => r.dataset.version)), ['3', '2', '1']);
     await versions.locator('[data-live-version]').getByText('Live', { exact: true }).waitFor();
     await versions.getByRole('button', { name: 'Roll back to version 2', exact: true }).waitFor();
-    await partsOf(app).locator('[data-asset="app:page:detail"]').click();
+    await partsOf(app).locator('[data-tab="app:page:detail"]').click();
     await picked(page, 'app:page:detail').waitFor();
-    assert.equal(await partsOf(app).locator(`[data-asset="${PAGE}"]`).getAttribute('aria-pressed'), 'false', 'the earlier pick is let go');
+    assert.equal(await partsOf(app).locator(`[data-tab="${PAGE}"]`).getAttribute('aria-selected'), 'false', 'the earlier pick is let go');
     await picked(page, PAGE).waitFor({ state: 'detached' });
+    await partsOf(app).locator('[data-tab="app:page:detail"]').focus();
+    await page.keyboard.press('ArrowLeft');
+    await picked(page, PAGE).waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset.tab), PAGE, 'the arrow keys move between parts');
+    await page.keyboard.press('End');
+    await picked(page, 'app:page:detail').waitFor();
     await page.keyboard.press('Escape');
     await openDrawer(page).waitFor({ state: 'detached' });
 
@@ -158,7 +169,7 @@ test('a click anywhere on a tile opens its card in a drawer that lists only that
       await tower(page).locator(`[data-tile="${output}"]`).click({ position: { x: 6, y: 6 } });
       const drawer = drawerOf(page, output);
       await drawer.locator(`[data-vibe-card="${first}"]`).waitFor();
-      parts[output] = await partsOf(drawer).getByRole('button').evaluateAll((items) => items.map((b) => b.getAttribute('aria-label')));
+      parts[output] = await partsOf(drawer).getByRole('tab').evaluateAll((items) => items.map((b) => b.getAttribute('aria-label')));
       assert.equal(await drawer.locator('[data-vibe-card]').count(), 1, `${output}: one card at a time`);
       await page.keyboard.press('Escape');
       await drawer.waitFor({ state: 'detached' });
@@ -318,9 +329,9 @@ test('while a version rebuilds the picked asset, it reads Rebuilding with the th
   try {
     const card = await pick(page, PAGE);
     const nav = partsOf(drawerOf(page, PAGE));
-    await nav.getByRole('button', { name: 'Page: Decisions, Rebuilding', exact: true }).waitFor();
-    await nav.getByRole('button', { name: 'Page: Row detail, Ready', exact: true }).waitFor();
-    assert.equal(await nav.getByRole('button', { name: /, Rebuilding$/ }).count(), 1, 'only the page is rebuilding');
+    await nav.getByRole('tab', { name: 'Page: Decisions, Rebuilding', exact: true }).waitFor();
+    await nav.getByRole('tab', { name: 'Page: Row detail, Ready', exact: true }).waitFor();
+    assert.equal(await nav.getByRole('tab', { name: /, Rebuilding$/ }).count(), 1, 'only the page is rebuilding');
     const steps = card.getByRole('list', { name: 'Rebuilding the Decisions page' }).getByRole('listitem');
     assert.deepEqual(await steps.evaluateAll((li) => li.map((x) => [x.dataset.step, x.textContent])), [
       ['done', '✓Reading what you asked: 3 things'],

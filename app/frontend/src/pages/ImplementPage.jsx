@@ -25,6 +25,7 @@ import InspireScoreBadge from '../components/InspireScoreBadge';
 import Celebration from '../components/Celebration';
 import GenieLogo from '../components/GenieLogo';
 import VibesEditor from '../components/VibesEditor';
+import TabStrip, { tabPanel } from '../components/TabStrip';
 import { Counter, CounterDivider, IconChip, PANEL_CLASS, SectionTitle } from '../components/BuildUi';
 import { catalogRow } from '../lib/useCaseFacets';
 import {
@@ -594,7 +595,7 @@ function AssetCard({ asset, draft, locked, active, error, money = null, moneyErr
           {asset.id === 'value_formula' && <MoneyReview money={money} error={moneyError} />}
           {asset.rebuild && (
             <div className="space-y-2">
-              <VibesEditor id={asset.id} label={asset.id === asset.output ? '' : asset.label} heading="How should it work?" rows={4} disabled={Boolean(busy)} value={text}
+              <VibesEditor id={asset.id} label={asset.id === asset.output ? '' : asset.label} heading="How should it work?" disabled={Boolean(busy)} value={text}
                 onChange={(value) => onDraft(asset.id, value)} />
               <div className="flex items-center justify-between gap-3">
                 <span className="min-w-0 flex-1 text-[11px] text-text-secondary">{rebuildHint(asset, changed)}</span>
@@ -643,21 +644,12 @@ function AssetCard({ asset, draft, locked, active, error, money = null, moneyErr
   );
 }
 
+const PART_TABS = 'vibe-part';
+
 function DrawerParts({ assets, picked, onPick }) {
   if (assets.length < 2) return null;
-  return (
-    <nav aria-label="Pick a part to vibe" className="flex flex-wrap gap-1.5">
-      {assets.map((asset) => (
-        <button key={asset.id} type="button" data-asset={asset.id} aria-label={`${asset.title}, ${asset.state?.label || ''}`} aria-pressed={picked === asset.id}
-          onClick={() => onPick(asset.id)}
-          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-smooth ${
-            picked === asset.id ? 'border-db-red/40 bg-db-red-50 text-db-red-fg' : 'border-border bg-surface text-text-primary hover:bg-bg-subtle'}`}>
-          {asset.title}
-          <AssetPill state={asset.state} />
-        </button>
-      ))}
-    </nav>
-  );
+  const tabs = assets.map((asset) => ({ id: asset.id, label: asset.title, ariaLabel: `${asset.title}, ${asset.state?.label || ''}`, mark: <AssetPill state={asset.state} /> }));
+  return <TabStrip label="Pick a part to vibe" idBase={PART_TABS} tabs={tabs} current={picked} onPick={onPick} />;
 }
 
 function DetailsDrawer({ id, useCaseId, onClose, children }) {
@@ -1365,20 +1357,22 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
           {detailsBody(details)}
           <DrawerParts assets={drawerAssets} picked={drawerCard?.id} onPick={(id) => { setPickedAsset(id); setCardFailed(false); }} />
           {drawerCard && (
-            <AssetCard
-              key={drawerCard.id}
-              asset={drawerCard}
-              draft={vibeDrafts[drawerCard.id] ?? null}
-              locked={active || submitBusy}
-              active={active}
-              error={cardFailed ? error : ''}
-              money={money}
-              moneyError={moneyError}
-              onDraft={(name, text) => setVibeDrafts((prev) => ({ ...prev, [name]: text }))}
-              onRebuild={fromCard(vibeOutput)}
-              onTryAgain={fromCard(tryAgain)}
-              onRollback={fromCard(rollbackOutput)}
-            />
+            <div {...(drawerAssets.length > 1 ? tabPanel(PART_TABS, drawerCard.id, drawerCard.id) : {})}>
+              <AssetCard
+                key={drawerCard.id}
+                asset={drawerCard}
+                draft={vibeDrafts[drawerCard.id] ?? null}
+                locked={active || submitBusy}
+                active={active}
+                error={cardFailed ? error : ''}
+                money={money}
+                moneyError={moneyError}
+                onDraft={(name, text) => setVibeDrafts((prev) => ({ ...prev, [name]: text }))}
+                onRebuild={fromCard(vibeOutput)}
+                onTryAgain={fromCard(tryAgain)}
+                onRollback={fromCard(rollbackOutput)}
+              />
+            </div>
           )}
         </DetailsDrawer>
       )}

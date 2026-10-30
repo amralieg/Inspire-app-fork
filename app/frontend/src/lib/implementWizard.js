@@ -83,7 +83,9 @@ export function specWithBackend(spec, offer) {
 
 export function sentSpec(spec, offer) {
   const out = specWithBackend(spec, offer);
-  return joinsApp(out) && out.outputs.app_owners?.length ? { ...out, outputs: { ...out.outputs, app_owners: [] } } : out;
+  if (!joinsApp(out)) return out;
+  const { app_charts: _charts, app_pages: _pages, ...outputs } = out.outputs;
+  return { ...out, outputs: { ...outputs, app_owners: [] } };
 }
 
 export function withAppBackend(spec, backend) {
@@ -156,29 +158,84 @@ export const APP_LOOK_TABS = [
   { id: 'style', label: 'Style' }, { id: 'palette', label: 'Palette' }, { id: 'layout', label: 'Layout' }, { id: 'charts', label: 'Charts' }, { id: 'pages', label: 'Pages' },
 ];
 export const APP_SAMPLE_NOTE = 'Sample data. Your App shows the records of this use case in the look you pick.';
-export const APP_CHARTS_NOTE = 'Genie picks at least 3 charts that fit your results. Each chart has an Explain button that asks Genie what the chart shows.';
+export const APP_CHARTS_MIN = 3;
+export const APP_CHART_PICK = ['trend', 'bars', 'pareto'];
 export const APP_CHART_KINDS = [
   { id: 'trend', label: 'Trend over time', blurb: 'Lines or areas by day or week' },
   { id: 'bars', label: 'Bars by segment', blurb: 'Plain, stacked or sideways bars' },
-  { id: 'split', label: 'Split by tier', blurb: 'A donut of Act now, Review and Monitor' },
+  { id: 'split', label: 'Share of a whole', blurb: 'A donut, such as Act now, Review and Monitor' },
   { id: 'pareto', label: 'Biggest first', blurb: 'A pareto of where most of the money sits' },
   { id: 'scatter', label: 'Two measures', blurb: 'A scatter or a heatmap' },
 ];
+export const APP_CHARTS_NOTE = `Pick the kinds of chart the App draws, at least ${APP_CHARTS_MIN}. Genie draws one of each, and tells you why `
+  + 'when your results cannot draw one. Each chart has an Explain button that asks Genie what it shows.';
+export const APP_CHARTS_MIN_NOTE = `Keep at least ${APP_CHARTS_MIN} kinds.`;
+export const APP_CHARTS_RESET = "Use Inspire's pick";
+export const APP_SCREENS = ['runs', 'impact'];
+export const APP_PAGES_NOTE = 'Turn off a page the App does not need. Things to fix and Ask Genie are always on.';
+export const APP_ALWAYS_ON = 'Always on';
+
+export function appChartPick(look) {
+  return Array.isArray(look?.chart_pick) && look.chart_pick.length ? look.chart_pick : APP_CHART_PICK;
+}
+
+export function appChartsOf(spec, look) {
+  const picked = spec?.outputs?.app_charts;
+  return Array.isArray(picked) && picked.length ? picked : appChartPick(look);
+}
+
+export function appChartsPicked(spec) {
+  return Array.isArray(spec?.outputs?.app_charts) && spec.outputs.app_charts.length > 0;
+}
+
+export function appChartPickText(look) {
+  const names = appChartPick(look).map((id) => APP_CHART_KINDS.find((k) => k.id === id)?.label.toLowerCase() || id);
+  return `Inspire's pick: ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}.`;
+}
+
+export function withAppChart(spec, id, on, look) {
+  const now = appChartsOf(spec, look);
+  const next = APP_CHART_KINDS.map((k) => k.id).filter((k) => (k === id ? on : now.includes(k)));
+  if (next.length < APP_CHARTS_MIN) return spec;
+  const pick = appChartPick(look);
+  const same = next.length === pick.length && next.every((k) => pick.includes(k));
+  return { ...spec, outputs: { ...spec.outputs, app_charts: same ? [] : next } };
+}
+
+export function withInspireCharts(spec) {
+  return { ...spec, outputs: { ...spec.outputs, app_charts: [] } };
+}
+
+export function appScreensOf(spec) {
+  const pages = spec?.outputs?.app_pages || {};
+  return Object.fromEntries(APP_SCREENS.map((key) => [key, pages[key] !== false]));
+}
+
+export function withAppScreen(spec, key, on) {
+  return { ...spec, outputs: { ...spec.outputs, app_pages: { ...appScreensOf(spec), [key]: Boolean(on) } } };
+}
 
 export function appPagesOf(spec) {
   const outputs = spec?.outputs || {};
   const options = outputs.app_options || {};
   const shared = outputs.app_access !== 'user';
-  const fix = ['What needs action: the totals, at least 3 charts, and every flagged record with the reason Inspire flagged it.'];
+  const screens = appScreensOf(spec);
+  const fix = ['What needs action: the totals, the charts you pick, and every flagged record with the reason Inspire flagged it.'];
   if (options.modify) fix.push('People can edit a record, and Inspire keeps who changed what.');
   if (options.decisions && shared) fix.push('People own, track and dismiss each flagged record.');
   return [
-    { id: 'fix', label: 'Things to fix', blurb: fix.join(' ') },
-    { id: 'runs', label: 'Runs', blurb: 'Every run of the notebook: when it ran, the data it read and the records it flagged.' },
-    ...(options.alerts && shared ? [{ id: 'alerts', label: 'Alerts', blurb: 'Email alerts people set up on what the App shows, each on its own schedule.' }] : []),
-    { id: 'impact', label: 'Impact', blurb: 'What the use case delivered: estimated, reported and measured money, never added together.' },
-    ...(outputs.genie_space ? [{ id: 'genie', label: 'Ask Genie', blurb: 'A Genie panel next to every page, which also answers about one record or one chart.' }] : []),
+    { id: 'fix', label: 'Things to fix', blurb: fix.join(' '), on: true, fixed: true },
+    { id: 'runs', label: 'Runs', blurb: 'Every run of the notebook: when it ran, the data it read and the records it flagged.', on: screens.runs },
+    { id: 'alerts', label: 'Alerts', blurb: 'Email alerts people set up on what the App shows, each on its own schedule.', on: Boolean(options.alerts && shared),
+      option: true, ...(shared ? {} : { off: PER_USER_REASON }) },
+    { id: 'impact', label: 'Impact', blurb: 'What the use case delivered: estimated, reported and measured money, never added together.', on: screens.impact },
+    { id: 'genie', label: 'Ask Genie', blurb: 'A Genie panel next to every page, which also answers about one record or one chart.', on: true, fixed: true },
   ];
+}
+
+export function withAppPage(spec, id, on) {
+  if (id === 'alerts') return withAppOption(spec, 'alerts', on);
+  return APP_SCREENS.includes(id) ? withAppScreen(spec, id, on) : spec;
 }
 export const GENIE_FOR_APP_NOTE = 'Ask Genie in the App needs a Genie Agent.';
 export const APP_NEXT_NOTE = 'You pick its access and look next.';
@@ -261,9 +318,13 @@ export function vibesSkippedText(spec) {
   return `No box for ${names}: Genie builds only what you picked in the Delivery step. To vibe ${them}, go Back to Delivery and pick ${them}.`;
 }
 
+export function vibesEntries(spec) {
+  return [{ id: 'notebook', label: 'Notebook', value: String(spec?.data?.notes ?? '') },
+    ...IMPLEMENT_OUTPUTS.filter((o) => spec?.outputs?.[o.id]).map((o) => ({ id: o.id, label: o.label, value: String(spec.outputs[vibesKey(o.id)] ?? '') }))];
+}
+
 export function vibesProblems(spec) {
-  return [vibesProblem('notebook', spec?.data?.notes),
-    ...IMPLEMENT_OUTPUTS.filter((o) => spec?.outputs?.[o.id]).map((o) => vibesProblem(o.id, spec.outputs[vibesKey(o.id)]))].filter(Boolean);
+  return vibesEntries(spec).map((e) => vibesProblem(e.id, e.value)).filter(Boolean);
 }
 
 export const ALERT_TIER_OPTIONS = [
@@ -591,6 +652,8 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, sessi
       app_options: Object.fromEntries(APP_OPTION_KEYS.map((key) => [key, false])),
       app_backend: '',
       app_owners: [],
+      app_charts: [],
+      app_pages: Object.fromEntries(APP_SCREENS.map((key) => [key, true])),
       app_vibes: '',
       merge: Object.fromEntries(MERGE_OUTPUTS.map((name) => [name, ''])),
       alert: false,
@@ -1140,10 +1203,11 @@ export function sectionErrors(section, spec, extras = {}) {
     }
     if (extras.lakebase === null && spec.outputs.app_access === 'sp' && !spec.outputs.merge?.app) errors.push(LAKEBASE_CHECKING);
   }
-  if (section === 'app_look' && spec.outputs.app && extras.appLook) {
-    for (const [key, list] of Object.entries(APP_LOOK_LISTS)) {
+  if (section === 'app_look' && spec.outputs.app) {
+    for (const [key, list] of Object.entries(extras.appLook ? APP_LOOK_LISTS : {})) {
       if (!(extras.appLook[list] || []).includes(spec.outputs.app_look?.[key])) errors.push(`pick one of the App's ${list}`);
     }
+    if (appChartsPicked(spec) && spec.outputs.app_charts.length < APP_CHARTS_MIN) errors.push(`pick at least ${APP_CHARTS_MIN} kinds of chart`);
   }
   if (section === 'data') {
     const roleProblems = columnRoleProblems(spec.data.column_roles, extras.columnsByTable, { trainsModel: extras.trainsModel !== false });

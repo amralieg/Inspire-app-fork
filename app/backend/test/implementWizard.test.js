@@ -1165,27 +1165,82 @@ test('Build again sends the failed version as the next one with every ask it mad
   assert.deepEqual(w.buildAgainChanges({ spec_json: ['vibes'] }), {});
 });
 
-test('App look lists only the pages the App gets: alerts and recorded decisions only in a shared App, Ask Genie only with a Genie Agent', async () => {
+test('App look lists every page with its switch: Things to fix and Ask Genie always on, Runs and Impact on until turned off, Alerts with Send alerts and never per user', async () => {
   const w = await load();
   assert.deepEqual(w.APP_LOOK_TABS.map((t) => t.id), ['style', 'palette', 'layout', 'charts', 'pages']);
   const spec = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
-  const ids = (s) => w.appPagesOf(s).map((p) => p.id);
+  const state = (s) => w.appPagesOf(s).map((p) => [p.id, p.on, Boolean(p.fixed), p.off || '']);
   const fixText = (s) => w.appPagesOf(s).find((p) => p.id === 'fix').blurb;
   const withOutputs = (patch, options = {}) => ({ ...spec, outputs: { ...spec.outputs, ...patch, app_options: { ...spec.outputs.app_options, ...options } } });
-  assert.deepEqual(ids(spec), ['fix', 'runs', 'impact', 'genie'], 'the default App: no alerts page while Send alerts is off');
+  assert.deepEqual(state(spec), [['fix', true, true, ''], ['runs', true, false, ''], ['alerts', false, false, ''], ['impact', true, false, ''], ['genie', true, true, '']],
+    'the default App: every page on but Alerts, which waits for Send alerts');
   assert.doesNotMatch(fixText(spec), /edit a record|own, track and dismiss/);
   const all = withOutputs({ app_access: 'sp' }, { modify: true, decisions: true, alerts: true });
-  assert.deepEqual(ids(all), ['fix', 'runs', 'alerts', 'impact', 'genie']);
+  assert.equal(w.appPagesOf(all).find((p) => p.id === 'alerts').on, true);
   assert.match(fixText(all), /People can edit a record, and Inspire keeps who changed what\. People own, track and dismiss each flagged record\.$/);
   const perUser = withOutputs({ app_access: 'user' }, { modify: true, decisions: true, alerts: true });
-  assert.deepEqual(ids(perUser), ['fix', 'runs', 'impact', 'genie'], 'a per-user App has no alerts page');
+  assert.deepEqual(state(perUser)[2], ['alerts', false, false, w.PER_USER_REASON], 'a per-user App has Alerts off, with the reason');
   assert.match(fixText(perUser), /People can edit a record/);
   assert.doesNotMatch(fixText(perUser), /own, track and dismiss/, 'a per-user App records no decisions');
-  assert.deepEqual(ids(withOutputs({ genie_space: false })), ['fix', 'runs', 'impact'], 'no Genie Agent, no Ask Genie page');
-  for (const empty of [undefined, null, {}, { outputs: null }]) assert.deepEqual(ids(empty), ['fix', 'runs', 'impact'], JSON.stringify(empty));
-  const texts = [w.APP_SAMPLE_NOTE, w.APP_CHARTS_NOTE, ...w.APP_LOOK_TABS.map((t) => t.label), ...w.APP_CHART_KINDS.flatMap((k) => [k.label, k.blurb]),
-    ...w.appPagesOf(all).flatMap((p) => [p.label, p.blurb])];
+  for (const empty of [undefined, null, {}, { outputs: null }]) {
+    assert.deepEqual(state(empty).map(([id, on]) => [id, on]), [['fix', true], ['runs', true], ['alerts', false], ['impact', true], ['genie', true]], JSON.stringify(empty));
+  }
+
+  const noImpact = w.withAppPage(spec, 'impact', false);
+  assert.deepEqual(noImpact.outputs.app_pages, { runs: true, impact: false });
+  assert.deepEqual(w.appScreensOf(noImpact), { runs: true, impact: false });
+  const noRuns = w.withAppPage(noImpact, 'runs', false);
+  assert.deepEqual(state(noRuns).map(([id, on]) => [id, on]), [['fix', true], ['runs', false], ['alerts', false], ['impact', false], ['genie', true]]);
+  assert.deepEqual(w.withAppPage(w.withAppPage(noRuns, 'runs', true), 'impact', true).outputs.app_pages, { runs: true, impact: true });
+  for (const fixed of ['fix', 'genie', 'nope']) assert.equal(w.withAppPage(spec, fixed, false), spec, `${fixed} cannot be turned off`);
+  const alertsOn = w.withAppPage(spec, 'alerts', true);
+  assert.equal(alertsOn.outputs.app_options.alerts, true, 'the Alerts switch is the Send alerts option');
+  assert.equal(alertsOn.outputs.app_pages, spec.outputs.app_pages, 'and leaves the screens alone');
+  assert.equal(w.withAppPage(alertsOn, 'alerts', false).outputs.app_options.alerts, false);
+  assert.deepEqual(w.appScreensOf({ outputs: { app_pages: { runs: null, impact: 'no' } } }), { runs: true, impact: true }, 'only false turns a page off');
+
+  const texts = [w.APP_SAMPLE_NOTE, w.APP_CHARTS_NOTE, w.APP_CHARTS_MIN_NOTE, w.APP_CHARTS_RESET, w.APP_PAGES_NOTE, w.APP_ALWAYS_ON,
+    ...w.APP_LOOK_TABS.map((t) => t.label), ...w.APP_CHART_KINDS.flatMap((k) => [k.label, k.blurb]), ...w.appPagesOf(all).flatMap((p) => [p.label, p.blurb])];
   for (const text of texts) assert.doesNotMatch(text, /[\u2013\u2014]/, text);
+});
+
+test('the App charts start at Inspire\'s pick, take at least 3 kinds, keep the shell\'s order, and go back to Inspire\'s pick when that is what is ticked', async () => {
+  const w = await load();
+  const spec = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
+  const look = { chart_kinds: ['trend', 'bars', 'split', 'pareto', 'scatter'], chart_pick: ['trend', 'bars', 'pareto'] };
+  assert.deepEqual(w.appChartsOf(spec, look), ['trend', 'bars', 'pareto']);
+  assert.equal(w.appChartsPicked(spec), false);
+  assert.equal(w.appChartPickText(look), "Inspire's pick: trend over time, bars by segment and biggest first.");
+  assert.deepEqual(w.appChartsOf(spec, { chart_pick: ['split', 'scatter', 'bars'] }), ['split', 'scatter', 'bars'], 'the pick comes from the shell when it names one');
+  assert.deepEqual(w.appChartsOf(spec, null), w.APP_CHART_PICK);
+  assert.equal(w.withAppChart(spec, 'trend', false, look), spec, 'unticking one of 3 would leave 2, so nothing changes');
+  const four = w.withAppChart(spec, 'scatter', true, look);
+  assert.deepEqual(four.outputs.app_charts, ['trend', 'bars', 'pareto', 'scatter']);
+  assert.equal(w.appChartsPicked(four), true);
+  const swapped = w.withAppChart(four, 'trend', false, look);
+  assert.deepEqual(swapped.outputs.app_charts, ['bars', 'pareto', 'scatter']);
+  assert.deepEqual(w.withAppChart(w.withAppChart(swapped, 'split', true, look), 'pareto', false, look).outputs.app_charts, ['bars', 'split', 'scatter']);
+  assert.deepEqual(w.withAppChart(four, 'scatter', false, look).outputs.app_charts, [], 'ticking back to Inspire\'s pick is Inspire\'s pick');
+  assert.equal(w.withAppChart(swapped, 'bars', false, look), swapped);
+  assert.deepEqual(w.withInspireCharts(swapped).outputs.app_charts, []);
+  const two = { ...spec, outputs: { ...spec.outputs, app_charts: ['trend', 'bars'] } };
+  assert.deepEqual(w.stepErrors('app_look', two), ['pick at least 3 kinds of chart'], 'checked before the App look list loads');
+  assert.deepEqual(w.stepErrors('app_look', two, { appLook: { styles: ['a'], layouts: ['sidebar'], palettes: ['default'], themes: ['light'] } }),
+    ['pick at least 3 kinds of chart']);
+  assert.deepEqual(w.stepErrors('app_look', swapped), []);
+  assert.deepEqual(w.stepErrors('app_look', spec), []);
+});
+
+test('a use case joining a hub sends no charts or pages, since the hub keeps its own, and asks for no App owners', async () => {
+  const w = await load();
+  const spec = w.defaultSpecFromUseCase(UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
+  const picked = { ...spec, outputs: { ...spec.outputs, app: true, app_charts: ['bars', 'split', 'scatter'], app_pages: { runs: false, impact: true }, app_owners: ['a@b.co'] } };
+  const own = w.sentSpec(picked, null);
+  assert.deepEqual([own.outputs.app_charts, own.outputs.app_pages, own.outputs.app_owners], [['bars', 'split', 'scatter'], { runs: false, impact: true }, ['a@b.co']]);
+  const joining = w.sentSpec({ ...picked, outputs: { ...picked.outputs, merge: { ...picked.outputs.merge, app: 'inspire-hub-acme' } } }, null);
+  assert.equal(Object.prototype.hasOwnProperty.call(joining.outputs, 'app_charts'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(joining.outputs, 'app_pages'), false);
+  assert.deepEqual(joining.outputs.app_owners, []);
 });
 
 test('a joined App\'s look reads in plain words and says how to get a look of its own', async () => {

@@ -36,7 +36,7 @@ async function openMoney(state) {
     if (await control.getAttribute('aria-selected') !== 'true') await control.click();
     await ui.page.getByRole('region', { name: 'Control tower' }).getByRole('button', { name: 'Genie Code notebook details', exact: true }).click({ timeout: 15000 });
     const drawer = ui.page.getByRole('dialog', { name: 'Genie Code notebook details', exact: true });
-    await drawer.getByRole('navigation', { name: 'Pick a part to vibe' }).getByRole('button', { name: 'Money at stake, Ready', exact: true }).click();
+    await drawer.getByRole('tablist', { name: 'Pick a part to vibe' }).getByRole('tab', { name: 'Money at stake, Ready', exact: true }).click();
     await drawer.locator('[data-vibe-card="value_formula"]').waitFor({ timeout: 15000 });
     return { ...ui, card: drawer.locator('[data-vibe-card="value_formula"]') };
   } catch (e) {

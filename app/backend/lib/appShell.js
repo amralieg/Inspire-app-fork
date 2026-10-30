@@ -14,6 +14,7 @@ const APP_SHELL_VERSION = 1;
 const APP_SHELL_LISTS = { styles: 'STYLES', layouts: 'LAYOUTS', auths: 'AUTHS', themes: 'THEMES', palettes: 'PALETTES', options: 'OPTIONS' };
 const APP_SHELL_BUNDLE = 'static/assets/app.js';
 const APP_SHELL_PG = 'shell_pg.py';
+const APP_SHELL_SQL = 'shell_sql.py';
 const APP_SHELL_DELTA = 'delta';
 const UPDATE_HINT = 'update the Inspire App so it carries an agent notebook with the App shell';
 
@@ -134,6 +135,14 @@ function appShellLook(payload) {
   if (typeof core !== 'string') throw new Error(`the App shell has no shell_core.py; ${UPDATE_HINT}`);
   const lists = Object.fromEntries(Object.entries(APP_SHELL_LISTS).map(([key, name]) => [key, pythonTuple(core, name)]));
   if (/^USER_OFF = \(/m.test(core)) lists.user_off = pythonTuple(core, 'USER_OFF');
+  if (/^SCREENS = \(/m.test(core)) lists.screens = pythonTuple(core, 'SCREENS');
+  const sql = payload.files[APP_SHELL_SQL];
+  if (typeof sql === 'string' && /^CHART_KINDS = \(/m.test(sql)) {
+    lists.chart_kinds = pythonTuple(sql, 'CHART_KINDS');
+    lists.chart_pick = pythonTuple(sql, 'CHART_PICK');
+    const stray = lists.chart_pick.filter((k) => !lists.chart_kinds.includes(k));
+    if (stray.length) throw new Error(`the App shell's CHART_PICK names ${stray.join(', ')}, which CHART_KINDS does not have; ${UPDATE_HINT}`);
+  }
   const pg = payload.files[APP_SHELL_PG];
   lists.backends = typeof pg === 'string' ? pythonTuple(pg, 'KINDS') : [APP_SHELL_DELTA];
   if (!lists.backends.includes(APP_SHELL_DELTA)) throw new Error(`the App shell's KINDS has no ${APP_SHELL_DELTA}; ${UPDATE_HINT}`);

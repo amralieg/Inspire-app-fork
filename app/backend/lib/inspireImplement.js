@@ -32,7 +32,7 @@ const IMPLEMENT_PART_STATES = ['ready', 'ready_with_warnings', 'failed'];
 const IMPLEMENT_OUTPUT_OPTIONS = {
   dashboard: ['dashboard_name', 'dashboard_filters', 'dashboard_vibes'],
   genie_space: ['genie_space_name', 'genie_questions', 'genie_space_vibes'],
-  app: ['app_purpose', 'app_access', 'app_look', 'app_options', 'app_backend', 'app_vibes', 'app_owners'],
+  app: ['app_purpose', 'app_access', 'app_look', 'app_options', 'app_backend', 'app_vibes', 'app_owners', 'app_charts', 'app_pages'],
   alert: ['alert_name', 'alert_tiers', 'alert_operator', 'alert_threshold', 'alert_threshold_basis', 'alert_condition_text',
     'alert_recipients', 'alert_destinations', 'alert_vibes'],
 };
@@ -40,6 +40,7 @@ const IMPLEMENT_APP_LOOK_DEFAULT = { style: 'a', layout: 'sidebar', palette: 'de
 const IMPLEMENT_APP_LOOK_LISTS = { style: 'styles', layout: 'layouts', palette: 'palettes', theme: 'themes' };
 const IMPLEMENT_APP_OPTION_KEYS = ['modify', 'replace_edits', 'decisions', 'alerts'];
 const IMPLEMENT_PER_USER_OFF = ['decisions', 'alerts'];
+const IMPLEMENT_APP_CHARTS_MIN = 3;
 const IMPLEMENT_MERGE_OUTPUTS = ['dashboard', 'genie_space', 'app'];
 const IMPLEMENT_MERGE_NOUNS = { app: 'an App', dashboard: 'a dashboard', genie_space: 'a Genie Agent' };
 const IMPLEMENT_MERGE_LABELS = { app: 'App', dashboard: 'dashboard', genie_space: 'Genie Agent' };
@@ -461,6 +462,8 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
     app_look: app.look,
     app_options: app.options,
     app_backend: app.backend,
+    ...(app.charts ? { app_charts: app.charts } : {}),
+    ...(app.pages ? { app_pages: app.pages } : {}),
     app_owners: appOwners(outputs, chosen.app, errors),
     merge,
     ...alert.options,
@@ -712,12 +715,14 @@ function appOwners(outputs, on, errors) {
 function appSettings(outputs, on, shell, errors, legacyAccess = '') {
   const look = { ...IMPLEMENT_APP_LOOK_DEFAULT };
   const options = Object.fromEntries(IMPLEMENT_APP_OPTION_KEYS.map((key) => [key, false]));
-  if (!on) return { access: '', look: {}, options: {}, backend: '' };
+  if (!on) return { access: '', look: {}, options: {}, backend: '', charts: [], pages: {} };
   const catalog = shell || appShellCatalog();
   if (!catalog.ok) {
     errors.push(`the App cannot be built: ${catalog.error}`);
     return { access: '', look, options, backend: '' };
   }
+  const charts = appChartKinds(outputs.app_charts, catalog.chart_kinds, errors);
+  const pages = appScreens(outputs.app_pages, catalog.screens, errors);
   const rawAccess = outputs.app_access;
   const text = textValue(rawAccess);
   const access = text === null ? null : (text.toLowerCase() || (rawAccess == null ? str(legacyAccess) : ''));
@@ -751,7 +756,46 @@ function appSettings(outputs, on, shell, errors, legacyAccess = '') {
   const backendText = textValue(outputs.app_backend);
   const backend = backendText === '' ? fallback : backendText === null ? null : backendText.toLowerCase();
   if (!catalog.backends.includes(backend)) errors.push(`${IMPLEMENT_APP_BACKEND_CHOICE}, not ${shownValue(outputs.app_backend)}`);
-  return { access: catalog.auths.includes(access) ? access : '', look, options, backend: catalog.backends.includes(backend) ? backend : fallback };
+  return { access: catalog.auths.includes(access) ? access : '', look, options, backend: catalog.backends.includes(backend) ? backend : fallback,
+    ...(charts ? { charts } : {}), ...(pages ? { pages } : {}) };
+}
+
+function appChartKinds(raw, kinds, errors) {
+  if (!kinds) {
+    if (raw != null && !(Array.isArray(raw) && !raw.length)) errors.push("this Inspire agent notebook draws the charts Genie picks, so it cannot take the kinds of chart you picked; update Inspire to pick them");
+    return null;
+  }
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) {
+    errors.push(`the App charts must be a list of the kinds of chart the App draws, from ${kinds.join(', ')}`);
+    return [];
+  }
+  const picked = [];
+  for (const value of raw) {
+    const kind = (textValue(value) || '').toLowerCase();
+    if (!kinds.includes(kind)) errors.push(`the App has no kind of chart ${shownValue(value)}; its kinds are ${kinds.join(', ')}`);
+    else if (!picked.includes(kind)) picked.push(kind);
+  }
+  if (picked.length && picked.length < IMPLEMENT_APP_CHARTS_MIN) {
+    errors.push(`pick at least ${IMPLEMENT_APP_CHARTS_MIN} kinds of chart for the App, not ${picked.length}`);
+  }
+  return kinds.filter((k) => picked.includes(k));
+}
+
+function appScreens(raw, screens, errors) {
+  if (!screens) {
+    if (isPlainObject(raw) && Object.values(raw).some((v) => v === false)) errors.push('this Inspire agent notebook shows every App page, so it cannot turn one off; update Inspire to turn pages off');
+    return null;
+  }
+  const pages = Object.fromEntries(screens.map((key) => [key, true]));
+  for (const [key, value] of Object.entries(objectField(raw, 'outputs.app_pages', errors))) {
+    if (!screens.includes(key)) {
+      errors.push(`the App has no page ${shownValue(key)} to turn on or off; Things to fix and Ask Genie are always on, and only ${screens.join(', ')} can be turned off`);
+    } else if (value != null && typeof value !== 'boolean') {
+      errors.push(`the App page ${key} must be true or false, not ${shownValue(value)}`);
+    } else if (value != null) pages[key] = value;
+  }
+  return pages;
 }
 
 function mergeChoices(outputs, chosen, errors) {
@@ -2225,6 +2269,7 @@ module.exports = {
   IMPLEMENT_APP_LOOK_DEFAULT,
   IMPLEMENT_APP_OPTION_KEYS,
   IMPLEMENT_PER_USER_OFF,
+  IMPLEMENT_APP_CHARTS_MIN,
   IMPLEMENT_MERGE_OUTPUTS,
   IMPLEMENT_MERGE_TARGET_CAP,
   legacyAppAccess,
