@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaultSpecFromUseCase } from '../../src/lib/implementWizard.js';
 import { HARNESS_USE_CASE, HARNESS_SETTINGS, HARNESS_SESSION_ID } from './implementFixtures.js';
-import { clippedExamples, closeBrowser, lowContrast, openUi, until } from './uiSupport.mjs';
+import { closeBrowser, lowContrast, openUi, until } from './uiSupport.mjs';
 
 const OWNER = ['owner', 'example.com'].join('@');
 const START = 'Start Use Case MVP with Genie';
@@ -56,92 +56,13 @@ async function openBuild(state = STATE) {
   return ui;
 }
 
-async function toTower(page) {
-  const control = page.getByRole('tab', { name: 'Control Tower', exact: true });
-  if (await control.getAttribute('aria-selected') !== 'true') await control.click();
+async function toBuildTab(page) {
+  const tab = page.locator('[data-mvp-tab="build"]');
+  if (await tab.getAttribute('aria-selected') !== 'true') await tab.click();
   await page.getByRole('region', { name: 'History', exact: true }).getByText(/^\d+ spec versions? · /).waitFor({ timeout: 15000 });
 }
 
-const vibeBox = (page) => page.getByRole('region', { name: 'Vibe these assets' });
-const tower = (page) => page.getByRole('region', { name: 'Control tower' });
-
-test('the gray example in Vibe these assets shows in full on a desktop and a laptop, and a squeezed box never grows past 8 lines', async () => {
-  const ui = await openBuild();
-  const { page } = ui;
-  try {
-    await toTower(page);
-    const box = vibeBox(page).getByRole('textbox', { name: 'Vibes for the MVP', exact: true });
-    assert.deepEqual(await clippedExamples(page, box), [], 'desktop');
-    await page.setViewportSize({ width: 1024, height: 900 });
-    assert.deepEqual(await clippedExamples(page, box), [], 'laptop');
-    await page.setViewportSize({ width: 390, height: 900 });
-    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-    const squeezed = await box.evaluate((el) => {
-      const lines = parseFloat(getComputedStyle(el).lineHeight);
-      return { height: el.offsetHeight, most: lines * 8 + el.offsetHeight - el.clientHeight + parseFloat(getComputedStyle(el).paddingTop) + parseFloat(getComputedStyle(el).paddingBottom) };
-    });
-    assert.ok(squeezed.height <= squeezed.most + 2, `a squeezed box stays at most 8 lines tall ${JSON.stringify(squeezed)}`);
-    assert.deepEqual(ui.pageErrors, []);
-  } finally {
-    await ui.close();
-  }
-});
-
-test('Vibe these assets names the live outputs in its grey text, waits for text, asks what happens to the live version with no default, and sends the vibe as the next version', async () => {
-  const ui = await openBuild();
-  const { page, made } = ui;
-  try {
-    await toTower(page);
-    const box = vibeBox(page).getByRole('textbox', { name: 'Vibes for the MVP', exact: true });
-    assert.equal(await box.getAttribute('placeholder'), 'Tell us what to change in the Genie Agent, the App, the dashboard or the alert');
-    const vibeIt = vibeBox(page).getByRole('button', { name: 'Vibe it', exact: true });
-    assert.equal(await vibeIt.isDisabled(), true, 'no text, nothing to send');
-    await box.fill('   ');
-    assert.equal(await vibeIt.isDisabled(), true, 'spaces are no text');
-    await box.fill('m'.repeat(2001));
-    await vibeBox(page).getByText('the MVP vibes are 2001 characters; at most 2000 are allowed').waitFor();
-    assert.equal(await vibeIt.isDisabled(), true, 'an ask over the limit cannot be sent');
-
-    const asked = '  Put the riskiest customers first on every page.\nAnswer in euros.  ';
-    await box.fill(asked);
-    await vibeIt.click();
-    const dialog = page.getByRole('dialog', { name: 'What happens to v3?' });
-    await dialog.waitFor();
-    const keep = dialog.getByRole('radio', { name: /^Keep v3 live/ });
-    const remove = dialog.getByRole('radio', { name: /^Remove v3 once v4 is ready/ });
-    assert.deepEqual([await keep.isChecked(), await remove.isChecked()], [false, false], 'Inspire never picks for the person');
-    await dialog.getByText('The alert is changed in place.', { exact: false }).waitFor();
-    const build = dialog.getByRole('button', { name: 'Build v4', exact: true });
-    assert.equal(await build.isDisabled(), true, 'no choice, no build');
-    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await dialog.waitFor({ state: 'detached' });
-    assert.equal(made.jobs.length, 0, 'Cancel sends nothing');
-    assert.equal(await box.inputValue(), asked, 'the vibe stays in the box after Cancel');
-
-    await vibeIt.click();
-    await dialog.getByRole('radio', { name: /^Keep v3 live/ }).check();
-    await dialog.getByRole('button', { name: 'Build v4', exact: true }).click();
-    await until(() => made.jobs.length === 1, 'the kept vibe');
-    const [kept] = insertsOf(made);
-    assert.deepEqual([kept.classes, kept.spec.vibes, kept.spec.vibe_previous, kept.spec.based_on_version],
-      ['vibe', 'Put the riskiest customers first on every page.\nAnswer in euros.', 'keep', 3]);
-    assert.deepEqual([kept.spec.retry_outputs, kept.spec.rollback_outputs], [[], {}], 'a vibe is one change of its own');
-    await dialog.waitFor({ state: 'detached' });
-    assert.equal(await box.inputValue(), '', 'a sent vibe clears the box');
-
-    await box.fill('Show the trend by week');
-    await vibeIt.click();
-    await dialog.getByRole('radio', { name: /^Remove v3 once v4 is ready/ }).check();
-    await dialog.getByRole('button', { name: 'Build v4', exact: true }).click();
-    await until(() => made.jobs.length === 2, 'the replacing vibe');
-    assert.equal(insertsOf(made)[1].spec.vibe_previous, 'remove');
-    assert.deepEqual(ui.pageErrors, []);
-  } finally {
-    await ui.close();
-  }
-});
-
-test('the last vibe says where each ask went and what no asset could do, and a version kept live is removed only once the use case id is typed', async () => {
+test('a version an earlier vibe kept live is removed only once the use case id is typed, and the earlier vibe is never sent again', async () => {
   const routed = { state: 'routed', text: 'Put the riskiest first. Add a map by region.', previous: 'keep', spec_version: 3,
     routes: { dashboard: 'Put the riskiest first', app: 'Put the riskiest first' }, not_routed: [{ ask: 'Add a map by region', reason: 'the result table has no region column' }] };
   const kept = { state: 'kept', assets: [{ output: 'dashboard', id: 'd0', url: 'https://workspace.example.com/dashboardsv3/d0/published', title: 'Churn desk v2',
@@ -149,15 +70,8 @@ test('the last vibe says where each ask went and what no asset could do, and a v
   const ui = await openBuild({ ...STATE, history: [versionRow(3, { change_classes: 'vibe', assets: { ...LIVE, vibe: routed, kept } }), versionRow(2), versionRow(1)] });
   const { page, made } = ui;
   try {
-    await toTower(page);
-    const last = vibeBox(page).locator('[data-last-vibe="3"]');
-    await last.getByText('Your vibe on v3, with the version before it kept live').waitFor();
-    assert.deepEqual(await last.getByRole('list', { name: 'Where Inspire sent your vibe' }).getByRole('listitem').allTextContents(),
-      ['Dashboard: Put the riskiest first', 'App: Put the riskiest first']);
-    assert.deepEqual(await last.getByRole('list', { name: 'What no asset could do' }).getByRole('listitem').allTextContents(),
-      ['Add a map by region: the result table has no region column']);
-
-    const row = tower(page).getByRole('region', { name: 'Kept live from earlier versions' }).locator('[data-kept-version="2"]');
+    await toBuildTab(page);
+    const row = page.locator('[data-mvp-panel="build"]').getByRole('region', { name: 'Kept live from earlier versions' }).locator('[data-kept-version="2"]');
     assert.equal(await row.getByRole('link', { name: /Churn desk v2/ }).getAttribute('href'), 'https://workspace.example.com/dashboardsv3/d0/published');
     await row.getByRole('button', { name: 'Remove v2', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Remove v2' });
@@ -230,10 +144,11 @@ test('an uninstalled MVP says what is kept, offers Start again with no Uninstall
       + `this use case's part stays in it. The result tables and the history are kept. ${START} builds it again.`);
     assert.equal(await page.getByRole('button', { name: 'Uninstall all', exact: true }).count(), 0, 'nothing is left to uninstall');
     await page.getByRole('button', { name: START, exact: true }).waitFor();
-    const tile = tower(page).locator('[data-tile="notebook"]');
-    assert.equal(await tile.getByRole('link', { name: 'Open the notebook', exact: true }).getAttribute('href'),
+    const notebook = page.locator('[data-asset-panel="notebook"]');
+    assert.equal(await notebook.getByRole('link', { name: 'Open the notebook', exact: true }).getAttribute('href'),
       'https://workspace.example.com/#workspace/Workspace/Users/owner@example.com/inspire/Acme/N01-U01', 'the notebook Discover wrote stays and still opens');
-    assert.equal(await page.getByRole('region', { name: 'Vibe these assets' }).count(), 0, 'an uninstalled MVP has nothing to vibe');
+    assert.equal(await page.getByRole('tablist', { name: 'MVP views' }).count(), 0, 'an uninstalled MVP has no output tabs');
+    assert.equal(await page.locator('[data-vibe-box]').count(), 0, 'and nothing to vibe');
 
     const filters = page.getByRole('group', { name: 'Show use cases with' });
     const counts = await filters.locator('[data-asset-filter]').evaluateAll((chips) => chips.map((c) => [c.dataset.assetFilter, c.textContent.trim(), c.disabled]));

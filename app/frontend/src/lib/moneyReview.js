@@ -15,11 +15,29 @@ export const assumptionLabel = (name) => {
 
 export const columnWords = (name) => String(name || '').replace(/_+/g, ' ').trim();
 
+export const NOT_RELIABLE = 'Not reliable yet';
+export const NOTHING_TO_ACT = 'Nothing to act on yet';
+
+export function notReliableReason(run) {
+  return String(run?.not_reliable || '').trim();
+}
+
 export function nothingToActText(run) {
+  const unreliable = notReliableReason(run);
+  if (unreliable) return `${NOT_RELIABLE}: ${unreliable}`;
   if (!run || run.records == null) return '';
   if ((run.act_now_records || 0) + (run.review_records || 0) > 0) return '';
   const reason = run.nothing_to_act || (run.records === 0 ? 'the last run wrote no records' : 'no record reached Act now or Review in the last run');
-  return `Nothing to act on yet, because ${lower(reason)}`;
+  return `${NOTHING_TO_ACT}, because ${lower(reason)}`;
+}
+
+export function capacityText(run) {
+  const over = Number(run?.over_capacity_records) || 0;
+  const cap = Number(run?.act_now_capacity) || 0;
+  if (over <= 0 || cap <= 0) return '';
+  const one = over === 1;
+  return `${over.toLocaleString('en-US')} more ${one ? 'record' : 'records'} would qualify for Act now, but the team capacity of `
+    + `${cap.toLocaleString('en-US')} a run holds ${one ? 'it' : 'them'} in Review.`;
 }
 
 export function tiersText(run) {
@@ -33,6 +51,13 @@ export function tiersText(run) {
     return 'A row is called actionable only after a model passes this use case\u2019s acceptance check.';
   }
   return '';
+}
+
+export function previewSampleText(run) {
+  const n = Number(run?.preview_sample_entities);
+  if (run?.preview_sample_entities == null || !Number.isFinite(n) || n <= 0) return '';
+  const sample = `a preview sample of ${n.toLocaleString('en-US')} records; the next full run trains on every record.`;
+  return run.accepted == null ? `The last run trained on ${sample}` : `This use case\u2019s acceptance check ran on ${sample}`;
 }
 
 export function lastRunText(run) {

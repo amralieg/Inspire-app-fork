@@ -17,8 +17,10 @@ const IMPLEMENT_OUTPUT_ID_COLUMNS = { dashboard: 'dashboard_id', genie_space: 'g
 const IMPLEMENT_STOPPED_STATES = ['deleted', 'released'];
 const IMPLEMENT_RUN_ENDED_STATES = ['TERMINATED', 'SKIPPED', 'INTERNAL_ERROR'];
 const IMPLEMENT_STALE_AFTER_MS = 4 * 3600 * 1000;
-const IMPLEMENT_CHANGE_CLASSES = ['initial', 'data', 'config', 'schedule', 'holdout', 'outputs', 'deselect', 'sharing', 'retry', 'rollback',
-  'vibe', 'remove_kept', 'uninstall'];
+const IMPLEMENT_CHANGE_CLASSES = ['initial', 'data', 'config', 'schedule', 'holdout', 'capacity', 'outputs', 'deselect', 'sharing', 'retry',
+  'rollback', 'vibe', 'remove_kept', 'uninstall'];
+const IMPLEMENT_CAPACITY_SOURCES = ['default', 'user'];
+const IMPLEMENT_CAPACITY_MAX = 1000000;
 const IMPLEMENT_VIBE_PREVIOUS = ['keep', 'remove'];
 const IMPLEMENT_HOLDOUT_SHARE = 0.1;
 const IMPLEMENT_HOLDOUT_MAX_SHARE = 0.5;
@@ -32,7 +34,8 @@ const IMPLEMENT_PART_STATES = ['ready', 'ready_with_warnings', 'failed'];
 const IMPLEMENT_OUTPUT_OPTIONS = {
   dashboard: ['dashboard_name', 'dashboard_filters', 'dashboard_vibes'],
   genie_space: ['genie_space_name', 'genie_questions', 'genie_space_vibes'],
-  app: ['app_purpose', 'app_access', 'app_look', 'app_options', 'app_backend', 'app_vibes', 'app_owners', 'app_charts', 'app_pages'],
+  app: ['app_purpose', 'app_access', 'app_look', 'app_options', 'app_backend', 'app_vibes', 'app_owners', 'app_charts', 'app_pages',
+    'app_warehouse_id'],
   alert: ['alert_name', 'alert_tiers', 'alert_operator', 'alert_threshold', 'alert_threshold_basis', 'alert_condition_text',
     'alert_recipients', 'alert_destinations', 'alert_vibes'],
 };
@@ -426,6 +429,7 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
   }
   out.schedule = { enabled, cron, timezone: textField(schedule.timezone, 'schedule.timezone', errors) || 'UTC', failure_emails: emails };
   if (spec.holdout != null) out.holdout = holdoutSetting(spec.holdout, errors);
+  if (spec.capacity != null) out.capacity = capacitySetting(spec.capacity, errors);
 
   const outputs = objectField(spec.outputs, 'outputs', errors);
   const chosen = {};
@@ -469,6 +473,7 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
     ...(app.charts ? { app_charts: app.charts } : {}),
     ...(app.pages ? { app_pages: app.pages } : {}),
     app_owners: appOwners(outputs, chosen.app, errors),
+    app_warehouse_id: appWarehouseId(outputs, chosen.app, errors),
     merge,
     ...alert.options,
     ...outputVibes(outputs, chosen, errors),
@@ -513,12 +518,13 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
   }
   out.rollback_outputs = rollback;
   const vibe = vibesText(spec.vibes, 'vibes', 'MVP', errors);
-  const previousChoice = (textValue(spec.vibe_previous) || '').toLowerCase();
-  if (vibe && !IMPLEMENT_VIBE_PREVIOUS.includes(previousChoice)) {
+  const previousText = textValue(spec.vibe_previous);
+  const previousChoice = (previousText || '').toLowerCase();
+  if (vibe && previousText !== '' && !IMPLEMENT_VIBE_PREVIOUS.includes(previousChoice)) {
     errors.push(`vibe_previous ${shownValue(spec.vibe_previous)} must be keep or remove: it says what happens to the version before this vibe`);
   } else if (vibe) {
     out.vibes = vibe;
-    out.vibe_previous = previousChoice;
+    if (previousChoice) out.vibe_previous = previousChoice;
     if (Object.keys(rollback).length) errors.push('a vibe and a roll back cannot run in the same version');
   } else if (previousChoice) errors.push('vibe_previous needs vibes: it says what happens to the version before a vibe');
   const keptVersions = [];
@@ -613,7 +619,7 @@ function partProblems(built, spec) {
     const { label } = implementPart(id);
     const entry = assets[id];
     if (!isPlainObject(entry) || !IMPLEMENT_PART_STATES.includes(entry.state)) {
-      problems.push(`Inspire has not built the ${label} on this MVP, so it cannot rebuild it with your vibes; pick an asset the Control tower lists`);
+      problems.push(`Inspire has not built the ${label} on this MVP, so it cannot rebuild it with your vibes; pick one this MVP built`);
     } else if (!retry.includes(id)) {
       problems.push(`the vibes for the ${label} changed, so list ${id} in retry_outputs to rebuild it with them`);
     }
@@ -680,9 +686,14 @@ function alertOptions(given, on) {
       alert_condition_text: on ? clip(textField(outputs.alert_condition_text, 'outputs.alert_condition_text', errors), 500) : '',
       alert_recipients: recipients,
       alert_destinations: destinations,
+      ...(ownKey(outputs, 'alert_digest') ? { alert_digest: flagField(outputs.alert_digest, 'outputs.alert_digest', errors, true) } : {}),
     },
     errors,
   };
+}
+
+function implementAlertDigest(outputs) {
+  return (outputs || {}).alert_digest !== false;
 }
 
 function holdoutSetting(raw, errors) {
@@ -701,6 +712,31 @@ function implementHoldoutShare(holdout) {
   return isPlainObject(holdout) && holdout.enabled === true ? Number(holdout.share) || 0 : 0;
 }
 
+function capacitySetting(raw, errors) {
+  const capacity = objectField(raw, 'capacity', errors);
+  const given = capacity.act_now;
+  let limit = null;
+  if (given != null && given !== '') {
+    limit = wholeNumber(given);
+    if (limit == null || limit < 1 || limit > IMPLEMENT_CAPACITY_MAX) {
+      errors.push(`capacity act_now ${shownValue(given)} must be a whole number of rows from 1 to ${IMPLEMENT_CAPACITY_MAX}, or empty for no cap`);
+      limit = null;
+    }
+  }
+  const text = textValue(capacity.source);
+  let source = text === null ? null : (text || IMPLEMENT_CAPACITY_SOURCES[0]).toLowerCase();
+  if (!IMPLEMENT_CAPACITY_SOURCES.includes(source)) {
+    errors.push(`capacity source ${shownValue(capacity.source)} must be one of ${IMPLEMENT_CAPACITY_SOURCES.join(', ')}`);
+    source = IMPLEMENT_CAPACITY_SOURCES[0];
+  }
+  return { act_now: limit, source };
+}
+
+function implementActNowCapacity(capacity) {
+  const value = isPlainObject(capacity) ? capacity.act_now : null;
+  return Number.isInteger(value) && value >= 1 ? value : null;
+}
+
 function appOwners(outputs, on, errors) {
   if (!on) return [];
   const owners = [];
@@ -714,6 +750,37 @@ function appOwners(outputs, on, errors) {
     errors.push(`an App can name at most ${IMPLEMENT_APP_OWNERS_MAX} owners, the people who may change its money at stake assumptions`);
   }
   return owners;
+}
+
+function appWarehouseId(outputs, on, errors) {
+  if (!on) return '';
+  const text = textField(outputs.app_warehouse_id, 'outputs.app_warehouse_id', errors);
+  if (text && !IMPLEMENT_MERGE_ID_RE.test(text)) {
+    errors.push(`outputs.app_warehouse_id ${shownValue(outputs.app_warehouse_id)} must be the id of a SQL warehouse: up to 64 letters, `
+      + 'digits, dashes and underscores, or empty for the SQL warehouse the build uses');
+    return '';
+  }
+  return text;
+}
+
+function appWarehouseOf(resources) {
+  const held = (Array.isArray(resources) ? resources : []).find((r) => isPlainObject(r) && isPlainObject(r.sql_warehouse));
+  return held ? str(held.sql_warehouse.id) : '';
+}
+
+function appWarehouseMoves(app, wanted) {
+  const held = appWarehouseOf(isPlainObject(app) ? app.resources : null);
+  return Boolean(held) && Boolean(wanted) && held !== wanted;
+}
+
+function appWarehouseLock(target, asked) {
+  const held = str(target && target.warehouse_id);
+  const wanted = str(asked).trim();
+  if (!held || !wanted || held === wanted) return '';
+  const builder = `${str(target.built_by && target.built_by.use_case_id)} ${str(target.built_by && target.built_by.name)}`.trim();
+  return `this use case asks the App to read with SQL warehouse ${wanted}, but it is added to the App ${target.name}, which reads with `
+    + `SQL warehouse ${held}, the one use case ${builder} chose when it built the App; changing it would change the pages of that use case `
+    + "too. Keep the App's SQL warehouse, or create a new App for this use case";
 }
 
 function appSettings(outputs, on, shell, errors, legacyAccess = '') {
@@ -842,7 +909,8 @@ function section(spec, key) {
 
 function optionChanges(before, after) {
   return IMPLEMENT_OUTPUTS.filter((name) => before[name] && after[name]
-    && IMPLEMENT_OUTPUT_OPTIONS[name].some((o) => sortedJson(before[o]) !== sortedJson(after[o])));
+    && (IMPLEMENT_OUTPUT_OPTIONS[name].some((o) => sortedJson(before[o]) !== sortedJson(after[o]))
+      || (name === 'alert' && implementAlertDigest(before) !== implementAlertDigest(after))));
 }
 
 function mergeMoved(before, after, name) {
@@ -870,6 +938,7 @@ function classifyImplementChange(previous, current) {
   if ((current.retry_outputs || []).length) classes.add('retry');
   if (Object.keys(current.rollback_outputs || {}).length) classes.add('rollback');
   if (implementHoldoutShare(previous.holdout) !== implementHoldoutShare(current.holdout)) classes.add('holdout');
+  if (implementActNowCapacity(previous.capacity) !== implementActNowCapacity(current.capacity)) classes.add('capacity');
   for (const [name, key] of [['vibe', 'vibes'], ['remove_kept', 'remove_kept'], ['uninstall', 'uninstall']]) {
     const value = current[key];
     if (Array.isArray(value) ? value.length : value) classes.add(name);
@@ -944,7 +1013,7 @@ function implementRegistryStatement(table, existing = null) {
   };
 }
 
-function mergeRegistry(rows, { sessionId, useCaseId, only = null } = {}) {
+function registryEntries(rows, { sessionId, useCaseId } = {}) {
   const groups = new Map();
   for (const row of rows || []) {
     const key = `${str(row.session_id)}|${str(row.use_case_id)}`;
@@ -977,11 +1046,27 @@ function mergeRegistry(rows, { sessionId, useCaseId, only = null } = {}) {
       else entry.holders.push(holder);
     }
   }
+  return found;
+}
+
+function mergeRegistry(rows, { sessionId, useCaseId, only = null } = {}) {
+  const found = registryEntries(rows, { sessionId, useCaseId });
   const recent = (entry) => entry.holders.reduce((at, h) => (h.updated_at > at ? h.updated_at : at), '');
   return Object.fromEntries(IMPLEMENT_MERGE_OUTPUTS.map((name) => [name, [...found[name].values()]
     .filter((entry) => !entry.own && entry.holders.length && (!only || str(only[name]) === entry.id))
     .sort((a, b) => (recent(b) > recent(a) ? 1 : recent(b) < recent(a) ? -1 : 0))
     .slice(0, IMPLEMENT_MERGE_TARGET_CAP)]));
+}
+
+function sharedHolders(rows, { sessionId, useCaseId } = {}) {
+  const found = registryEntries(rows, { sessionId, useCaseId });
+  return Object.fromEntries(IMPLEMENT_MERGE_OUTPUTS.map((name) => {
+    const mine = [...found[name].values()].find((entry) => entry.own && entry.holders.length);
+    return [name, mine ? {
+      id: mine.id,
+      use_cases: mine.holders.map((h) => ({ session_id: h.session_id, use_case_id: h.use_case_id, name: h.use_case_name })),
+    } : null];
+  }));
 }
 
 function mergeTargetPath(name, id) {
@@ -1008,6 +1093,8 @@ function mergeTarget(name, entry, got, host = '') {
       use_cases: useCases.map((u, i) => ({ ...u, placement: entry.holders[i].app_placement, updated_at: entry.holders[i].updated_at })),
       access: entry.holders.some((h) => h.app_access === 'user') ? 'user' : 'sp',
       look: owner.app_look,
+      warehouse_id: appWarehouseOf(d.resources),
+      built_by: { use_case_id: owner.use_case_id, name: owner.use_case_name },
     };
     return { ...target, per_user_block: appMergeBlock(target, 'user') };
   }
@@ -1056,8 +1143,12 @@ function mergeProblems(spec, targets, held = {}) {
   const problems = [];
   for (const name of IMPLEMENT_MERGE_OUTPUTS) {
     const id = str(merge[name]);
-    if (!id || !outputs[name] || str(held[name]) === id) continue;
+    if (!id || !outputs[name]) continue;
     const target = ((targets && targets[name]) || []).find((t) => t.id === id);
+    if (name === 'app' && target && appWarehouseLock(target, outputs.app_warehouse_id)) {
+      problems.push(appWarehouseLock(target, outputs.app_warehouse_id));
+    }
+    if (str(held[name]) === id) continue;
     if (!target) {
       problems.push(`${id} is not ${IMPLEMENT_MERGE_NOUNS[name]} Inspire built that you can open: pick one Inspire lists, or create a new one`);
     } else if (name === 'app' && appMergeBlock(target, outputs.app_access)) {
@@ -1225,13 +1316,19 @@ function keptAssets(history) {
   return (Array.isArray(listed) ? listed : []).filter((a) => isPlainObject(a) && IMPLEMENT_OUTPUTS.includes(a.output) && a.id);
 }
 
+function previousBuilt(history) {
+  const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
+  const row = rows.find((r) => IMPLEMENT_DONE_STATUSES.includes(r.status) || r.status === IMPLEMENT_UNINSTALLED);
+  return row && row.status !== IMPLEMENT_UNINSTALLED ? row : null;
+}
+
 function mvpActionProblems(history, spec) {
   const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
   const built = Object.keys(carriedAssets(rows)).length > 0;
   const kept = keptAssets(rows);
   const problems = [];
-  if (spec.vibes && !built) {
-    problems.push('Inspire has built no dashboard, Genie Agent, App or alert on this MVP yet, so a vibe has nothing to change; build one first');
+  if (spec.vibes && previousBuilt(rows) && !IMPLEMENT_VIBE_PREVIOUS.includes(spec.vibe_previous)) {
+    problems.push('vibe_previous must be keep or remove, because this use case has a built version: it says what happens to the version before this vibe');
   }
   if (spec.uninstall && rows[0] && rows[0].status === IMPLEMENT_UNINSTALLED) {
     problems.push(`this MVP was uninstalled in v${rows[0].spec_version}, so there is nothing left to remove`);
@@ -1283,11 +1380,11 @@ function planSubmission(history, spec, stalled = null) {
   }
   const parts = [...partProblems(built, spec), ...mvpActionProblems(rows, spec)];
   if (parts.length) throw badRequest(parts.join('; '));
-  const fresh = Boolean(latest && latest.status === IMPLEMENT_UNINSTALLED);
-  const previous = built && !fresh ? validateImplementSpec(built.spec_json, { legacyAccess: legacyAppAccess(rows) }).spec : null;
+  const before = previousBuilt(rows);
+  const previous = before ? validateImplementSpec(before.spec_json, { legacyAccess: legacyAppAccess(rows) }).spec : null;
   const summary = implementChangeSummary(previous, spec, carriedAssets(rows));
   if (summary.undecided.length) {
-    throw badRequest(`choose whether to delete or keep ${summary.undecided.map((n) => IMPLEMENT_OUTPUT_LABELS[n]).join(' and ')}, `
+    throw badRequest(`choose whether to delete or keep ${joinAnd(summary.undecided.map((n) => IMPLEMENT_OUTPUT_LABELS[n]))}, `
       + 'which you unticked; Inspire never deletes an output without asking');
   }
   const unchanged = Boolean(summary.nothing_to_do && latest && IMPLEMENT_DONE_STATUSES.includes(latest.status));
@@ -1342,10 +1439,10 @@ function allowedText(rule) {
   const { low = null, high = null, whole = false, lowOpen = false, highOpen = false } = rule || {};
   const bounds = low !== null && high !== null && !lowOpen && !highOpen
     ? `${numberText(low)} to ${numberText(high)}`
-    : [
+    : joinAnd([
       low !== null ? `${lowOpen ? 'above' : 'at least'} ${numberText(low)}` : '',
       high !== null ? `${highOpen ? 'below' : 'at most'} ${numberText(high)}` : '',
-    ].filter(Boolean).join(' and ');
+    ].filter(Boolean));
   if (!whole) return bounds;
   return bounds ? `whole number, ${bounds}` : 'whole number';
 }
@@ -1614,13 +1711,37 @@ function missingTablesMessage(missing) {
     + '. Open Edit, Data step, to swap each for a table with the same role or remove it';
 }
 
-function appStatusFrom(got, { useCaseId, sessionId } = {}) {
+const APP_OWNER_RE = /^Inspire use case (\S+) \(session (\d+)\)(?::\s*([\s\S]*))?/;
+
+function joinedApps(history) {
+  const joined = new Map();
+  for (const row of [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0))) {
+    const entry = isPlainObject(row.asset_status) && isPlainObject(row.asset_status.app) ? row.asset_status.app : null;
+    if (entry && IMPLEMENT_STOPPED_STATES.includes(entry.state)) break;
+    if (entry && str(entry.merged_into) && !joined.has(str(entry.merged_into))) joined.set(str(entry.merged_into), str(entry.created));
+    const outputs = isPlainObject(row.spec_json) && isPlainObject(row.spec_json.outputs) ? row.spec_json.outputs : {};
+    const merge = isPlainObject(outputs.merge) ? str(outputs.merge.app) : '';
+    if (merge && str(row.app_name) === merge && IMPLEMENT_DONE_STATUSES.includes(row.status) && !joined.has(merge)) joined.set(merge, '');
+  }
+  return joined;
+}
+
+function appStatusFrom(got, { useCaseId, sessionId, history = null } = {}) {
   if (!got) return null;
   const d = (got.data && typeof got.data === 'object') ? got.data : {};
   if (!got.ok) {
     return { ok: false, error: got.status === 404 ? 'the App no longer exists' : str(d.message || d.error || `HTTP ${got.status}`) };
   }
-  if (!str(d.description).startsWith(appOwnerTag(useCaseId, sessionId))) {
+  const builder = APP_OWNER_RE.exec(str(d.description));
+  const built = str(d.description).startsWith(appOwnerTag(useCaseId, sessionId));
+  const joins = joinedApps(history);
+  const madeAgain = !built && Boolean(builder) && Boolean(joins.get(str(d.name))) && Boolean(str(d.create_time))
+    && joins.get(str(d.name)) !== str(d.create_time);
+  if (madeAgain) {
+    return { ok: false, error: `the App named ${str(d.name)} was deleted and made again after this use case joined it, so this use case is not in it` };
+  }
+  const joined = !built && Boolean(builder) && joins.has(str(d.name));
+  if (!built && !joined) {
     return { ok: false, error: `the App named ${str(d.name)} is no longer this use case's App` };
   }
   const deployment = d.active_deployment || d.pending_deployment || {};
@@ -1634,6 +1755,7 @@ function appStatusFrom(got, { useCaseId, sessionId } = {}) {
     deployment_state: str(deployment.status && deployment.status.state),
     deployment_message: str(deployment.status && deployment.status.message),
     deployed_at: str(deployment.update_time || deployment.create_time),
+    ...(joined ? { built_by: { use_case_id: builder[1], session_id: builder[2], name: str(builder[3]).trim() } } : {}),
   };
 }
 
@@ -2041,10 +2163,13 @@ function shareWarehouseWarnings(warehouse, principals, viewed, warehouseName) {
     + `or to give Inspire CAN MANAGE on it`];
 }
 
-function warehouseManageCheck(got, identities, groups, warehouseName) {
+function warehouseManageCheck(got, identities, groups, warehouseName, forApp = false) {
   const name = str(warehouseName).trim() || 'the SQL warehouse';
-  const cannot = `Inspire cannot manage ${name}, so it cannot give a new App access to it: ask the warehouse owner to grant `
-    + 'Inspire CAN MANAGE on it, or re-run the Inspire installer';
+  const cannot = forApp
+    ? `Inspire cannot manage ${name}, so the App cannot read and save with it: ask the warehouse owner to grant Inspire CAN MANAGE `
+      + 'on it, or pick another SQL warehouse for the App'
+    : `Inspire cannot manage ${name}, so it cannot give a new App access to it: ask the warehouse owner to grant `
+      + 'Inspire CAN MANAGE on it, or re-run the Inspire installer';
   if (!got || !got.ok) {
     const status = got ? Number(got.status) : 0;
     if (status === 401 || status === 403) return { ok: false, detail: cannot };
@@ -2057,7 +2182,8 @@ function warehouseManageCheck(got, identities, groups, warehouseName) {
   const entries = Array.isArray(got.data && got.data.access_control_list) ? got.data.access_control_list : [];
   const manages = entries.some((e) => (ids.has(lower(e.user_name)) || ids.has(lower(e.service_principal_name)) || memberOf.has(lower(e.group_name)))
     && (Array.isArray(e.all_permissions) ? e.all_permissions : []).some((p) => ['CAN_MANAGE', 'IS_OWNER'].includes(str(p.permission_level).toUpperCase())));
-  return manages ? { ok: true, detail: `Inspire can give a new App access to ${name}` } : { ok: false, detail: cannot };
+  if (!manages) return { ok: false, detail: cannot };
+  return { ok: true, detail: forApp ? `the App can read and save with ${name}` : `Inspire can give a new App access to ${name}` };
 }
 
 function appAccessCheck(table, warehouse) {
@@ -2278,6 +2404,7 @@ module.exports = {
   IMPLEMENT_VIBE_PREVIOUS,
   keptAssets,
   mvpActionProblems,
+  previousBuilt,
   IMPLEMENT_OUTPUTS,
   IMPLEMENT_OUTPUT_LABELS,
   IMPLEMENT_OUTPUT_ID_COLUMNS,
@@ -2304,6 +2431,12 @@ module.exports = {
   IMPLEMENT_EMAIL_MAX_CHARS,
   IMPLEMENT_HOLDOUT_SHARE,
   IMPLEMENT_HOLDOUT_MAX_SHARE,
+  IMPLEMENT_CAPACITY_SOURCES,
+  IMPLEMENT_CAPACITY_MAX,
+  capacitySetting,
+  implementActNowCapacity,
+  alertOptions,
+  implementAlertDigest,
   implementHoldoutShare,
   IMPLEMENT_CONTRACT_OUTPUTS,
   IMPLEMENT_RUN_PROFILES,
@@ -2332,6 +2465,7 @@ module.exports = {
   legacyAppAccess,
   implementRegistryStatement,
   mergeRegistry,
+  sharedHolders,
   scopeSessions,
   useCaseScopeStatement,
   withUseCaseScope,
@@ -2339,6 +2473,10 @@ module.exports = {
   mergeTarget,
   mergeProblems,
   appMergeBlock,
+  IMPLEMENT_MERGE_ID_RE,
+  appWarehouseOf,
+  appWarehouseMoves,
+  appWarehouseLock,
   validateImplementSpec,
   classifyImplementChange,
   implementChangeSummary,
@@ -2389,6 +2527,7 @@ module.exports = {
   IMPLEMENT_MODEL_FAMILIES,
   allowedRule,
   allowedText,
+  joinAnd,
   widgetValueProblem,
   widgetSetProblems,
   widgetProblems,

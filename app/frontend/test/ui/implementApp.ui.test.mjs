@@ -786,3 +786,193 @@ test('Send alerts is a build setting of a shared App: off until ticked, then sen
     await ui.close();
   }
 });
+
+const pad = (i) => String(i).padStart(2, '0');
+function manyApps(count) {
+  const ids = Array.from({ length: count }, (_, i) => pad(i + 1));
+  return {
+    me: { userName: OWNER, displayName: 'Owner' },
+    useCase: PLACE_UC,
+    registry: ids.map((id) => ({ ...target('42', `N02-U${id}`, `Finance case ${id}`, { app: true, app_access: 'sp' }), app_name: `fin-app-${id}` })),
+    appsByName: Object.fromEntries(ids.map((id) => [`fin-app-${id}`,
+      { name: `fin-app-${id}`, description: `Inspire use case N02-U${id} (session 42): Finance case ${id}` }])),
+    useCaseScope: ids.map((id) => ({ session_id: '42', use_case_id: `N02-U${id}`, business: 'Acme', domain: 'Finance' })),
+  };
+}
+
+async function placementBox(page) {
+  await page.waitForTimeout(250);
+  return page.evaluate(() => {
+    const list = document.querySelector('[data-app-list]');
+    const body = document.querySelector('[data-wizard-body]');
+    const rows = [...list.querySelectorAll('[data-app-target]')].map((li) => Math.round(li.getBoundingClientRect().height));
+    return { list: Math.round(list.getBoundingClientRect().height), scroll: list.scrollHeight, client: list.clientHeight, rows,
+      dialog: Math.round(document.querySelector('[role="dialog"]').getBoundingClientRect().height), content: body.scrollHeight };
+  });
+}
+
+const rowInView = (page, id) => page.evaluate((app) => {
+  const list = document.querySelector('[data-app-list]').getBoundingClientRect();
+  const row = document.querySelector(`[data-app-target="${app}"]`).getBoundingClientRect();
+  return row.top >= list.top - 1 && row.bottom <= list.bottom + 1;
+}, id);
+
+const APP_LIST_CAP = 240;
+
+test('fifteen Apps scroll inside a list of fixed height: the wizard keeps the height it has with two, the last App can be picked by scrolling or keys, and the chosen App is in view when the step opens again', async () => {
+  const sizes = {};
+  for (const count of [2, 15]) {
+    const ui = await openUi('wizard', manyApps(count));
+    const { page, made } = ui;
+    try {
+      await toDelivery(page);
+      await page.getByRole('checkbox', { name: /^App / }).check();
+      await next(page);
+      await onStep(page, 'App placement');
+      await placeStep(page).locator('[data-app-target]').nth(count - 1).waitFor({ state: 'attached' });
+      sizes[count] = await placementBox(page);
+      assert.equal(await placeStep(page).locator('[data-app-target] [data-fit]').count(), count, 'every row keeps its fit badge');
+      assert.equal(await placeStep(page).locator('[data-app-target]', { hasText: 'It holds only Finance use cases, not Customer' }).count(), count,
+        'every row keeps its reason');
+      if (count === 2) continue;
+      assert.ok(sizes[15].list <= APP_LIST_CAP, `the list stays within ${APP_LIST_CAP}px: ${JSON.stringify(sizes[15])}`);
+      assert.ok(sizes[15].scroll > sizes[15].client + 100, 'the other Apps are a scroll away');
+      assert.equal(await rowInView(page, 'fin-app-15'), false, 'the last App starts below the fold');
+      const last = targetRadio(page, 'fin-app-15');
+      await last.scrollIntoViewIfNeeded();
+      assert.equal(await rowInView(page, 'fin-app-15'), true);
+      await last.check();
+      assert.equal(await placeStep(page).getByRole('note', { name: JOIN_NOTE }).textContent(), joinedText('fin-app-15'));
+      await last.focus();
+      await page.keyboard.press('ArrowUp');
+      await page.keyboard.press('ArrowUp');
+      assert.equal(await targetRadio(page, 'fin-app-13').isChecked(), true, 'the arrow keys move between the Apps');
+      assert.equal(await page.evaluate(() => document.activeElement?.value), 'fin-app-13');
+      assert.equal(await rowInView(page, 'fin-app-13'), true, 'the focused App scrolls into view');
+      for (let i = 0; i < 10; i += 1) await page.keyboard.press('ArrowUp');
+      assert.equal(await page.evaluate(() => document.activeElement?.value), 'fin-app-03');
+      assert.equal(await rowInView(page, 'fin-app-03'), true, 'the focus moves the scroll up too');
+      await page.keyboard.press('Tab');
+      assert.notEqual(await page.evaluate(() => document.activeElement?.name), 'app-target', 'Tab leaves the list of Apps');
+      await page.keyboard.press('Shift+Tab');
+      assert.equal(await page.evaluate(() => document.activeElement?.value), 'fin-app-03', 'Shift+Tab comes back to the chosen App');
+      for (let i = 0; i < 12; i += 1) await page.keyboard.press('ArrowDown');
+      assert.equal(await targetRadio(page, 'fin-app-15').isChecked(), true);
+      await next(page);
+      await onStep(page, 'Vibes');
+      await page.getByRole('button', { name: 'Back' }).click();
+      await onStep(page, 'App placement');
+      await placeStep(page).locator('[data-app-target]').nth(14).waitFor({ state: 'attached' });
+      await page.waitForTimeout(250);
+      assert.equal(await targetRadio(page, 'fin-app-15').isChecked(), true);
+      assert.equal(await rowInView(page, 'fin-app-15'), true, 'the chosen App is in view when the step opens again');
+      await startWhenReady(page);
+      assert.equal(submittedSpec(made).outputs.merge.app, 'fin-app-15');
+      assert.deepEqual(ui.pageErrors, []);
+    } finally {
+      await ui.close();
+    }
+  }
+  console.log(`App placement sizes: ${JSON.stringify(sizes)}`);
+  assert.equal(sizes[2].list, sizes[15].list, 'the list box is the same height for 2 Apps and 15');
+  assert.ok(Math.abs(sizes[2].dialog - sizes[15].dialog) <= 2, `the dialog keeps its height: ${sizes[2].dialog} vs ${sizes[15].dialog}`);
+  assert.ok(Math.abs(sizes[2].content - sizes[15].content) <= 2, `the step content keeps its height: ${sizes[2].content} vs ${sizes[15].content}`);
+});
+
+const joinedText = (name) => `It keeps the look of ${name}, its sign-in and its data source, so everyone who opens it sees the same rows. `
+  + 'For your own, choose Create new.';
+
+const WAREHOUSES = { warehouses: [{ id: 'wh1', name: 'Shared SQL', state: 'RUNNING' }, { id: 'wh2', name: 'Finance SQL', state: 'STOPPED' },
+  { id: 'wh3', name: 'Ops SQL', state: 'RUNNING' }] };
+const MANAGES = (level) => [{ access_control_list: [{ user_name: OWNER, all_permissions: [{ permission_level: level }] }] }, 200];
+const DELTA_LABEL = 'SQL warehouse the App reads and saves with';
+const LAKEBASE_LABEL = 'SQL warehouse the App saves, keeps history and runs alerts with (pages read from Lakebase)';
+
+test('the App reads and saves with the SQL warehouse picked on App access, labeled for Lakebase or Delta, the build keeps its own, and a warehouse Inspire cannot manage is named with the permission it needs', async () => {
+  const ui = await openUi('wizard', {
+    me: { userName: OWNER, displayName: 'Owner' },
+    warehouses: WAREHOUSES,
+    responses: {
+      'GET /api/2.0/postgres/projects': [{ projects: [] }, 200],
+      'GET /api/2.0/sql/warehouses/wh2': [{ id: 'wh2', name: 'Finance SQL' }, 200],
+      'GET /api/2.0/sql/warehouses/wh3': [{ id: 'wh3', name: 'Ops SQL' }, 200],
+      'GET /api/2.0/permissions/sql/warehouses/wh2': MANAGES('CAN_USE'),
+      'GET /api/2.0/permissions/sql/warehouses/wh3': MANAGES('CAN_MANAGE'),
+    },
+  });
+  const { page, made } = ui;
+  try {
+    await toDelivery(page);
+    await page.getByRole('checkbox', { name: /^App / }).check();
+    await toAppAccess(page);
+    const access = page.getByRole('region', { name: 'App access' });
+    await access.getByRole('group', { name: 'Where does the App read its data?' }).getByRole('status').waitFor({ state: 'detached' });
+    const field = access.locator('[data-app-warehouse="pick"]');
+    const select = field.locator('select');
+    await select.locator('option[value="wh3"]').waitFor({ state: 'attached' });
+    assert.equal(await field.locator('label span').first().textContent(), LAKEBASE_LABEL, 'a Lakebase App still saves, keeps history and alerts on the warehouse');
+    assert.equal(await select.inputValue(), 'wh1', 'the build warehouse is the default');
+    assert.deepEqual(await select.locator('option').allTextContents(),
+      ['Shared SQL (RUNNING) · used for the build', 'Finance SQL (STOPPED)', 'Ops SQL (RUNNING)']);
+    const buildNote = field.getByText("Dashboards and alerts Inspire builds keep using the build's SQL warehouse, Shared SQL (RUNNING).", { exact: true });
+    assert.equal(await buildNote.count(), 0, 'on the build warehouse the option itself says so');
+    await access.getByText('Delta Tables (Takes a few seconds to load)', { exact: true }).click();
+    assert.equal(await field.locator('label span').first().textContent(), DELTA_LABEL);
+    await select.selectOption('wh2');
+    await buildNote.waitFor();
+    await field.locator('[data-app-warehouse-check]').getByText('Inspire cannot manage Finance SQL, so the App cannot read and save with it: '
+      + 'ask the warehouse owner to grant Inspire CAN MANAGE on it, or pick another SQL warehouse for the App', { exact: true }).waitFor();
+    assert.ok(made.fetches.some((f) => f.path === '/api/2.0/permissions/sql/warehouses/wh2'), 'the check reads who can manage wh2');
+    await select.selectOption('wh1');
+    await select.selectOption('wh3');
+    await page.waitForFunction(() => {
+      const checked = [...document.querySelectorAll('[data-app-warehouse-check]')];
+      return !checked.length;
+    });
+    await next(page);
+    await onStep(page, 'App look');
+    await startWhenReady(page);
+    const spec = submittedSpec(made);
+    assert.deepEqual([spec.outputs.app_warehouse_id, spec.config.warehouse_id, spec.outputs.app_backend], ['wh3', 'wh1', 'delta']);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});
+
+test('a use case added to another use case\'s App shows that App\'s SQL warehouse locked and sends no warehouse of its own', async () => {
+  const state = {
+    ...MERGE_STATE,
+    useCase: PLACE_UC,
+    useCaseScope: PLACE_SCOPE,
+    warehouses: { warehouses: [{ id: 'wh1', name: 'Shared SQL', state: 'RUNNING' }, { id: 'wh9', name: 'Sales SQL', state: 'RUNNING' }] },
+    appsByName: { ...MERGE_STATE.appsByName,
+      'ops-desk': { ...MERGE_STATE.appsByName['ops-desk'], resources: [{ name: 'sql-warehouse', sql_warehouse: { id: 'wh9', permission: 'CAN_USE' } }] } },
+  };
+  const ui = await openUi('wizard', state);
+  const { page, made } = ui;
+  try {
+    await toDelivery(page);
+    await page.getByRole('checkbox', { name: /^App / }).check();
+    await next(page);
+    await onStep(page, 'App placement');
+    await placeStep(page).getByRole('note', { name: JOIN_NOTE }).waitFor();
+    assert.equal(await targetRadio(page, 'ops-desk').isChecked(), true);
+    const locked = placeStep(page).locator('[data-app-warehouse="locked"]');
+    await locked.locator('option', { hasText: 'Sales SQL (RUNNING)' }).waitFor({ state: 'attached' });
+    assert.deepEqual([await locked.locator('select').inputValue(), await locked.locator('select').isDisabled()], ['wh9', true]);
+    assert.equal(await locked.locator('p').textContent(), 'Locked: the pages of this use case read with the SQL warehouse of ops-desk, the one use '
+      + 'case N01-U02 chose when it built it; changing it would change the pages of the other use cases in it too.');
+    await targetRadio(page, 'care-desk').check();
+    assert.equal(await locked.count(), 0, 'an App whose warehouse Inspire cannot read shows no warehouse');
+    await targetRadio(page, 'ops-desk').check();
+    await next(page);
+    await onStep(page, 'Vibes');
+    await startWhenReady(page);
+    const spec = submittedSpec(made);
+    assert.deepEqual([spec.outputs.merge.app, spec.outputs.app_warehouse_id], ['ops-desk', '']);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+});

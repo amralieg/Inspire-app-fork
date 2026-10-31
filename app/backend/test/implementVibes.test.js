@@ -254,40 +254,36 @@ test('the wizard counts, limits and words vibes the way the backend does, and a 
   assert.equal('rollback_outputs' in w.specFromLatest(latest, fallback), false, 'Edit never carries a rollback');
   assert.equal('rollback_outputs' in w.nextSpecFrom(latest, { schedule: { enabled: true } }), false);
   assert.deepEqual(w.nextSpecFrom(latest, { rollback_outputs: { app: 3 } }).rollback_outputs, { app: 3 });
-  const ticked = { ...fallback, outputs: { ...fallback.outputs, genie_space: true, genie_space_vibes: 'c'.repeat(2001), alert_vibes: 'd'.repeat(2001) } };
-  assert.deepEqual(w.stepErrors('vibes', ticked), ['the Genie Agent vibes are 2001 characters; at most 2000 are allowed'],
-    'Start is blocked on a ticked output only');
+  const ticked = { ...fallback, vibes: 'c'.repeat(2001), outputs: { ...fallback.outputs, genie_space: true } };
+  assert.deepEqual(w.stepErrors('vibes', ticked), ['the MVP vibes are 2001 characters; at most 2000 are allowed'], 'the one box can block Start');
+  assert.deepEqual([w.vibesProblem('mvp', ticked.vibes, 'MVP')], spec({}, { vibes: ticked.vibes }).errors, 'in the words the backend uses');
   assert.deepEqual(w.stepErrors('delivery', ticked), [], 'the vibes are checked on the Vibes step, never on Delivery');
   assert.deepEqual(w.planLines({ classes: ['rollback'], refill: false, rollback: ['app', 'dashboard'] }).slice(-1), ['Rolls back: App, Dashboard']);
 });
 
-test('the Vibes step has one tab per box, the notebook first and then each picked output in Delivery order, with its text as typed', async () => {
+test('the Vibes step has one box for the whole MVP, and only what is typed in it can block Start', async () => {
   const w = await lib('implementWizard.js');
-  const picked = { data: { notes: 'Score on held-out rows' }, outputs: { dashboard: true, genie_space: false, app: true, alert: true, dashboard_vibes: '  weekly  ', genie_space_vibes: 'never shown', alert_vibes: 7 } };
-  assert.deepEqual(w.vibesEntries(picked), [
-    { id: 'notebook', label: 'Notebook', value: 'Score on held-out rows' },
-    { id: 'dashboard', label: 'Dashboard', value: '  weekly  ' },
-    { id: 'app', label: 'App', value: '' },
-    { id: 'alert', label: 'Alert', value: '7' },
-  ], 'an unpicked output has no tab even when it holds text, and a missing value is an empty box');
-  assert.deepEqual(w.vibesEntries(null), [{ id: 'notebook', label: 'Notebook', value: '' }], 'the notebook tab is always there');
-  const over = { ...picked, outputs: { ...picked.outputs, app_vibes: 'a'.repeat(2001), genie_space_vibes: 'g'.repeat(2001) } };
-  assert.deepEqual(w.vibesProblems(over), ['the App vibes are 2001 characters; at most 2000 are allowed'], 'only a tab that shows can block Start');
-  assert.deepEqual(w.vibesEntries(over).filter((e) => w.vibesProblem(e.id, e.value)).map((e) => e.id), ['app'], 'Start opens the first tab with a problem');
+  const held = { data: { notes: 'n'.repeat(2001) }, outputs: { dashboard: true, app: true, app_vibes: 'a'.repeat(2001), dashboard_vibes: 'weekly' } };
+  assert.deepEqual(w.vibesProblems(held), [], 'the asks each part holds are not in the box and never block it; the backend checks them');
+  assert.deepEqual(w.vibesProblems({ ...held, vibes: `  ${'v'.repeat(2000)}  ` }), [], '2000 characters fit');
+  assert.deepEqual(w.vibesProblems({ ...held, vibes: 'v'.repeat(2001) }), ['the MVP vibes are 2001 characters; at most 2000 are allowed']);
+  assert.deepEqual(w.vibesProblems(null), []);
+  assert.equal(w.vibesEntries, undefined, 'there is no box per asset');
 });
 
-test('the Vibes step says every box is optional with gray example text, and names each output that has no box', async () => {
+test('the Vibes step says its one box is optional with gray example text, and names each output Genie does not build', async () => {
   const w = await lib('implementWizard.js');
   assert.equal(w.VIBES_STEP_TITLE, 'Anything else Genie should build in?');
   assert.ok(w.VIBES_STEP_NOTE.startsWith(w.VIBES_HELP), 'the step opens with the same help the Build page vibes use');
-  assert.match(w.VIBES_STEP_NOTE, /Each box is optional: leave it empty and Genie builds it the way Inspire would\. The gray text in a box is only an example\./);
+  assert.match(w.VIBES_STEP_NOTE, / The box is optional, and its gray text is only an example\.$/);
   const all = { outputs: { dashboard: true, genie_space: true, app: true, alert: true } };
   assert.equal(w.vibesSkippedText(all), '', 'every output picked, nothing to name');
   assert.equal(w.vibesSkippedText({ outputs: { ...all.outputs, alert: false } }),
-    'No box for Alert: Genie builds only what you picked in the Delivery step. To vibe it, go Back to Delivery and pick it.');
+    'Genie builds only what you picked in the Delivery step, so an ask for the Alert is not done. To vibe it, go Back to Delivery and pick it.');
   assert.equal(w.vibesSkippedText({ outputs: { dashboard: true, alert: false } }),
-    'No box for Genie Agent, App and Alert: Genie builds only what you picked in the Delivery step. To vibe them, go Back to Delivery and pick them.');
-  assert.equal(w.vibesSkippedText(null), 'No box for Dashboard, Genie Agent, App and Alert: Genie builds only what you picked in the Delivery step. To vibe them, go Back to Delivery and pick them.');
+    'Genie builds only what you picked in the Delivery step, so an ask for the Genie Agent, the App and the Alert is not done. To vibe them, go Back to Delivery and pick them.');
+  assert.equal(w.vibesSkippedText(null), 'Genie builds only what you picked in the Delivery step, so an ask for the Dashboard, the Genie Agent, the App and the Alert is not done. '
+    + 'To vibe them, go Back to Delivery and pick them.');
   for (const text of [w.VIBES_STEP_TITLE, w.VIBES_STEP_NOTE, w.vibesSkippedText(null)]) assert.doesNotMatch(text, /[\u2013\u2014]|\bgrey\b/, text);
 });
 
@@ -325,9 +321,6 @@ test('the Build page offers a vibe panel per built output and the earlier versio
   assert.deepEqual(c.vibeCards([], null), []);
 
   const latest = { spec_json: { outputs: { dashboard: true, dashboard_vibes: 'third ask', app: true } } };
-  assert.deepEqual(c.vibeChanges(latest, 'dashboard', ' third ask '), { retry_outputs: ['dashboard'] }, 'unchanged text rebuilds as today');
-  assert.deepEqual(c.vibeChanges(latest, 'dashboard', ' bigger bars '), { outputs: { ...latest.spec_json.outputs, dashboard_vibes: 'bigger bars' } });
-  assert.deepEqual(c.vibeChanges(latest, 'app', ''), { retry_outputs: ['app'] }, 'an output with no vibes yet and an empty box rebuilds');
   assert.deepEqual(c.rollbackChanges(latest, 'dashboard', 1, 'first ask'),
     { rollback_outputs: { dashboard: 1 }, outputs: { ...latest.spec_json.outputs, dashboard_vibes: 'first ask' } });
   assert.deepEqual(c.vibeWarnings({ status_message: 'Genie Agent vibe not done: add a question; about EMEA: the space has 5; it is full' }, 'genie_space'),
@@ -372,7 +365,7 @@ test('rebuilding the notebook refills it and refreshes every built output; retry
   assert.deepEqual(spec({ dashboard: false }, { retry_outputs: ['dashboard'] }).errors, ['the Dashboard cannot be retried: it is not selected']);
 });
 
-test('the Build page offers the notebook first once it is built, and its vibes or a plain rebuild go to the notebook', async () => {
+test('the Build page offers the notebook first once it is built, with the asks its notes hold, and a notebook ask taken out leaves the notes', async () => {
   const c = await lib('implementControl.js');
   const w = await lib('implementWizard.js');
   const rows = [2, 1].map((v) => I.parseImplementRow(versionRow(v)));
@@ -384,15 +377,20 @@ test('the Build page offers the notebook first once it is built, and its vibes o
     ['hold out the last month', true, 'https://host/#workspace/Users/me/nb', 1, []]);
   assert.deepEqual(c.vibeCards([rows[1]], rows[1]).map((x) => x.id).includes('notebook'), false, 'no notebook card before the notebook is built');
 
-  const latest = { spec_json: { data: { tables: { 'a.b.c': 'a.b.d' }, notes: 'hold out the last month' }, outputs: { app: true } } };
-  assert.deepEqual(c.vibeChanges(latest, 'notebook', ' hold out the last month '), { retry_outputs: ['notebook'] });
-  assert.deepEqual(c.vibeChanges(latest, 'notebook', 'score every model on the same rows'),
-    { data: { tables: { 'a.b.c': 'a.b.d' }, notes: 'score every model on the same rows' } }, 'only the notes change; the data choices stay');
-  const vibed = I.validateImplementSpec({ ...JSON.parse(JSON.stringify(BASE)), data: c.vibeChanges(latest, 'notebook', 'x').data });
-  assert.deepEqual([vibed.errors, vibed.spec.data.notes], [[], 'x']);
+  assert.deepEqual(w.heldAsks(cards[0].vibes), ['hold out the last month']);
+  const before = { ...JSON.parse(JSON.stringify(BASE)), data: { tables: { 'a.b.c': 'a.b.d' }, notes: 'hold out the last month\nscore every model on the same rows' } };
+  const taken = w.withCollectedVibes(before, [{ kind: 'remove', id: 'notebook', label: 'notebook', text: ' Hold out the last month ' }]);
+  assert.deepEqual(taken.spec.data, { tables: { 'a.b.c': 'a.b.d' }, notes: 'score every model on the same rows' }, 'only that ask leaves; the data choices stay');
+  assert.equal(taken.spec.retry_outputs, undefined, 'the notes changing rebuilds the notebook, so no part is listed to retry');
+  assert.equal(before.data.notes, 'hold out the last month\nscore every model on the same rows', 'the spec it starts from is not changed');
+  const asked = w.withCollectedVibes(before, [{ kind: 'ask', text: 'score every model on the same rows' }]);
+  assert.deepEqual([asked.spec.vibes, asked.spec.data.notes], ['score every model on the same rows', before.data.notes],
+    'an ask goes to the one box even when the notes hold it; the agent sees it is held and adds nothing twice');
+  const vibed = I.validateImplementSpec(taken.spec);
+  assert.deepEqual([vibed.errors, vibed.spec.data.notes], [[], 'score every model on the same rows']);
 
   assert.equal(w.vibesLabel('notebook'), 'Notebook vibes');
   assert.equal(w.vibesProblem('notebook', 'n'.repeat(2001)), 'the notebook vibes are 2001 characters; at most 2000 are allowed');
-  assert.deepEqual(w.vibesProblems({ data: { notes: 'n'.repeat(2001) }, outputs: {} }),
-    ['the notebook vibes are 2001 characters; at most 2000 are allowed'], 'the notebook vibes are checked even with no output ticked');
+  assert.deepEqual(I.validateImplementSpec({ ...BASE, data: { notes: 'n'.repeat(2001) } }).errors, ['the notebook vibes are 2001 characters; at most 2000 are allowed'],
+    'the backend checks the notebook asks even with no box for them');
 });

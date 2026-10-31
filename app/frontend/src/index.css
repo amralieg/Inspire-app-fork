@@ -340,6 +340,32 @@ textarea::placeholder {
   animation: gradientBorder 2s ease-in-out infinite;
 }
 
+@keyframes railBuilding {
+  0%, 100% {
+    background-color: rgba(255, 54, 33, 0.04);
+    border-color: rgba(255, 54, 33, 0.15);
+  }
+  50% {
+    background-color: rgba(255, 54, 33, 0.16);
+    border-color: rgba(255, 54, 33, 0.5);
+  }
+}
+.rail-building {
+  animation: railBuilding 1.6s ease-in-out infinite;
+}
+
+@keyframes editMvpInvite {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(255, 54, 33, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(255, 54, 33, 0);
+  }
+}
+.edit-mvp-invite {
+  animation: editMvpInvite 1.4s ease-in-out infinite;
+}
+
 /* Respect reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
   .animate-marquee,
@@ -360,6 +386,15 @@ textarea::placeholder {
   .animate-ping,
   .animate-schema-float {
     animation: none !important;
+  }
+  .rail-building {
+    animation: none !important;
+    background-color: rgba(255, 54, 33, 0.1);
+    border-color: rgba(255, 54, 33, 0.35);
+  }
+  .edit-mvp-invite {
+    animation: none !important;
+    box-shadow: 0 0 0 3px rgba(255, 54, 33, 0.35);
   }
 }
 

@@ -29,6 +29,20 @@ function controlPhrase(label) {
   return label.charAt(0).toLowerCase() + label.slice(1);
 }
 
+const SHARED_CONTROL_EFFECTS = { stop: 'they stop with it', start: 'they start with it', unpublish: 'they are unpublished with it', publish: 'they are published with it' };
+const SHARED_CONTROL_ASSETS = ['app', 'dashboard'];
+
+function sharedControlProblem(asset, action, id, shared, sharedError = '') {
+  if (!SHARED_CONTROL_ASSETS.includes(asset) || !Object.hasOwn(SHARED_CONTROL_EFFECTS, action)) return '';
+  if (sharedError) return `Inspire could not check whether other use cases hold pages in it (${sharedError}); confirm to ${action} it anyway`;
+  const entry = shared && shared[asset];
+  if (!entry || str(entry.id) !== str(id)) return '';
+  const names = (Array.isArray(entry.use_cases) ? entry.use_cases : []).map((u) => str(u && (u.name || u.use_case_id))).filter(Boolean);
+  if (!names.length) return '';
+  const shown = names.length > 3 ? [...names.slice(0, 2), `${names.length - 2} more use cases`] : names;
+  return `${str(id)} also holds the pages of ${I.joinAnd(shown)}, and ${SHARED_CONTROL_EFFECTS[action]}; confirm to ${action} it for every use case in it`;
+}
+
 function controlTargets(history) {
   const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
   const assets = I.carriedAssets(rows);
@@ -43,7 +57,7 @@ function controlAction(asset, action) {
   const label = known ? CONTROL_ACTIONS[asset][action] : '';
   if (!label) {
     const known = Object.entries(CONTROL_ACTIONS).flatMap(([a, acts]) => Object.keys(acts).map((x) => `${a} ${x}`));
-    throw I.badRequest(`${str(asset)} ${str(action)} is not an action the control tower runs; it runs ${known.join(', ')}`);
+    throw I.badRequest(`${str(asset)} ${str(action)} is not an action the Build page runs; it runs ${known.join(', ')}`);
   }
   return label;
 }
@@ -265,4 +279,6 @@ module.exports = {
   liveStatus,
   ownerCheckPath,
   ownerProblem,
+  SHARED_CONTROL_ASSETS,
+  sharedControlProblem,
 };

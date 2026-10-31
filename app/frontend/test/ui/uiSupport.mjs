@@ -104,7 +104,7 @@ export async function until(check, what, timeout = 10000) {
   throw new Error(`timed out waiting for ${what}`);
 }
 
-export async function lowContrast(page, selectors = ['[aria-label="Control tower"]', '[role="dialog"]']) {
+export async function lowContrast(page, selectors = ['[data-mvp-panel]', '[role="dialog"]']) {
   return page.evaluate((rootSelectors) => {
     document.getAnimations().filter((a) => a instanceof CSSTransition).forEach((a) => a.finish());
     const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });

@@ -296,6 +296,26 @@ test('live status lists the latest control actions, tolerates a missing control 
   });
 });
 
+test('live status says which of the use case\'s assets another use case shares, and a registry it cannot read is reported, not fatal', async () => {
+  const holder = (uc, name, extra) => ({ session_id: '42', use_case_id: uc, spec_version: 1, status: 'ready', updated_at: '2026-10-21T00:00:00Z',
+    spec_json: JSON.stringify({ use_case_name: name, outputs: { app: true } }), asset_status: null, dashboard_id: null, genie_space_id: null, app_name: null, ...extra });
+  const registry = [holder('N01-U01', 'Predict churn', { spec_version: 2, app_name: 'churn-desk', dashboard_id: 'd1', genie_space_id: 'g1' }),
+    holder('N01-U02', 'Forecast demand', { app_name: 'churn-desk' })];
+  await withApp({ history: [BUILT], registry, responses: { 'GET /api/2.0/apps/churn-desk': [APP_OURS] } }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/live?${Q}`);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.deepEqual(got.data.shared, { dashboard: null, genie_space: null,
+      app: { id: 'churn-desk', use_cases: [{ session_id: '42', use_case_id: 'N01-U02', name: 'Forecast demand' }] } });
+    assert.equal(got.data.shared_error, '');
+  });
+  await withApp({ history: [BUILT], registryError: 'PERMISSION_DENIED: no SELECT on __inspire_implement' }, async (url) => {
+    const got = await call(url, `/api/inspire/implement/live?${Q}`);
+    assert.equal(got.status, 200, JSON.stringify(got.data));
+    assert.equal(got.data.shared, null);
+    assert.match(got.data.shared_error, /PERMISSION_DENIED/);
+  });
+});
+
 const viewUrl = pathToFileURL(path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib', 'implementControl.js')).href;
 const wizardUrl = pathToFileURL(path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib', 'implementWizard.js')).href;
 const view = () => import(viewUrl);
@@ -395,6 +415,106 @@ test('the control tower shows a tile for every output: live when built, building
   assert.deepEqual(kinds(v.controlTiles(null, failed)), ['dashboard:checking', 'genie_space:failed', 'app:off', 'alert:checking'],
     'before the live status loads, a chosen output is checked, not reported missing');
   assert.deepEqual(kinds(v.controlTiles(live, null)), ['dashboard:live', 'genie_space:off', 'app:off', 'alert:off']);
+});
+
+const progressUrl = pathToFileURL(path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib', 'mvpProgress.js')).href;
+const progress = () => import(progressUrl);
+const PLANNED = (fields = {}) => ({
+  build: [], classes: ['outputs', 'retry', 'vibe'], delete: [], keep_unmanaged: [], preview: false, refill: false, refresh: [], repoint: [], restyle: [],
+  rollback: {}, rollback_built: {}, schedule: false, sharing: true, ...fields,
+});
+const planStep = (plan, version = 3) => ({
+  step_id: 1, stage_name: 'Implement Use Cases', step_name: 'Inspire is working on plan', status: 'ended_success', last_updated: '2026-01-02T10:00:32.000Z',
+  result_json: JSON.stringify({ use_case_id: 'N01-U01', phase: 'Plan', spec_version: version, event_at: '2026-01-02T10:00:32+00:00', plan }),
+});
+const phaseStep = (phase, status, time) => ({
+  step_id: 2, stage_name: 'Implement Use Cases', step_name: `Inspire is working on ${phase.toLowerCase()}`, status, last_updated: `2026-01-02T${time}.000Z`,
+  result_json: JSON.stringify({ use_case_id: 'N01-U01', phase, spec_version: 3, event_at: `2026-01-02T${time}+00:00` }),
+});
+const ALL_LIVE = { targets: LIVE_TARGETS, assets: { dashboard: { ok: true, published: true }, genie_space: { ok: true, title: 'Churn' }, app: app('ACTIVE'),
+  alert: { ok: true, state: 'OK' }, job: { ok: true, schedule: null, active_runs: [] } } };
+
+test('while a version builds, only the outputs its recorded plan touches show building, and each reads what Inspire does to it', async () => {
+  const v = await view();
+  const p = await progress();
+  const latest = { ...LATEST, spec_version: 3, status: 'building_outputs', spec_json: { ...LATEST.spec_json, vibes: 'a filter on every column' } };
+  const steps = [planStep(PLANNED({ refresh: ['app'] })), phaseStep('Genie Code', 'ended_success', '10:00:59'), phaseStep('App', 'started', '10:01:21')];
+  const plan = p.versionPlan(steps, latest);
+  const stages = p.mvpStages(steps, latest, { now: Date.parse('2026-01-02T10:02:00Z') });
+  const tower = v.controlTiles(ALL_LIVE, latest, { active: true, buildingNow: 'App', plan, stages });
+  assert.deepEqual(tower.tiles.map((t) => [t.output.id, t.kind, t.building || null]), [
+    ['dashboard', 'live', null], ['genie_space', 'live', null], ['app', 'live', { now: true, doing: 'Genie is rebuilding it now' }], ['alert', 'live', null],
+  ], 'the App tile alone is building; the others stay on their live version');
+  const doneStages = p.mvpStages([...steps, phaseStep('App', 'ended_success', '10:05:00')], latest, { now: Date.parse('2026-01-02T10:05:10Z') });
+  assert.equal(v.controlTiles(ALL_LIVE, latest, { active: true, plan, stages: doneStages }).tiles[2].building, undefined, 'a built App is no longer building');
+  const noApp = { ...ALL_LIVE, targets: { ...LIVE_TARGETS, app: undefined } };
+  assert.equal(v.controlTiles(noApp, latest, { active: true, plan, stages: doneStages }).tiles[2].kind, 'checking',
+    'an output built a moment ago reads its live status, never missing');
+  assert.equal(v.controlTiles(noApp, latest, { active: true, plan, stages }).tiles[2].kind, 'building');
+  assert.equal(v.controlTiles(noApp, { ...latest, status: 'ready' }, { plan, stages: doneStages }).tiles[2].kind, 'missing', 'once the version is done, a missing App is missing');
+  const noLive = v.controlTiles(null, latest, { active: true, buildingNow: 'App', plan, stages });
+  assert.deepEqual(noLive.tiles.map((t) => `${t.output.id}:${t.kind}`), ['dashboard:checking', 'genie_space:checking', 'app:building', 'alert:checking'],
+    'a chosen output the plan does not touch is never shown as building');
+  const pending = v.controlTiles(null, { ...latest, status: 'queued' }, { active: true, plan: p.PLAN_PENDING });
+  assert.deepEqual(pending.tiles.map((t) => `${t.output.id}:${t.kind}`), ['dashboard:planning', 'genie_space:planning', 'app:planning', 'alert:planning']);
+  assert.ok(v.controlTiles(ALL_LIVE, latest, { active: true, plan: p.PLAN_PENDING }).tiles.every((t) => t.kind === 'live' && !t.building), 'live outputs stay live while Inspire plans');
+  const back = v.controlTiles(ALL_LIVE, latest, { active: true, plan: p.versionPlan([planStep(PLANNED({ rollback: { dashboard: 2 } }))], latest) });
+  assert.equal(back.tiles[0].building.doing, 'Inspire is putting v2 back now');
+  assert.equal(back.tiles[0].building.now, false, 'without the stages, it waits for its turn');
+  assert.equal(v.controlTiles(ALL_LIVE, latest, { active: false, plan }).tiles[2].building, undefined, 'a finished version builds nothing');
+});
+
+const builtRow = (version, assets, outputs = {}) => ({
+  spec_version: version, status: 'ready', updated_at: `2026-01-0${version}T04:00:00Z`, dashboard_id: 'd1', genie_space_id: 'g1', app_name: 'churn-desk', alert_id: 'a1',
+  dashboard_url: 'https://w/d1', genie_space_url: 'https://w/g1', app_url: 'https://churn-desk.example.com', alert_url: 'https://w/a1',
+  spec_json: { outputs: { dashboard: true, genie_space: true, app: true, app_name: 'churn-desk', alert: true, ...outputs } }, asset_status: assets,
+});
+const BUILT_PARTS = {
+  notebook: { state: 'ready', spec_version: 1 }, ai_reasoning: { state: 'ready', spec_version: 1 }, value_formula: { state: 'ready', spec_version: 1 },
+  dashboard: { state: 'ready', spec_version: 1 }, 'dashboard:w1': { state: 'ready', spec_version: 1, name: 'Trend' },
+  genie_space: { state: 'ready', spec_version: 1 }, app: { state: 'ready', spec_version: 1 }, 'app:page:decisions': { state: 'ready', spec_version: 1, name: 'Decisions' },
+  alert: { state: 'ready', spec_version: 1 },
+};
+
+test('the cards that read Rebuilding follow the recorded plan, and an asset vibe rebuilds only that asset', async () => {
+  const v = await view();
+  const p = await progress();
+  const v1 = builtRow(1, BUILT_PARTS);
+  const v2 = (top = {}) => ({ ...builtRow(2, BUILT_PARTS), status: 'building_outputs', spec_json: { ...builtRow(2, {}).spec_json, vibes: 'a filter on every column', ...top } });
+  const busy = (latest, plan) => v.vibeCards([latest, v1], latest, null, '', plan).filter((c) => c.building).map((c) => c.id);
+  const app = v2();
+  const appPlan = p.versionPlan([planStep(PLANNED({ refresh: ['app'] }), 2)], app);
+  assert.deepEqual(busy(app, appPlan), ['app', 'app:page:decisions'], 'the App and its page, nothing else');
+  assert.deepEqual(busy(app, null), [], 'the spec diff alone cannot see where a whole-MVP vibe went');
+  const cards = v.vibeCards([app, v1], app, null, '', appPlan);
+  const whole = cards.find((c) => c.id === 'app');
+  assert.equal(v.rebuildingText(whole), 'Rebuilding the App only. Nothing else changes.');
+  assert.equal(v.rebuildingText(cards.find((c) => c.id === 'app:page:decisions')), 'Rebuilding the Decisions page. This version changes other parts too.');
+  const core = p.versionPlan([planStep(PLANNED({ classes: ['data'], refill: true, preview: true, refresh: ['genie_space', 'dashboard', 'app', 'alert'] }), 2)], app);
+  assert.deepEqual(busy(app, core).sort(), Object.keys(BUILT_PARTS).sort(), 'a core change rebuilds the notebook and every part after it');
+  assert.equal(v.rebuildingText(v.vibeCards([app, v1], app, null, '', core).find((c) => c.id === 'app')), 'Rebuilding the App. This version changes other parts too.');
+  const reasoning = p.versionPlan([planStep(PLANNED({ preview: true }), 2)], app);
+  assert.deepEqual(busy(app, reasoning), ['ai_reasoning'], 'an AI reasoning ask only runs the notebook again');
+  const page = v2({ retry_outputs: ['app:page:decisions'] });
+  const pagePlan = p.versionPlan([planStep(PLANNED({ classes: ['retry'], refresh: ['app'] }), 2)], page);
+  assert.deepEqual(busy(page, pagePlan), ['app:page:decisions'], 'a retried page rebuilds that page alone');
+  assert.equal(v.rebuildingText(v.vibeCards([page, v1], page, null, '', pagePlan).find((c) => c.id === 'app:page:decisions')),
+    'Rebuilding the Decisions page only. Nothing else changes.');
+  const back = p.versionPlan([planStep(PLANNED({ classes: ['rollback'], rollback: { dashboard: 1 } }), 2)], app);
+  const rolled = v.vibeCards([app, v1], app, null, '', back).filter((c) => c.building);
+  assert.deepEqual(rolled.map((c) => [c.id, c.building.rollback]), [['dashboard', 1], ['dashboard:w1', 1]]);
+  assert.equal(v.rollingBackText(rolled[0]), 'Putting version 1 live again. Genie is not called and nothing else changes.');
+  const lost = p.versionPlan([planStep(PLANNED({ classes: ['rollback'], build: ['dashboard'], rollback_built: { dashboard: { version: 1, why: 'gone' } } }), 2)], app);
+  assert.deepEqual(v.vibeCards([app, v1], app, null, '', lost).filter((c) => c.building).map((c) => [c.id, c.building.rollback]), [['dashboard', null], ['dashboard:w1', null]],
+    'a roll back that could not be put back is a Genie build, never "Genie is not called"');
+  const pointed = p.versionPlan([planStep(PLANNED({ classes: ['retry'], refresh: ['genie_space'], repoint: ['app'] }), 2)], app);
+  const pointedCards = v.vibeCards([app, v1], app, null, '', pointed);
+  assert.deepEqual(pointedCards.filter((c) => c.building).map((c) => c.id), ['genie_space'], 'pointing the App at the new agent does not rebuild the App');
+  assert.equal(v.rebuildingText(pointedCards.find((c) => c.id === 'genie_space')), 'Rebuilding the Genie Agent, then pointing the App page at it. Nothing else changes.');
+  const both = p.versionPlan([planStep(PLANNED({ classes: ['retry'], refresh: ['genie_space', 'app'] }), 2)], app);
+  assert.equal(v.rebuildingText(v.vibeCards([app, v1], app, null, '', both).find((c) => c.id === 'genie_space')),
+    'Rebuilding the Genie Agent. This version changes other parts too.', 'an App rebuilt in the same version reads the new agent itself, so no repoint is said');
+  assert.deepEqual(busy({ ...app, status: 'queued' }, p.PLAN_PENDING), [], 'nothing reads Rebuilding before the plan lands');
 });
 
 test('a built output that ended with warnings lists them on its tile, and a clean or malformed one lists none', async () => {

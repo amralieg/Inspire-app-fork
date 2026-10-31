@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useRef } from 'react';
 import { VIBES_MAX, partOf, vibesLabel, vibesLength, vibesProblem } from '../lib/implementWizard';
 
 const PLACEHOLDERS = {
+  mvp: 'For example: put the rows to act on first on the App, answer in euros in the Genie Agent, and count returns by week',
   notebook: 'For example: score the baseline and every model on the same held-out rows, and print each one\'s hit rate',
   dashboard: 'For example: put the weekly trend first and show the 20 rows to act on today',
   genie_space: 'For example: answer in plain words and always say which rows you counted',

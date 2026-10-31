@@ -479,6 +479,16 @@ test('plan lines say what the edit builds, refreshes, deletes and keeps', async 
   ]);
 });
 
+test('before a vibe is built, the plan never claims the notebook is kept, because Inspire decides what the vibe rebuilds when it reads it', async () => {
+  const w = await load();
+  const vibe = w.planLines({ classes: ['vibe'], refill: false, build: [], refresh: [], delete: [], keep_unmanaged: [], schedule: false });
+  assert.deepEqual(vibe, ['Changes: vibe',
+    'Inspire reads your vibe first and rebuilds only the parts it changes; an ask that changes the analysis rebuilds the notebook and every part after it']);
+  assert.ok(!vibe.includes('The built notebook is kept as it is'));
+  assert.equal(w.planLines({ classes: ['initial', 'vibe'], refill: true })[1], 'Genie rewrites the notebook and Inspire re-runs the preview', 'a first build writes the notebook either way');
+  assert.equal(w.planLines({ classes: ['outputs'], refill: false })[1], 'The built notebook is kept as it is', 'without a vibe the plan reads as before');
+});
+
 test('plan lines say first when the results move to the use case\'s own table, and the Build page note reads the same', async () => {
   const w = await load();
   const moved = { from: 'main.s.n01_u01_out', to: 'main.s.n01_u01_s42_out', detail: 'results move to main.s.n01_u01_s42_out, because main.s.n01_u01_out holds the results of use case N01-U01 of session 7' };
@@ -1432,4 +1442,204 @@ test('a joined App\'s look reads in plain words and says how to get a look of it
     'an App that signs each person in says so');
   assert.doesNotMatch(text, /[\u2013\u2014]/);
   assert.match(text, /choose Create new\.$/, 'it says how to get a look of its own, on the step where Create new is');
+});
+
+const STICK_UC = {
+  id: 'N01-U07', Name: 'Predict which customers will churn next month', statement: 'Cut churn among loyal customers',
+  primary_table: 'main.s.orders', tables_involved: 'main.s.orders,main.s.customers',
+  elite_assessment: JSON.stringify({ decision: 'Which customers get a retention call this week', entity_key_column: 'main.s.orders.order_id' }),
+};
+const STICK_COLUMNS = {
+  'main.s.orders': [{ column_name: 'order_id', data_type: 'STRING' }, { column_name: 'customer_id', data_type: 'STRING' },
+    { column_name: 'order_date', data_type: 'DATE' }, { column_name: 'amount', data_type: 'DOUBLE' }],
+  'main.s.customers': [{ column_name: 'customer_id', data_type: 'STRING' }, { column_name: 'segment', data_type: 'STRING' }],
+};
+const STICK_TABLES = ['main.s.orders', 'main.s.customers'];
+
+test('the team capacity default comes from the rows to rank and the runs between, and says why', async () => {
+  const w = await load();
+  const spec = w.defaultSpecFromUseCase(STICK_UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
+  const evidence = { tables: { 'main.s.orders': { rows: 12400, date_ranges: {}, sampled: false } } };
+  const weekly = w.capacitySuggestion(spec, { evidence, table: 'main.s.orders' });
+  assert.equal(weekly.act_now, 50);
+  assert.equal(weekly.basis, 'Inspire suggests 50: about 10 rows a working day for the decision owner, over the 5 working days between runs. '
+    + 'main.s.orders has 12,400 rows to rank, so without a cap Act now could list far more than the team can work.');
+  const daily = w.capacitySuggestion({ ...spec, schedule: { ...spec.schedule, cron: '0 0 6 ? * MON-FRI' } }, { evidence, table: 'main.s.orders' });
+  assert.equal(daily.act_now, 10);
+  const ran = w.capacitySuggestion(spec, { latest: { result_rows: 3000 } });
+  assert.equal(ran.act_now, 50);
+  assert.match(ran.basis, /The last run wrote 3,000 rows, so without a cap/);
+  const small = w.capacitySuggestion(spec, { evidence: { tables: { 'main.s.orders': { rows: 40 } } }, table: 'main.s.orders' });
+  assert.deepEqual(small, { act_now: null, basis: 'No cap: main.s.orders has 40 rows to rank, no more than the 50 the team can usually work between '
+    + 'runs, so every Act now row fits. Set a number if your team can act on fewer.' });
+  const blind = w.capacitySuggestion(spec, {});
+  assert.deepEqual(blind, { act_now: null, basis: 'No cap: Inspire has no row count for this use case yet, so it cannot tell whether Act now '
+    + 'will hold more rows than the team can work. Set a number if your team can act on only so many rows each run.' });
+  assert.doesNotMatch(weekly.basis + small.basis + blind.basis, /[\u2013\u2014]/);
+});
+
+test('a new MVP takes the suggestion, an existing one stays uncapped, and the person\'s number always wins', async () => {
+  const w = await load();
+  const spec = w.defaultSpecFromUseCase(STICK_UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
+  const inputs = { latest: { result_rows: 3000 } };
+  assert.equal(spec.capacity, undefined, 'the default spec waits for the data to suggest a capacity');
+  assert.deepEqual(w.withCapacityDefault(spec, inputs).capacity, { act_now: 50, source: 'default' });
+  assert.deepEqual(w.withCapacityDefault(spec, { ...inputs, editing: true }).capacity, { act_now: null, source: 'default' },
+    'an MVP built before the cap keeps every row it had');
+  const typed = w.withCapacity(spec, ' 25 ');
+  assert.deepEqual(typed.capacity, { act_now: 25, source: 'user' });
+  assert.deepEqual(w.withCapacityDefault(typed, inputs).capacity, { act_now: 25, source: 'user' }, 'Inspire never changes the person\'s number');
+  assert.deepEqual(w.withCapacity(spec, '').capacity, { act_now: null, source: 'user' }, 'an empty box is the person asking for no cap');
+  assert.deepEqual(w.withCapacityDefault(w.withCapacity(spec, ''), inputs).capacity, { act_now: null, source: 'user' });
+  assert.deepEqual(w.capacityProblems(w.withCapacity(spec, '12.5')), [w.CAPACITY_PROBLEM]);
+  assert.deepEqual(w.capacityProblems(w.withCapacity(spec, '0')), [w.CAPACITY_PROBLEM]);
+  assert.deepEqual(w.capacityProblems(w.withCapacity(spec, 'ten')), [w.CAPACITY_PROBLEM]);
+  assert.deepEqual(w.capacityProblems(typed), []);
+  assert.deepEqual(w.stepErrors('results', w.withCapacity(spec, '0')).slice(-1), [w.CAPACITY_PROBLEM], 'the Results step checks it');
+  assert.equal(w.capacitySummaryText(typed), 'Act now holds at most 25 rows a run; the next ones by rank wait in Review, and the App says how many.');
+  assert.equal(w.capacitySummaryText(w.withCapacity(spec, '')), 'Act now is not capped: every row that passes the decision test is Act now.');
+  assert.equal(w.capacityInput(typed), '25');
+  const suggested = w.capacitySuggestion(spec, inputs);
+  assert.equal(w.capacityNote(typed, suggested), 'Your number wins over Inspire\u2019s suggestion. ');
+  assert.equal(w.capacityNote(w.withCapacityDefault(spec, inputs), suggested), '', 'the suggestion itself needs no note');
+  assert.equal(w.capacityNote(w.withCapacityDefault(spec, { ...inputs, editing: true }), suggested),
+    'This MVP keeps the cap it was built with until you change it. ');
+  assert.equal(w.capacityDiffers(typed, suggested), true);
+  assert.equal(w.capacityDiffers(w.withSuggestedCapacity(typed, inputs), suggested), false);
+  assert.equal(w.capacityInput(w.withCapacity(spec, 'ten')), 'ten');
+  const { errors, spec: clean } = backend.validateImplementSpec(typed);
+  assert.deepEqual(errors, []);
+  assert.equal(clean.capacity === undefined || clean.capacity.act_now === 25, true);
+});
+
+test('the data step warns when one row of the result is not the use case\'s subject and names the key to group by', async () => {
+  const w = await load();
+  const spec = w.defaultSpecFromUseCase(STICK_UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
+  assert.deepEqual([w.keyNoun('customer_id'), w.keyNoun('custkey'), w.keyNoun('ws_bill_customer_sk'), w.keyNoun('OrderID'), w.keyNoun('amount')],
+    ['customer', 'cust', 'customer', 'order', '']);
+  const check = w.grainCheck(spec, STICK_UC, STICK_COLUMNS, STICK_TABLES);
+  assert.equal(check.state, 'mismatch');
+  assert.deepEqual([check.subject.noun, check.rowNoun, check.row.ref, check.row.chosen, check.suggest.ref],
+    ['customer', 'order', 'main.s.orders.order_id', false, 'main.s.orders.customer_id'], 'the key is grouped inside the table the rows come from');
+  assert.equal(w.grainText(check), 'This use case is about customers, but one row of the result would be one order (main.s.orders.order_id). '
+    + 'Group the rows by customer_id so one row is one customer.');
+  const grouped = w.withEntityKey(spec, check.suggest.ref);
+  assert.equal(grouped.data.column_roles.entity_id, 'main.s.orders.customer_id');
+  const ok = w.grainCheck(grouped, STICK_UC, STICK_COLUMNS, STICK_TABLES);
+  assert.equal(ok.state, 'ok');
+  assert.equal(w.grainText(ok), 'One row of the result is one customer (main.s.orders.customer_id).');
+  const kept = w.withEntityKey(spec, 'main.s.orders.order_id');
+  const chosen = w.grainCheck(kept, STICK_UC, STICK_COLUMNS, STICK_TABLES);
+  assert.deepEqual([chosen.state, chosen.row.chosen], ['mismatch', true]);
+  assert.equal(w.grainText(chosen), 'One row of the result is one order (main.s.orders.order_id), as you chose. This use case is about customers: '
+    + 'group by customer_id instead if one row should be one customer.');
+  assert.deepEqual(w.stepErrors('data', kept, { columnsByTable: STICK_COLUMNS }), [], 'the person\'s choice never blocks the step');
+  assert.deepEqual(w.entityKeyOptions(STICK_COLUMNS, STICK_TABLES).map((k) => k.ref),
+    ['main.s.orders.order_id', 'main.s.orders.customer_id', 'main.s.customers.customer_id']);
+  assert.equal(w.withEntityKey(kept, '').data.column_roles.entity_id, undefined, 'Inspire\'s choice clears the person\'s key');
+  const swapped = { ...spec, data: { ...spec.data, tables: { 'main.s.orders': 'main.s.orders_v2' } } };
+  assert.equal(w.rowKeyOf(swapped, STICK_UC).ref, 'main.s.orders_v2.order_id', 'Inspire\'s key follows a swapped table');
+  const unknown = w.grainCheck(spec, { ...STICK_UC, Name: 'Forecast demand', statement: 'Plan stock', elite_assessment: '{}' }, STICK_COLUMNS, STICK_TABLES);
+  assert.equal(unknown.state, 'unknown');
+  assert.equal(w.grainText(unknown), '');
+  const aligned = { ...STICK_UC, elite_assessment: JSON.stringify({ entity_key_column: 'main.s.customers.customer_id' }) };
+  assert.equal(w.grainCheck(spec, aligned, STICK_COLUMNS, STICK_TABLES).state, 'ok');
+  const category = w.grainCheck(spec, { ...STICK_UC, Name: 'Reprice categories', elite_assessment: JSON.stringify({ entity_key_column: 'main.s.orders.order_id' }) },
+    { 'main.s.orders': [{ column_name: 'order_id', data_type: 'STRING' }, { column_name: 'category_id', data_type: 'STRING' }] }, ['main.s.orders']);
+  assert.equal(w.grainText(category), 'This use case is about categories, but one row of the result would be one order (main.s.orders.order_id). '
+    + 'Group the rows by category_id so one row is one category.');
+});
+
+test('the weekly value email is on by default when the alert has recipients and the person can turn it off', async () => {
+  const w = await load();
+  const spec = w.defaultSpecFromUseCase(STICK_UC, { warehouseId: 'wh1', inspireDatabase: 'main.inspire', owner: 'amr@example.com' });
+  assert.equal(spec.outputs.alert_digest, true);
+  const alerting = w.withOutput(spec, 'alert', true);
+  assert.equal(w.digestOn(alerting.outputs), true, 'the alert picks the decision owner, so the email goes to them');
+  assert.equal(w.digestOn(spec.outputs), false, 'no alert, no email');
+  assert.equal(w.digestOn({ ...alerting.outputs, alert_recipients: [], alert_destinations: [] }), false, 'nobody to send it to');
+  assert.equal(w.digestOn({ ...alerting.outputs, alert_recipients: [], alert_destinations: [{ id: 'dest-0001', name: 'Slack' }] }), true);
+  const off = w.withDigest(alerting, false);
+  assert.equal(off.outputs.alert_digest, false);
+  assert.equal(w.digestOn(off.outputs), false);
+  assert.equal(w.digestOn(w.withDigest(off, true).outputs), true);
+  assert.match(w.DIGEST_BLURB, /what people acted on and the money at stake on it/);
+  assert.match(w.DIGEST_BLURB, /Not reliable yet/);
+  assert.deepEqual(backend.validateImplementSpec({ ...off, outputs: { ...off.outputs, alert_recipients: ['amr@example.com'] } }).errors, []);
+});
+
+const SHARED = {
+  app: { id: 'churn-desk', use_cases: [{ session_id: '42', use_case_id: 'N01-U02', name: 'Forecast demand' }] },
+  dashboard: null,
+  genie_space: { id: 'g1', use_cases: [{ session_id: '7', use_case_id: 'N03-U04', name: '' }, { session_id: '42', use_case_id: 'N01-U05', name: 'Plan stock' }] },
+};
+const TAKE_OUT = "Take this use case's part out of churn-desk; it stays for Forecast demand";
+
+test('a removed output other use cases share is taken out of, not deleted, in the plan, and an output only this use case holds is still deleted', async () => {
+  const w = await load();
+  const summary = { classes: ['deselect'], refill: false, build: [], refresh: [], delete: ['app', 'dashboard'], keep_unmanaged: [], schedule: false };
+  assert.deepEqual(w.planLines(summary, { shared: SHARED }), [
+    'Changes: deselect',
+    'The built notebook is kept as it is',
+    'Deletes: Dashboard',
+    TAKE_OUT,
+  ]);
+  assert.deepEqual(w.planLines(summary).slice(-1), ['Deletes: App, Dashboard'], 'without a sharing check the plan reads as before');
+  assert.deepEqual(w.planLines({ ...summary, delete: ['app'] }, { shared: { ...SHARED, app: null } }).slice(-1), ['Deletes: App'],
+    'an App the check found no other use case in is deleted');
+  assert.deepEqual(w.planLines({ ...summary, delete: ['app'] }, { shared: SHARED }).filter((l) => l.startsWith('Deletes')), [],
+    'no empty Deletes line when every removed output is shared');
+  assert.deepEqual(w.planLines({ ...summary, delete: [], keep_unmanaged: ['app'] }, { shared: SHARED }).slice(-1), ['Leaves in place, no longer managed: App'],
+    'an output kept unmanaged is not taken out of anything');
+});
+
+test('the shared holding names the asset from the live check when it can, names each use case and shortens a long list', async () => {
+  const w = await load();
+  assert.equal(w.sharedHolding('app', null), null);
+  assert.equal(w.sharedHolding('dashboard', SHARED), null, 'a dashboard only this use case holds is not shared');
+  assert.equal(w.sharedHolding('alert', SHARED), null, 'an alert is never shared');
+  assert.equal(w.sharedHolding('app', { app: { id: 'churn-desk', use_cases: [] } }), null, 'nobody else holds it');
+  assert.equal(w.takeOutText(w.sharedHolding('app', SHARED)), TAKE_OUT);
+  assert.equal(w.takeOutText(w.sharedHolding('genie_space', SHARED)), "Take this use case's part out of g1; it stays for N03-U04 and Plan stock",
+    'a use case without a name is named by its id');
+  const live = { assets: { genie_space: { ok: true, title: 'Churn agent' }, app: { ok: true, name: 'churn-desk' } } };
+  assert.equal(w.takeOutText(w.sharedHolding('genie_space', SHARED, live)), "Take this use case's part out of Churn agent; it stays for N03-U04 and Plan stock");
+  const many = (n) => ({ app: { id: 'hub', use_cases: Array.from({ length: n }, (_, i) => ({ use_case_id: `N0${i + 1}-U01`, name: `Use case ${i + 1}` })) } });
+  assert.equal(w.takeOutText(w.sharedHolding('app', many(3))), "Take this use case's part out of hub; it stays for Use case 1, Use case 2 and Use case 3");
+  assert.equal(w.takeOutText(w.sharedHolding('app', many(5))), "Take this use case's part out of hub; it stays for Use case 1, Use case 2 and 3 more use cases");
+  assert.equal(w.holdersText(['A']), 'A');
+});
+
+test('the latest plan check of who shares an output wins over the Build page live check, which counts only until a plan has checked', async () => {
+  const w = await load();
+  const live = { shared: { app: { id: 'churn-desk', use_cases: [{ use_case_id: 'N01-U09', name: 'Old holder' }] } } };
+  assert.equal(w.sharedSource(SHARED, live), SHARED);
+  assert.equal(w.sharedSource(null, live), live.shared);
+  assert.equal(w.sharedSource(undefined, { shared: null }), null, 'a live check that could not read the registry knows nothing');
+  assert.equal(w.sharedSource(null, null), null);
+  assert.equal(w.sharedHolding('app', w.sharedSource({ ...SHARED, app: null }, live)), null,
+    'once the plan found nobody else in the App, an older live check that did never brings the take-out wording back');
+  assert.equal(w.takeOutText(w.sharedHolding('app', w.sharedSource(null, live))), "Take this use case's part out of churn-desk; it stays for Old holder");
+});
+
+const fs = require('node:fs');
+const frontendSources = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+  const full = path.join(dir, entry.name);
+  if (entry.isDirectory()) return frontendSources(full);
+  return /\.(js|jsx)$/.test(entry.name) ? [full] : [];
+});
+
+test('one helper writes every A, B and C list on the wizard and the Build page, and use cases past three are counted', async () => {
+  const w = await load();
+  assert.deepEqual([[], ['A'], ['A', 'B'], ['A', 'B', 'C'], ['A', 'B', 'C', 'D']].map(w.joinWords), ['', 'A', 'A and B', 'A, B and C', 'A, B, C and D']);
+  assert.deepEqual([['A'], ['A', 'B'], ['A', 'B', 'C'], ['A', 'B', 'C', 'D']].map(w.holdersText), ['A', 'A and B', 'A, B and C', 'A, B and 2 more use cases']);
+  const c = await import(pathToFileURL(path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib', 'implementControl.js')).href);
+  assert.equal(c.takenOutText({ state: 'released', taken_out_of: 'hub', stays_for: ['A', 'B', 'C', 'D'] }, 'app'),
+    "This use case's pages were taken out of hub, which stays for A, B and 2 more use cases.");
+  const root = path.resolve(__dirname, '..', '..', 'frontend', 'src');
+  const copies = frontendSources(root).flatMap((file) => [...fs.readFileSync(file, 'utf8').matchAll(/\.slice\(0, -1\)\.join\(', '\)/g)]
+    .map(() => path.relative(root, file)));
+  assert.deepEqual(copies, [path.join('lib', 'implementWizard.js')], 'every list joins through joinWords, never its own copy');
+  const named = frontendSources(root).filter((file) => /function (namesText|andList)\b/.test(fs.readFileSync(file, 'utf8')));
+  assert.deepEqual(named, []);
 });

@@ -163,7 +163,7 @@ test('the App reads Lakebase by default when the workspace has it, Delta tables 
   assert.deepEqual(w.APP_BACKEND_CHOICES.map((c) => [c.id, c.label]), [
     ['lakebase', 'Lakebase (Loads instantly)'], ['delta', 'Delta Tables (Takes a few seconds to load)']]);
   assert.deepEqual(w.APP_BACKENDS, SHELL.backends, 'the wizard offers the backends the App shell reads');
-  for (const text of [...w.APP_BACKEND_CHOICES.flatMap((c) => [c.label, c.blurb]), w.LAKEBASE_PER_USER_REASON, w.LAKEBASE_CHECKING]) {
+  for (const text of [...w.APP_BACKEND_CHOICES.flatMap((c) => [c.label, c.blurb]).filter(Boolean), w.LAKEBASE_PER_USER_REASON, w.LAKEBASE_CHECKING]) {
     assert.doesNotMatch(text, /\u2014|\u2013/, `no dashes: ${text}`);
   }
   assert.equal(spec.outputs.app_backend, '', 'a new spec leaves the backend to the default');

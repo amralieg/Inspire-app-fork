@@ -6,7 +6,7 @@ import { feedLine, feedKey, feedTypesOut, typedText, typingSchedule } from '../l
 import { reducedMotion } from '../lib/motion';
 
 const TONE_TEXT = { plain: 'text-text-primary', quiet: 'text-text-secondary', warning: 'text-warning-fg', error: 'text-error-fg' };
-const NEAR_BOTTOM_PX = 48;
+const PINNED_TOP_PX = 160;
 const TICK_MS = 60;
 const FEED_MARKDOWN = ['p', 'strong', 'em', 'code', 'ul', 'ol', 'li'];
 const FEED_COMPONENTS = {
@@ -22,10 +22,10 @@ function clock(at) {
 }
 
 export default function GenieFeed({ feed, arrivals, active, working }) {
-  const boxRef = useRef(null);
+  const endRef = useRef(null);
   const [now, setNow] = useState(() => Date.now());
-  const [pinned, setPinned] = useState(true);
-  const [readCount, setReadCount] = useState(0);
+  const [pinned, setPinned] = useState(false);
+  const [readCount, setReadCount] = useState(null);
   const [reduced] = useState(reducedMotion);
 
   const entries = useMemo(() => (Array.isArray(feed) ? feed : [])
@@ -42,26 +42,29 @@ export default function GenieFeed({ feed, arrivals, active, working }) {
 
   const waitingAt = entries.findIndex((entry) => (schedule.starts.get(entry.key) ?? -Infinity) > now);
   const shown = waitingAt < 0 ? entries : entries.slice(0, waitingAt);
-  const unread = !pinned && shown.length > readCount;
+  if (readCount === null && Array.isArray(feed)) setReadCount(shown.length);
+  const unread = !pinned && readCount !== null && shown.length > readCount;
+
+  const count = shown.length;
+  useEffect(() => {
+    const end = endRef.current;
+    if (!end || typeof IntersectionObserver === 'undefined') return undefined;
+    const watch = new IntersectionObserver(([entry]) => {
+      setPinned(entry.isIntersecting);
+      if (entry.isIntersecting) setReadCount(count);
+    }, { rootMargin: `-${PINNED_TOP_PX}px 0px 0px 0px` });
+    watch.observe(end);
+    return () => watch.disconnect();
+  }, [count]);
 
   useLayoutEffect(() => {
-    const box = boxRef.current;
-    if (box && pinned) box.scrollTop = box.scrollHeight;
-  }, [shown.length, now, pinned, active]);
-
-  const onScroll = () => {
-    const box = boxRef.current;
-    if (!box) return;
-    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < NEAR_BOTTOM_PX;
-    if (atBottom || pinned) setReadCount(shown.length);
-    setPinned(atBottom);
-  };
+    if (pinned) endRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [count, now, pinned, active]);
 
   const jump = () => {
-    const box = boxRef.current;
-    if (box) box.scrollTop = box.scrollHeight;
+    endRef.current?.scrollIntoView?.({ block: 'end', behavior: reduced ? 'auto' : 'smooth' });
     setPinned(true);
-    setReadCount(shown.length);
+    setReadCount(count);
   };
 
   const said = entries.filter((entry) => entry.line.who === 'genie' && feedTypesOut(entry.item)).length;
@@ -78,14 +81,11 @@ export default function GenieFeed({ feed, arrivals, active, working }) {
         )}
       </div>
       <div
-        ref={boxRef}
-        onScroll={onScroll}
         role="log"
         aria-live="polite"
         aria-busy={typing}
         aria-label="Genie's messages"
-        tabIndex={0}
-        className={`${active || entries.length ? 'h-[36rem] min-h-48 max-h-[85vh] resize-y' : 'max-h-[36rem]'} overflow-y-auto overscroll-contain bg-panel px-4 py-4 space-y-3 glow-focus`}
+        className="bg-panel px-4 py-4 space-y-3"
       >
         {!Array.isArray(feed) && <p className="text-[12px] text-text-tertiary">Loading Genie&apos;s messages…</p>}
         {Array.isArray(feed) && shown.length === 0 && (
@@ -142,12 +142,13 @@ export default function GenieFeed({ feed, arrivals, active, working }) {
             </span>
           </div>
         )}
+        <span ref={endRef} data-feed-end="" aria-hidden className="block h-px" />
       </div>
       {unread && (
         <button
           type="button"
           onClick={jump}
-          className="absolute bottom-3 right-4 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold text-white bg-db-red-solid shadow-sm"
+          className="fixed bottom-6 right-6 z-30 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-semibold text-white bg-db-red-solid shadow-lg"
         >
           <ArrowDown size={12} /> Jump to latest
         </button>

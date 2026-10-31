@@ -57,12 +57,16 @@ test('the kept assets come from the newest version that lists them, and an empti
   assert.deepEqual(I.keptAssets([junk]), [keptDashboard(2, 3)], 'only outputs with an id are listed');
 });
 
-test('a vibe needs a built output, an uninstall needs something built and not yet removed, and a removal needs a kept version', () => {
+test('a vibe on a rebuild needs keep or remove while a first build takes it alone, an uninstall needs something built and not yet removed, and a removal needs a kept version', () => {
   const vibe = spec({ vibes: 'Put the riskiest first', vibe_previous: 'remove' });
+  const alone = spec({ vibes: 'Put the riskiest first' });
+  const needsChoice = ['vibe_previous must be keep or remove, because this use case has a built version: it says what happens to the version before this vibe'];
   assert.deepEqual(I.mvpActionProblems([row(1)], vibe), []);
-  assert.deepEqual(I.mvpActionProblems([row(1, { ids: false })], vibe),
-    ['Inspire has built no dashboard, Genie Agent, App or alert on this MVP yet, so a vibe has nothing to change; build one first']);
-  assert.deepEqual(I.mvpActionProblems([uninstalledRow(2), row(1)], vibe).length, 1, 'an uninstalled MVP has nothing a vibe can change');
+  assert.deepEqual(I.mvpActionProblems([row(1)], alone), needsChoice);
+  assert.deepEqual(I.mvpActionProblems([row(1, { ids: false })], alone), needsChoice, 'a built version with no output ids is still a version before');
+  assert.deepEqual(I.mvpActionProblems([], alone), [], 'a first build routes the vibe with no choice to make');
+  assert.deepEqual(I.mvpActionProblems([uninstalledRow(2), row(1)], alone), [], 'the build after an uninstall is a first build again');
+  assert.deepEqual(I.mvpActionProblems([uninstalledRow(2), row(1)], vibe), [], 'and a choice sent anyway is harmless');
 
   const uninstall = spec({ uninstall: true });
   assert.deepEqual(I.mvpActionProblems([row(1)], uninstall), []);
@@ -89,8 +93,10 @@ test('a vibe, a removal or an uninstall of a built version is never refused as u
     I.refuseUnchanged(plan);
   }
   assert.equal(I.planSubmission([row(3)], { ...spec(), based_on_version: 3 }).unchanged, true, 'the same choices are still refused');
-  assert.throws(() => I.planSubmission([row(1, { ids: false })], spec({ vibes: 'Put the riskiest first', vibe_previous: 'keep' })),
-    (err) => err.statusCode === 400 && /a vibe has nothing to change/.test(err.message));
+  const first = I.planSubmission([], spec({ vibes: 'Put the riskiest first' }));
+  assert.deepEqual([first.unchanged, first.nextVersion, first.summary.classes], [false, 1, ['initial']], 'a first build carries its vibe into the initial build');
+  assert.throws(() => I.planSubmission([row(1, { ids: false })], { ...spec({ vibes: 'Put the riskiest first' }), based_on_version: 1 }),
+    (err) => err.statusCode === 400 && /^vibe_previous must be keep or remove, because this use case has a built version/.test(err.message));
 });
 
 test('the first MVP after an uninstall builds every output and the notebook from scratch, and is never unchanged', () => {

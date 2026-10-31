@@ -88,6 +88,22 @@ export async function routeInspireDemo(page, { origin, distDir = '', summary, re
   });
 }
 
+export async function walkMvpTabs(page, settle, visit = async () => {}) {
+  const tabs = page.getByRole('tablist', { name: 'MVP views' }).locator('[data-mvp-tab]');
+  const seen = [];
+  const t = await tabs.count();
+  for (let j = 0; j < t; j += 1) {
+    const id = await tabs.nth(j).getAttribute('data-mvp-tab');
+    await tabs.nth(j).click();
+    const panel = page.locator(`[data-mvp-panel="${id}"]`);
+    await panel.waitFor();
+    await settle();
+    await visit(id, panel);
+    seen.push(id);
+  }
+  return seen;
+}
+
 export async function walkInspireDemo(page, { settle, log = () => {} }) {
   await page.getByRole('button', { name: 'See Demo Results' }).first().click();
   const list = page.getByRole('region', { name: 'Use case list' });
@@ -107,23 +123,14 @@ export async function walkInspireDemo(page, { settle, log = () => {} }) {
   await rail.first().waitFor({ timeout: 120000 });
   await settle();
   const m = await rail.count();
+  const build = [];
   for (let i = 0; i < m; i += 1) {
     await rail.nth(i).click();
     await settle();
-    const tabs = page.locator('[role="tablist"][aria-label="MVP views"] [role="tab"]');
-    const t = await tabs.count();
-    for (let j = 0; j < t; j += 1) {
-      await tabs.nth(j).click();
-      await settle();
-      const drawers = page.getByRole('region', { name: 'Control tower' }).getByRole('button', { name: / details$/ });
-      const d = await drawers.count();
-      for (let k = 0; k < d; k += 1) {
-        await drawers.nth(k).click();
-        await settle();
-        await page.keyboard.press('Escape');
-        await settle();
-      }
-    }
+    const name = (await page.locator('[data-pinned-name] h2').textContent()).trim();
+    const tabs = await walkMvpTabs(page, settle);
+    if (tabs.length) log(`Build: ${name}: ${tabs.join(', ')}`);
+    build.push({ name, tabs });
     const details = page.getByRole('button', { name: 'Use case details' });
     if (await details.count()) {
       await details.first().click();
@@ -133,6 +140,7 @@ export async function walkInspireDemo(page, { settle, log = () => {} }) {
     }
   }
   log(`Build: opened ${m} use cases`);
+  return { results: n, build };
 }
 
 async function askEach(page, settle, buttons, max, log, where) {

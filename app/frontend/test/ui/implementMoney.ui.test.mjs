@@ -32,13 +32,11 @@ async function openMoney(state) {
   const ui = await openUi('implement', { history: [BUILT], ...state });
   try {
     await ui.page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    const control = ui.page.getByRole('tab', { name: 'Control Tower', exact: true });
-    if (await control.getAttribute('aria-selected') !== 'true') await control.click();
-    await ui.page.getByRole('region', { name: 'Control tower' }).getByRole('button', { name: 'Genie Code notebook details', exact: true }).click({ timeout: 15000 });
-    const drawer = ui.page.getByRole('dialog', { name: 'Genie Code notebook details', exact: true });
-    await drawer.getByRole('tablist', { name: 'Pick a part to vibe' }).getByRole('tab', { name: 'Money at stake, Ready', exact: true }).click();
-    await drawer.locator('[data-vibe-card="value_formula"]').waitFor({ timeout: 15000 });
-    return { ...ui, card: drawer.locator('[data-vibe-card="value_formula"]') };
+    await ui.page.locator('[data-mvp-tab="notebook"]').click({ timeout: 15000 });
+    const panel = ui.page.locator('[data-mvp-panel="notebook"]');
+    await panel.getByRole('tablist', { name: 'Pick a part', exact: true }).getByRole('tab', { name: 'Money at stake, Ready', exact: true }).click();
+    await panel.locator('[data-vibe-card="value_formula"]').waitFor({ timeout: 15000 });
+    return { ...ui, card: panel.locator('[data-vibe-card="value_formula"]') };
   } catch (e) {
     await ui.close();
     throw e;
@@ -57,11 +55,13 @@ test('the Money at stake part shows the formula Genie proposed, its assumptions 
     await review.getByText('Owners changed an assumption in the App after the last run, so the next run uses the values above.').waitFor();
     assert.equal(await review.locator('[data-tiers]').textContent(), 'Act now from 5,000 USD at stake, Review from 1,000 USD, every other row Monitor.');
     assert.equal(await review.locator('[data-last-run]').textContent(), 'The last run flagged 0 Act now and 0 Review of 40 rows.');
+    assert.equal(await review.locator('[data-preview-sample]').count(), 0, 'a run that trained on every record says nothing about a sample');
     assert.deepEqual(await review.getByRole('list', { name: 'Assumption changes' }).getByRole('listitem').allTextContents(),
       [`${OWNER} set Price from 25 USD to 30 USD in the App: list price`, `${OWNER} set Price to 25 USD in the App`]);
     assert.equal(await review.locator('[data-change-how]').textContent(),
-      'To change how it is counted, say so below and rebuild only this part. Owners of the App can change the assumption values there.');
-    await card.getByRole('textbox', { name: 'How should it work?', exact: true }).waitFor();
+      'To change how it is counted, add a vibe in the box above the tabs and Edit MVP builds it. Owners of the App can change the assumption values there.');
+    await page.locator('[data-vibe-box="mvp"]').getByRole('textbox', { name: 'Vibes for the MVP', exact: true }).waitFor();
+    assert.equal(await card.locator('textarea').count(), 0, 'the part has no vibe box of its own');
     const reads = made.sqlCalls.filter((c) => c.sql.includes('n01_u01_s42_out_'));
     assert.ok(reads.some((c) => c.sql.includes('`n01_u01_s42_out_summary`')) && reads.some((c) => c.sql.includes('`n01_u01_s42_out_assumptions`')));
     const contrast = await lowContrast(page, ['[aria-label="Money at stake review"]', '[aria-label="Nothing to act on yet"]']);
@@ -111,6 +111,43 @@ test('an MVP whose last run has nothing to act on says so in a plain card with t
   }
 });
 
+test('a run that trained on a preview sample says the check ran on that sample and that the next full run trains on every record', async () => {
+  const sampled = await openMoney({ moneySummary: [{ ...SUMMARY, decision_basis: 'predicted', accepted: true, act_now_records: '3', nothing_to_act: null,
+    preview_sample_entities: '20000' }] });
+  try {
+    const review = sampled.card.getByRole('region', { name: 'Money at stake review' });
+    await review.waitFor();
+    assert.equal(await review.locator('[data-tiers]').textContent(),
+      'A model passed this use case\u2019s acceptance check in the last run, so acceptance no longer holds its rows at Monitor.');
+    assert.equal(await review.locator('[data-preview-sample]').textContent(),
+      'This use case\u2019s acceptance check ran on a preview sample of 20,000 records; the next full run trains on every record.');
+    const contrast = await lowContrast(sampled.page, ['[aria-label="Money at stake review"]']);
+    assert.deepEqual(contrast.low, []);
+    assert.deepEqual(sampled.pageErrors, []);
+  } finally {
+    await sampled.close();
+  }
+  const measured = await openMoney({ moneySummary: [{ ...SUMMARY, preview_sample_entities: 5000 }] });
+  try {
+    const review = measured.card.getByRole('region', { name: 'Money at stake review' });
+    await review.waitFor();
+    assert.equal(await review.locator('[data-tiers]').textContent(), 'Act now from 5,000 USD at stake, Review from 1,000 USD, every other row Monitor.');
+    assert.equal(await review.locator('[data-preview-sample]').textContent(),
+      'The last run trained on a preview sample of 5,000 records; the next full run trains on every record.');
+  } finally {
+    await measured.close();
+  }
+  const pending = await openMoney({ moneySummary: [{ ...SUMMARY, value_formula: null, value_assumptions: null, preview_sample_entities: '20000' }] });
+  try {
+    await pending.card.locator('[data-money-pending]').waitFor();
+    assert.equal(await pending.card.locator('[data-preview-sample]').textContent(),
+      'The last run trained on a preview sample of 20,000 records; the next full run trains on every record.');
+    assert.deepEqual(pending.pageErrors, []);
+  } finally {
+    await pending.close();
+  }
+});
+
 test('a formula of only the row\u2019s own numbers lists no assumption and never tells owners to change one in the App', async () => {
   const own = { ...SUMMARY, value_formula: '{yhat_mean_fare:money} projected mean fare x {yhat_trips:number} projected trips', value_expression: null,
     value_assumptions: '[]' };
@@ -123,8 +160,8 @@ test('a formula of only the row\u2019s own numbers lists no assumption and never
     assert.equal(await review.getByRole('table', { name: 'Assumptions' }).count(), 0);
     assert.equal(await review.getByText('Owners of the App can change the assumption values there').count(), 0);
     assert.equal(await review.locator('[data-change-how]').textContent(),
-      'This formula uses only each row\u2019s own numbers, so the App has no assumption to change. To change how it is counted, say so below and '
-      + 'rebuild only this part.');
+      'This formula uses only each row\u2019s own numbers, so the App has no assumption to change. To change how it is counted, add a vibe in the box above the tabs '
+      + 'and Edit MVP builds it.');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
@@ -140,5 +177,48 @@ test('before the first run writes it, the part says Genie proposes the formula o
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
+  }
+});
+
+const UNRELIABLE = "No model passed this use case's acceptance check in the last run.";
+
+test('a run that is not reliable yet says so first with its reason, in a card named for it, and never as a list to act on', async () => {
+  for (const extra of [{}, { act_now_records: '12', review_records: '4', nothing_to_act: null }]) {
+    const ui = await openMoney({ moneySummary: [{ ...SUMMARY, ...extra, not_reliable: UNRELIABLE }], moneyEdits: [] });
+    try {
+      const card = ui.page.getByRole('status', { name: 'Not reliable yet' });
+      await card.waitFor();
+      assert.equal((await card.textContent()).trim(), `Not reliable yet: ${UNRELIABLE}`, JSON.stringify(extra));
+      assert.equal(await ui.page.getByRole('status', { name: 'Nothing to act on yet' }).count(), 0);
+      assert.equal(await ui.page.getByText('Nothing to act on yet', { exact: false }).count(), 0, 'the reason is never the nothing-to-act one');
+      const contrast = await lowContrast(ui.page, ['[aria-label="Not reliable yet"]']);
+      assert.ok(contrast.checked >= 1, `measured ${contrast.checked}`);
+      assert.deepEqual(contrast.low, []);
+      assert.deepEqual(ui.pageErrors, []);
+    } finally {
+      await ui.close();
+    }
+  }
+});
+
+test('a run over the team capacity says how many more records would qualify and that the capacity holds them in Review', async () => {
+  const capped = { ...SUMMARY, act_now_records: '50', review_records: '2950', nothing_to_act: null, act_now_capacity: '50', over_capacity_records: '2950' };
+  const ui = await openMoney({ moneySummary: [capped], moneyEdits: [] });
+  try {
+    const review = ui.card.getByRole('region', { name: 'Money at stake review' });
+    await review.waitFor();
+    assert.equal(await review.locator('[data-capacity]').textContent(),
+      '2,950 more records would qualify for Act now, but the team capacity of 50 a run holds them in Review.');
+    assert.equal(await ui.page.getByRole('status', { name: 'Nothing to act on yet' }).count(), 0);
+    assert.deepEqual(ui.pageErrors, []);
+  } finally {
+    await ui.close();
+  }
+  const within = await openMoney({ moneySummary: [{ ...capped, act_now_records: '20', over_capacity_records: '0' }], moneyEdits: [] });
+  try {
+    await within.card.getByRole('region', { name: 'Money at stake review' }).waitFor();
+    assert.equal(await within.card.locator('[data-capacity]').count(), 0, 'a run within its capacity holds nothing back, so says nothing');
+  } finally {
+    await within.close();
   }
 });

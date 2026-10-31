@@ -68,7 +68,7 @@ export const APP_BACKENDS = ['lakebase', 'delta'];
 export const APP_BACKEND_CHOICES = [
   { id: 'lakebase', label: 'Lakebase (Loads instantly)',
     blurb: 'Inspire copies the result into Lakebase after every run, so pages open at once. Edits still go to the Delta tables.' },
-  { id: 'delta', label: 'Delta Tables (Takes a few seconds to load)', blurb: 'Pages read the Delta tables through the SQL warehouse.' },
+  { id: 'delta', label: 'Delta Tables (Takes a few seconds to load)' },
 ];
 export const LAKEBASE_PER_USER_REASON = 'Each person signs in as themselves, and Lakebase does not carry Unity Catalog row filters, column masks '
   + 'or grants to each viewer, so this App reads Delta tables.';
@@ -94,8 +94,14 @@ export function specWithBackend(spec, offer) {
   return !spec?.outputs?.app || backend === spec.outputs.app_backend ? spec : { ...spec, outputs: { ...spec.outputs, app_backend: backend } };
 }
 
-export function sentSpec(spec, offer) {
-  const out = specWithBackend(spec, offer);
+function withVibeChoice(spec, built) {
+  const { vibes, vibe_previous: previous, ...rest } = spec;
+  if (!String(vibes ?? '').trim()) return rest;
+  return { ...rest, vibes, ...(built != null && previous ? { vibe_previous: previous } : {}) };
+}
+
+export function sentSpec(spec, offer, built = null) {
+  const out = withVibeChoice(specWithBackend(spec, offer), built);
   if (!joinsApp(out)) return out;
   const { app_charts: _charts, app_pages: _pages, ...outputs } = out.outputs;
   return { ...out, outputs: { ...outputs, app_owners: [] } };
@@ -203,7 +209,7 @@ export function appChartsPicked(spec) {
 
 export function appChartPickText(look) {
   const names = appChartPick(look).map((id) => APP_CHART_KINDS.find((k) => k.id === id)?.label.toLowerCase() || id);
-  return `Inspire's pick: ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}.`;
+  return `Inspire's pick: ${joinWords(names)}.`;
 }
 
 export function withAppChart(spec, id, on, look) {
@@ -271,10 +277,28 @@ export const IMPLEMENT_OUTPUTS = [
 export const VIBES_MAX = 2000;
 export const VIBES_HELP = "Tell Genie what you want in your own words. Your asks win over Inspire's defaults.";
 export const VIBES_STEP_TITLE = 'Anything else Genie should build in?';
-export const VIBES_STEP_NOTE = `${VIBES_HELP} Each box is optional: leave it empty and Genie builds it the way Inspire would. `
-  + 'The gray text in a box is only an example. You can vibe each one again after it is built.';
+export const VIBE_ROUTING = 'Inspire sends each ask to the part it changes, and an ask that changes the analysis rebuilds the notebook and every part after it';
+export const VIBES_STEP_NOTE = `${VIBES_HELP} There is one box for the whole MVP: ${VIBE_ROUTING}. The box is optional, and its gray text is only an example.`;
 
-export const BUILT_ASSET_STATES = ['ready', 'ready_with_warnings'];
+export const IMPLEMENT_DONE_STATUSES = ['ready', 'ready_with_warnings'];
+export const BUILT_ASSET_STATES = IMPLEMENT_DONE_STATUSES;
+export const VIBE_PREVIOUS_CHOICES = ['keep', 'remove'];
+
+export function builtVersion(history) {
+  const rows = [...(history || [])].sort((a, b) => (b?.spec_version || 0) - (a?.spec_version || 0));
+  const row = rows.find((r) => IMPLEMENT_DONE_STATUSES.includes(String(r?.status)) || r?.status === IMPLEMENT_UNINSTALLED);
+  return row && row.status !== IMPLEMENT_UNINSTALLED ? row.spec_version : null;
+}
+
+export function vibePreviousChoices(live, next, inPlace = false) {
+  return [
+    { id: 'keep', label: `Keep v${live} live`,
+      text: `v${live} stays as it is. Inspire builds each changed part again next to it, named v${next}, so you can compare them. Remove v${live} later on the Build page.${
+        inPlace ? ' The alert is changed in place.' : ''}` },
+    { id: 'remove', label: `Remove v${live} once v${next} is ready`,
+      text: `Inspire changes each part in place. v${live} stays live until v${next} is built, and you can still roll a part back to it.` },
+  ];
+}
 
 export function vibesKey(id) {
   return `${id}_vibes`;
@@ -324,20 +348,72 @@ export function vibesPreview(text, max = 80) {
 }
 
 export function vibesSkippedText(spec) {
-  const off = IMPLEMENT_OUTPUTS.filter((o) => !spec?.outputs?.[o.id]).map((o) => o.label);
+  const off = IMPLEMENT_OUTPUTS.filter((o) => !spec?.outputs?.[o.id]).map((o) => `the ${o.label}`);
   if (!off.length) return '';
-  const names = off.length > 1 ? `${off.slice(0, -1).join(', ')} and ${off[off.length - 1]}` : off[0];
   const them = off.length > 1 ? 'them' : 'it';
-  return `No box for ${names}: Genie builds only what you picked in the Delivery step. To vibe ${them}, go Back to Delivery and pick ${them}.`;
+  return `Genie builds only what you picked in the Delivery step, so an ask for ${joinWords(off)} is not done. To vibe ${them}, go Back to Delivery and pick ${them}.`;
 }
 
-export function vibesEntries(spec) {
-  return [{ id: 'notebook', label: 'Notebook', value: String(spec?.data?.notes ?? '') },
-    ...IMPLEMENT_OUTPUTS.filter((o) => spec?.outputs?.[o.id]).map((o) => ({ id: o.id, label: o.label, value: String(spec.outputs[vibesKey(o.id)] ?? '') }))];
+export function vibePreviousProblem(spec, built) {
+  if (built == null || !String(spec?.vibes ?? '').trim()) return '';
+  if (VIBE_PREVIOUS_CHOICES.includes(String(spec.vibe_previous ?? '').trim().toLowerCase())) return '';
+  return `choose what happens to v${built}, the version before this vibe: keep it live or remove it`;
 }
 
-export function vibesProblems(spec) {
-  return vibesEntries(spec).map((e) => vibesProblem(e.id, e.value)).filter(Boolean);
+export function vibesProblems(spec, built = null) {
+  return [vibesProblem('mvp', spec?.vibes, 'MVP'), vibePreviousProblem(spec, built)].filter(Boolean);
+}
+
+export function heldAsks(text) {
+  return String(text ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+const vibeLines = (text) => heldAsks(text).join('\n');
+const holdsLine = (text, line) => `\n${text.toLowerCase()}\n`.includes(`\n${line.toLowerCase()}\n`);
+const heldPlace = (id) => (id === 'notebook' ? ['data', 'notes'] : ['outputs', vibesKey(id)]);
+
+export function withCollectedVibes(spec, entries) {
+  const next = { ...spec, data: { ...spec.data }, outputs: { ...spec.outputs } };
+  const retry = Array.isArray(spec.retry_outputs) ? [...spec.retry_outputs] : [];
+  const gone = [];
+  let vibes = vibeLines(spec.vibes);
+  let added = 0;
+  let removed = 0;
+  for (const entry of entries || []) {
+    const text = vibeLines(entry?.text);
+    if (!text) continue;
+    if (entry.kind !== 'remove') {
+      if (holdsLine(vibes, text)) continue;
+      vibes = vibes ? `${vibes}\n${text}` : text;
+      added += 1;
+      continue;
+    }
+    const id = String(entry.id ?? '');
+    const [group, key] = heldPlace(id);
+    const held = heldAsks(next[group][key]);
+    const kept = held.filter((ask) => ask.toLowerCase() !== text.toLowerCase());
+    if (!id || kept.length === held.length) {
+      gone.push(text);
+      continue;
+    }
+    next[group][key] = kept.join('\n');
+    removed += 1;
+    if (partOf(id) && !retry.includes(id)) retry.push(id);
+  }
+  if (vibes) next.vibes = vibes;
+  if (retry.length) next.retry_outputs = retry;
+  return { spec: next, added, removed, gone };
+}
+
+export function collectedVibesText({ added = 0, removed = 0, gone = [] } = {}) {
+  const said = [];
+  if (added === 1) said.push('The ask you collected is in the box below. Check it, then build.');
+  else if (added) said.push(`The ${added} asks you collected are in the box below. Check them, then build.`);
+  const also = added ? 'also ' : '';
+  if (removed === 1) said.push(`Inspire ${also}takes out the earlier ask you removed.`);
+  else if (removed) said.push(`Inspire ${also}takes out the ${removed} earlier asks you removed.`);
+  if (gone.length) said.push(`Not taken out: ${joinWords(gone.map((t) => `“${t}”`))}, because no part holds ${gone.length === 1 ? 'it' : 'them'} any more.`);
+  return said.join(' ');
 }
 
 export const ALERT_TIER_OPTIONS = [
@@ -592,17 +668,46 @@ export function resultTableMoveNote(summary) {
   return detail ? `Result table: ${detail}` : '';
 }
 
-export function planLines(summary) {
+export function holdersText(names) {
+  return joinWords(names.length > 3 ? [...names.slice(0, 2), `${names.length - 2} more use cases`] : names);
+}
+
+export function sharedSource(planShared, live) {
+  if (planShared && typeof planShared === 'object') return planShared;
+  return live?.shared && typeof live.shared === 'object' ? live.shared : null;
+}
+
+export const holderNames = (list) => (Array.isArray(list) ? list : []).map((u) => String(u?.name || u?.use_case_id || '').trim()).filter(Boolean);
+
+export function sharedHolding(id, shared, live = null) {
+  const entry = shared?.[id];
+  const names = holderNames(entry?.use_cases);
+  const asset = live?.assets?.[id];
+  const target = String(asset?.name || asset?.title || entry?.id || '').trim();
+  return names.length && target ? { target, names } : null;
+}
+
+export function takeOutText(holding) {
+  return `Take this use case's part out of ${holding.target}; it stays for ${holdersText(holding.names)}`;
+}
+
+export function planLines(summary, { shared = null, live = null } = {}) {
   if (!summary) return [];
   const label = (names) => names.map((n) => IMPLEMENT_OUTPUTS.find((o) => o.id === n)?.label || n).join(', ');
   const lines = [];
   if (resultTableMoveNote(summary)) lines.push(resultTableMoveNote(summary));
   if (summary.classes?.length) lines.push(`Changes: ${summary.classes.join(', ')}`);
-  lines.push(summary.refill ? 'Genie rewrites the notebook and Inspire re-runs the preview' : 'The built notebook is kept as it is');
+  const vibed = Boolean(summary.classes?.includes('vibe'));
+  lines.push(summary.refill ? 'Genie rewrites the notebook and Inspire re-runs the preview'
+    : vibed ? 'Inspire reads your vibe first and rebuilds only the parts it changes; an ask that changes the analysis rebuilds the notebook and every part after it'
+      : 'The built notebook is kept as it is');
   if (summary.build?.length) lines.push(`Builds: ${label(summary.build)}`);
   if (summary.refresh?.length) lines.push(`Refreshes: ${label(summary.refresh)}`);
   if (summary.rollback?.length) lines.push(`Rolls back: ${label(summary.rollback)}`);
-  if (summary.delete?.length) lines.push(`Deletes: ${label(summary.delete)}`);
+  const removed = (summary.delete || []).map((n) => [n, sharedHolding(n, shared, live)]);
+  const deleted = removed.filter(([, holding]) => !holding).map(([n]) => n);
+  if (deleted.length) lines.push(`Deletes: ${label(deleted)}`);
+  for (const [, holding] of removed) if (holding) lines.push(takeOutText(holding));
   if (summary.keep_unmanaged?.length) lines.push(`Leaves in place, no longer managed: ${label(summary.keep_unmanaged)}`);
   if (summary.schedule) lines.push('Updates the job schedule');
   return lines;
@@ -685,6 +790,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, sessi
       app_options: Object.fromEntries(APP_OPTION_KEYS.map((key) => [key, false])),
       app_backend: '',
       app_owners: [],
+      app_warehouse_id: '',
       app_charts: [],
       app_pages: Object.fromEntries(APP_SCREENS.map((key) => [key, true])),
       app_vibes: '',
@@ -699,6 +805,7 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, sessi
       alert_recipients: [],
       alert_destinations: [],
       alert_vibes: '',
+      alert_digest: true,
     },
     removed_outputs: {},
     sharing: { principals: ownerPrincipals(decisionOwner) },
@@ -827,7 +934,7 @@ const DAY_WORDS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
 const MONTH_CODES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const MONTH_WORDS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-function joinWords(items) {
+export function joinWords(items) {
   return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
@@ -1141,6 +1248,7 @@ export const PREFLIGHT_LABELS = {
   result_grant: 'Share the result table',
   app_name: 'App name',
   app_access: 'App reads the data',
+  app_warehouse: 'App SQL warehouse',
   apps: 'Apps quota',
   genie_spaces: 'Genie Agents',
   alerts: 'Alerts',
@@ -1230,7 +1338,7 @@ export function retryableOutputs(latest) {
 }
 
 export function rebuildableOutputs(latest) {
-  if (!latest || !['ready', 'ready_with_warnings'].includes(latest.status)) return [];
+  if (!latest || !IMPLEMENT_DONE_STATUSES.includes(latest.status)) return [];
   const chosen = latest.spec_json?.outputs || {};
   const assets = latest.asset_status || {};
   return IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id] && BUILT_ASSET_STATES.includes(assets[o.id]?.state));
@@ -1248,6 +1356,7 @@ export function sectionErrors(section, spec, extras = {}) {
       errors.push('choose who the App signs people in as: each person (per-user) or its own service principal');
     }
     if (extras.lakebase === null && spec.outputs.app_access === 'sp' && !spec.outputs.merge?.app) errors.push(LAKEBASE_CHECKING);
+    errors.push(...appWarehouseProblems(spec, extras.warehouses));
   }
   if (section === 'app_look' && spec.outputs.app) {
     for (const [key, list] of Object.entries(extras.appLook ? APP_LOOK_LISTS : {})) {
@@ -1290,8 +1399,8 @@ export function sectionErrors(section, spec, extras = {}) {
     if (block) errors.push(block);
     errors.push(...mergePickProblems(spec, extras, ['app']));
   }
-  if (section === 'vibes') errors.push(...vibesProblems(spec));
-  if (section === 'holdout') errors.push(...holdoutProblems(spec));
+  if (section === 'vibes') errors.push(...vibesProblems(spec, extras.built ?? null));
+  if (section === 'holdout') errors.push(...holdoutProblems(spec), ...capacityProblems(spec));
   if (section === 'app_owners' && spec.outputs.app && !joinsApp(spec)) errors.push(...appOwnerProblems(spec.outputs.app_owners));
   if (section === 'alert' && spec.outputs.alert) {
     const recipients = spec.outputs.alert_recipients || [];
@@ -1407,8 +1516,50 @@ export function withMergeTarget(spec, name, target, freshAppName = '') {
   if (name === 'app') {
     outputs.app_name = target ? target.id : (freshAppName || outputs.app_name);
     outputs.app_look = { ...APP_LOOK_DEFAULT, ...((target && target.look) || {}) };
+    outputs.app_warehouse_id = '';
   }
   return { ...spec, outputs };
+}
+
+export const APP_WAREHOUSE_LABELS = {
+  delta: 'SQL warehouse the App reads and saves with',
+  lakebase: 'SQL warehouse the App saves, keeps history and runs alerts with (pages read from Lakebase)',
+};
+
+export function appWarehouseLabel(backend) {
+  return APP_WAREHOUSE_LABELS[backend] || APP_WAREHOUSE_LABELS.delta;
+}
+
+export function appWarehouseOf(spec) {
+  return String(spec?.outputs?.app_warehouse_id || '').trim() || String(spec?.config?.warehouse_id || '').trim();
+}
+
+export function withAppWarehouse(spec, id) {
+  const picked = String(id || '').trim();
+  const own = picked && picked !== String(spec.config.warehouse_id || '').trim() ? picked : '';
+  return { ...spec, outputs: { ...spec.outputs, app_warehouse_id: own } };
+}
+
+export function warehouseText(warehouses, id) {
+  const found = (warehouses || []).find((w) => w.id === id);
+  if (!found) return id;
+  return found.state ? `${found.name || id} (${found.state})` : found.name || id;
+}
+
+export function buildWarehouseNote(warehouses, id) {
+  return `Dashboards and alerts Inspire builds keep using the build's SQL warehouse, ${warehouseText(warehouses, id)}.`;
+}
+
+export function joinedWarehouseText(target) {
+  const builder = target?.built_by?.use_case_id ? `, the one use case ${target.built_by.use_case_id} chose when it built it` : '';
+  return `Locked: the pages of this use case read with the SQL warehouse of ${target.name}${builder}; changing it would change the pages `
+    + 'of the other use cases in it too.';
+}
+
+export function appWarehouseProblems(spec, warehouses) {
+  const picked = String(spec?.outputs?.app_warehouse_id || '').trim();
+  if (!picked || !Array.isArray(warehouses) || joinsApp(spec)) return [];
+  return warehouses.some((w) => w.id === picked) ? [] : [`the SQL warehouse ${picked} is not one you can use: pick another for the App`];
 }
 
 export function heldAssets(assets, gone) {
@@ -1425,10 +1576,6 @@ function distinctScopes(values) {
   return values.filter((v, i) => values.findIndex((w) => scopeKey(w) === scopeKey(v)) === i);
 }
 
-function andList(items) {
-  return items.length > 2 ? `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}` : items.join(' and ');
-}
-
 export function appPlacementFit(target, { business, domain, placement }) {
   const uses = target?.use_cases || [];
   if (!uses.length || uses.some((u) => u.business == null || u.domain == null)) {
@@ -1438,16 +1585,16 @@ export function appPlacementFit(target, { business, domain, placement }) {
   const others = distinctScopes(uses.map((u) => u.business).filter((b) => scopeKey(b) !== scopeKey(business)));
   if (others.length) {
     return { fit: 'not_recommended', label: 'Not recommended',
-      reason: `It holds use cases of ${andList(others.map((b) => b || 'an unnamed business'))}, another business, so the people who use it could see that business's data.` };
+      reason: `It holds use cases of ${joinWords(others.map((b) => b || 'an unnamed business'))}, another business, so the people who use it could see that business's data.` };
   }
   const outside = distinctScopes(uses.map((u) => u.domain).filter((d) => scopeKey(d) !== scopeKey(domain))).map((d) => d || 'no domain');
   if (placement === 'business' || !outside.length) return { fit: 'recommended', label: 'Recommended', reason: '' };
   const here = domain || 'no domain';
   if (uses.some((u) => scopeKey(u.domain) === scopeKey(domain))) {
-    return { fit: 'other_domains', label: `Also holds ${andList(outside)}`, reason: `People who open it for ${here} also see its ${andList(outside)} use cases.` };
+    return { fit: 'other_domains', label: `Also holds ${joinWords(outside)}`, reason: `People who open it for ${here} also see its ${joinWords(outside)} use cases.` };
   }
   return { fit: 'not_recommended', label: 'Not recommended',
-    reason: `It holds only ${andList(outside)} use cases, not ${here}, so the people who use it could see another domain's data or use cases unrelated to their work.` };
+    reason: `It holds only ${joinWords(outside)} use cases, not ${here}, so the people who use it could see another domain's data or use cases unrelated to their work.` };
 }
 
 export const APP_FIT_ORDER = { recommended: 0, other_domains: 1, not_recommended: 2 };
@@ -1587,6 +1734,214 @@ export function holdoutProblems(spec) {
 export function holdoutText(spec) {
   const { enabled, share } = holdoutOf(spec);
   return enabled && holdoutPercentOk(share) ? `Holds back ${holdoutPercent(share)}% of the records to measure impact` : '';
+}
+
+export const CAPACITY_PER_WORKING_DAY = 10;
+export const CAPACITY_WORKING_DAYS_A_MONTH = 22;
+export const CAPACITY_MAX = 1000000;
+export const CAPACITY_LABEL = 'Rows the team can act on each run';
+export const CAPACITY_BLURB = 'Act now keeps this many rows, the top ones by rank; the next ones that also pass wait in Review, and the App '
+  + 'and the dashboard say how many. Leave it empty for no cap.';
+export const CAPACITY_PROBLEM = `the team capacity must be a whole number of rows from 1 to ${CAPACITY_MAX.toLocaleString('en-US')}, `
+  + 'or empty for no cap';
+const CAPACITY_WHOLE_RE = /^\d+$/;
+
+export function capacityOf(spec) {
+  const capacity = spec?.capacity;
+  if (!capacity || typeof capacity !== 'object' || Array.isArray(capacity)) return { act_now: null, source: 'default' };
+  return { act_now: capacity.act_now ?? null, source: capacity.source === 'user' ? 'user' : 'default' };
+}
+
+function capacityOk(value) {
+  return value === null || (Number.isInteger(value) && value >= 1 && value <= CAPACITY_MAX);
+}
+
+function rowsToRank({ latest, evidence, table } = {}) {
+  const ran = Number(latest?.result_rows);
+  if (Number.isFinite(ran) && ran > 0) return { rows: ran, said: `The last run wrote ${ran.toLocaleString('en-US')} rows` };
+  const entry = Object.entries(evidence?.tables || {}).find(([name]) => sameTable(name, table));
+  const counted = Number(entry?.[1]?.rows);
+  return Number.isFinite(counted) && counted > 0 ? { rows: counted, said: `${table} has ${counted.toLocaleString('en-US')} rows to rank` } : null;
+}
+
+export function capacitySuggestion(spec, inputs = {}) {
+  const runs = cronRunsPerMonth(spec?.schedule?.cron);
+  const days = runs ? Math.min(CAPACITY_WORKING_DAYS_A_MONTH, Math.max(1, Math.round(CAPACITY_WORKING_DAYS_A_MONTH / runs))) : null;
+  const ranked = rowsToRank(inputs);
+  if (!days || !ranked) {
+    return { act_now: null, basis: 'No cap: Inspire has no row count for this use case yet, so it cannot tell whether Act now will hold more rows '
+      + 'than the team can work. Set a number if your team can act on only so many rows each run.' };
+  }
+  const fits = CAPACITY_PER_WORKING_DAY * days;
+  if (ranked.rows <= fits) {
+    return { act_now: null, basis: `No cap: ${ranked.said}, no more than the ${fits.toLocaleString('en-US')} the team can usually work between runs, `
+      + 'so every Act now row fits. Set a number if your team can act on fewer.' };
+  }
+  return { act_now: fits, basis: `Inspire suggests ${fits.toLocaleString('en-US')}: about ${CAPACITY_PER_WORKING_DAY} rows a working day for the `
+    + `decision owner, over the ${days} working ${days === 1 ? 'day' : 'days'} between runs. ${ranked.said}, so without a cap Act now could list `
+    + 'far more than the team can work.' };
+}
+
+export function withCapacityDefault(spec, inputs = {}) {
+  const now = capacityOf(spec);
+  if (spec?.capacity && now.source === 'user') return spec;
+  if (inputs.editing && !spec?.capacity) return { ...spec, capacity: { act_now: null, source: 'default' } };
+  if (inputs.editing) return spec;
+  return { ...spec, capacity: { act_now: capacitySuggestion(spec, inputs).act_now, source: 'default' } };
+}
+
+export function withSuggestedCapacity(spec, inputs = {}) {
+  return { ...spec, capacity: { act_now: capacitySuggestion(spec, inputs).act_now, source: 'default' } };
+}
+
+export function withCapacity(spec, text) {
+  const typed = String(text ?? '').trim();
+  const act = typed === '' ? null : (CAPACITY_WHOLE_RE.test(typed) ? Number(typed) : typed);
+  return { ...spec, capacity: { act_now: act, source: 'user' } };
+}
+
+export function capacityInput(spec) {
+  const { act_now: act } = capacityOf(spec);
+  return act === null ? '' : String(act);
+}
+
+export function capacityDiffers(spec, suggestion) {
+  return (suggestion?.act_now ?? null) !== capacityOf(spec).act_now;
+}
+
+export function capacityNote(spec, suggestion) {
+  if (capacityOf(spec).source === 'user') return 'Your number wins over Inspire\u2019s suggestion. ';
+  return capacityDiffers(spec, suggestion) ? 'This MVP keeps the cap it was built with until you change it. ' : '';
+}
+
+export function capacityProblems(spec) {
+  return spec?.capacity == null || capacityOk(capacityOf(spec).act_now) ? [] : [CAPACITY_PROBLEM];
+}
+
+export function capacitySummaryText(spec) {
+  const { act_now: act } = capacityOf(spec);
+  if (act === null) return 'Act now is not capped: every row that passes the decision test is Act now.';
+  return `Act now holds at most ${Number(act).toLocaleString('en-US')} rows a run; the next ones by rank wait in Review, and the App says how many.`;
+}
+
+export const DIGEST_LABEL = 'Send a weekly value email to the alert recipients';
+export const DIGEST_BLURB = 'Every Monday: what people acted on and the money at stake on it, the outcomes the holdout and the recorded '
+  + 'decisions measured, and whether the latest run gives a list to act on, or why not (Not reliable yet, or Nothing to act on yet).';
+export const DIGEST_NOBODY = 'Add an alert recipient or destination to send it.';
+
+export function alertReaches(outputs) {
+  return (outputs?.alert_recipients || []).length + (outputs?.alert_destinations || []).length > 0;
+}
+
+export function digestOn(outputs) {
+  return Boolean(outputs?.alert) && outputs?.alert_digest !== false && alertReaches(outputs);
+}
+
+export function withDigest(spec, on) {
+  return { ...spec, outputs: { ...spec.outputs, alert_digest: Boolean(on) } };
+}
+
+const ENTITY_KEY_TOKENS = ['id', 'key', 'sk', 'pk', 'fk', 'nk', 'code', 'no', 'num', 'number', 'ref', 'uuid', 'guid'];
+
+export function keyNoun(column) {
+  if (!isKeyLikeColumn(column)) return '';
+  const tokens = nameTokens(column).filter((t) => !ENTITY_KEY_TOKENS.includes(t) && t.length > 2).map((t) => {
+    const suffix = ROLE_RULES.concatKeySuffixes.find((s) => t.endsWith(s) && t.length - s.length >= 3);
+    return suffix ? t.slice(0, -suffix.length) : t;
+  });
+  return tokens.length ? tokens[tokens.length - 1] : '';
+}
+
+function nounPlural(noun) {
+  if (/[^aeiou]y$/.test(noun)) return `${noun.slice(0, -1)}ies`;
+  return /(s|x|z|ch|sh)$/.test(noun) ? `${noun}es` : `${noun}s`;
+}
+
+function nounMatches(noun, word) {
+  return word === noun || word === nounPlural(noun) || (noun.length >= 4 && word.startsWith(noun));
+}
+
+export function eliteAssessmentOf(uc) {
+  const raw = uc?.elite_assessment;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(String(raw || ''));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function entityKeyOptions(columnsByTable, tables) {
+  const out = [];
+  for (const table of tables || []) {
+    const columns = Object.entries(columnsByTable || {}).find(([t]) => sameTable(t, table))?.[1] || [];
+    for (const c of columns) {
+      const noun = keyNoun(c.column_name);
+      if (noun && !columnRoleProblem('entity_id', c.column_name, c.data_type)) {
+        out.push({ ref: `${table}.${c.column_name}`, table, column: c.column_name, noun });
+      }
+    }
+  }
+  return out;
+}
+
+function subjectOfUseCase(uc, keys) {
+  const nouns = [...new Set(keys.map((k) => k.noun))];
+  const texts = [eliteAssessmentOf(uc).decision, caseNameOf(uc), uc?.statement || uc?.Statement];
+  for (const text of texts) {
+    const words = nameTokens(text);
+    let best = null;
+    for (const noun of nouns) {
+      const at = words.findIndex((w) => nounMatches(noun, w));
+      if (at >= 0 && (best === null || at < best.at)) best = { noun, at };
+    }
+    if (best) return { noun: best.noun };
+  }
+  return null;
+}
+
+export function rowKeyOf(spec, uc) {
+  const chosen = String(spec?.data?.column_roles?.entity_id || '').trim();
+  if (chosen) return { ref: chosen, chosen: true };
+  const picked = String(eliteAssessmentOf(uc).entity_key_column || '').replace(/`/g, '').trim();
+  if (picked.split('.').length !== 4 || picked.split('.').some((p) => !p)) return null;
+  const table = tableOfRef(picked);
+  const key = Object.keys(spec?.data?.tables || {}).find((t) => sameTable(t, table));
+  return { ref: key ? `${spec.data.tables[key]}.${columnOfRef(picked)}` : picked, chosen: false };
+}
+
+export function grainCheck(spec, uc, columnsByTable, tables) {
+  const keys = entityKeyOptions(columnsByTable, tables);
+  const subject = subjectOfUseCase(uc, keys);
+  const row = rowKeyOf(spec, uc);
+  const rowNoun = row ? keyNoun(columnOfRef(row.ref)) : '';
+  if (!subject || !row || !rowNoun) return { state: 'unknown', subject, row, rowNoun };
+  if (rowNoun === subject.noun) return { state: 'ok', subject, row, rowNoun };
+  const same = keys.filter((k) => k.noun === subject.noun);
+  const suggest = same.find((k) => sameTable(k.table, tableOfRef(row.ref))) || same[0] || null;
+  return { state: 'mismatch', subject, row, rowNoun, suggest };
+}
+
+export function grainText(check) {
+  if (!check || check.state === 'unknown') return '';
+  const subject = check.subject.noun;
+  if (check.state === 'ok') return `One row of the result is one ${subject} (${check.row.ref}).`;
+  const group = check.suggest ? `group by ${check.suggest.column}` : `pick the column that names one ${subject}`;
+  if (check.row.chosen) {
+    return `One row of the result is one ${check.rowNoun} (${check.row.ref}), as you chose. This use case is about ${nounPlural(subject)}: `
+      + `${group} instead if one row should be one ${subject}.`;
+  }
+  const fix = check.suggest ? `Group the rows by ${check.suggest.column}` : `Pick the column that names one ${subject} as the entity key`;
+  return `This use case is about ${nounPlural(subject)}, but one row of the result would be one ${check.rowNoun} (${check.row.ref}). `
+    + `${fix} so one row is one ${subject}.`;
+}
+
+export function withEntityKey(spec, ref) {
+  const roles = { ...(spec.data.column_roles || {}) };
+  if (ref) roles.entity_id = ref;
+  else delete roles.entity_id;
+  return { ...spec, data: { ...spec.data, column_roles: roles } };
 }
 
 export function freshnessOf(schedule) {

@@ -1,11 +1,14 @@
 import { AlertTriangle } from 'lucide-react';
-import { amountText, assumptionLabel, columnWords, historyLines, lastRunText, nothingToActText, tiersText } from '../lib/moneyReview';
+import {
+  NOT_RELIABLE, NOTHING_TO_ACT, amountText, assumptionLabel, capacityText, columnWords, historyLines, lastRunText, notReliableReason, nothingToActText,
+  previewSampleText, tiersText,
+} from '../lib/moneyReview';
 
 export function NothingToActCard({ run }) {
   const text = nothingToActText(run);
   if (!text) return null;
   return (
-    <section aria-label="Nothing to act on yet" role="status"
+    <section aria-label={notReliableReason(run) ? NOT_RELIABLE : NOTHING_TO_ACT} role="status"
       className="flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning-bg px-3.5 py-3 text-[13px] text-warning-fg">
       <AlertTriangle size={15} className="mt-px shrink-0" aria-hidden />
       <p>{text}</p>
@@ -17,11 +20,17 @@ export default function MoneyReview({ money, error = '' }) {
   if (error) return <p role="alert" className="text-[12px] text-error-fg">Inspire could not read the money at stake of the last run: {error}</p>;
   if (!money) return <p className="text-[12px] text-text-secondary">Reading how the last run counted the money at stake</p>;
   const { model, run } = money;
+  const sample = previewSampleText(run);
+  const capacity = capacityText(run);
   if (!model) {
     return (
-      <p data-money-pending="" className="text-[12px] text-text-secondary">
-        Genie proposes how the money at stake on each row is counted, and its assumptions, when the notebook first runs. Say below how it should be counted, and Inspire checks it after the build.
-      </p>
+      <>
+        <p data-money-pending="" className="text-[12px] text-text-secondary">
+          Genie proposes how the money at stake on each row is counted, and its assumptions, when the notebook first runs. Say below how it should be counted, and Inspire checks it after the build.
+        </p>
+        {sample && <p data-preview-sample="" className="text-[12px] text-text-secondary">{sample}</p>}
+        {capacity && <p data-capacity="" className="text-[12px] text-text-secondary">{capacity}</p>}
+      </>
     );
   }
   const values = Object.fromEntries(model.assumptions.map((a) => [a.name, a.value]));
@@ -53,12 +62,14 @@ export default function MoneyReview({ money, error = '' }) {
       )}
       {model.changed && <p className="text-text-primary">Owners changed an assumption in the App after the last run, so the next run uses the values above.</p>}
       {tiers && <p data-tiers="" className="text-text-secondary">{tiers}</p>}
+      {sample && <p data-preview-sample="" className="text-text-secondary">{sample}</p>}
       {outcome && <p data-last-run="" className="text-text-secondary">{outcome}</p>}
+      {capacity && <p data-capacity="" className="text-text-secondary">{capacity}</p>}
       {lines.length > 0 && <ul aria-label="Assumption changes" className="list-disc pl-5 text-text-secondary">{lines.map((l, i) => <li key={i}>{l}</li>)}</ul>}
       <p data-change-how="" className="text-text-secondary">
         {model.assumptions.length > 0
-          ? 'To change how it is counted, say so below and rebuild only this part. Owners of the App can change the assumption values there.'
-          : 'This formula uses only each row\u2019s own numbers, so the App has no assumption to change. To change how it is counted, say so below and rebuild only this part.'}
+          ? 'To change how it is counted, add a vibe in the box above the tabs and Edit MVP builds it. Owners of the App can change the assumption values there.'
+          : 'This formula uses only each row\u2019s own numbers, so the App has no assumption to change. To change how it is counted, add a vibe in the box above the tabs and Edit MVP builds it.'}
       </p>
     </section>
   );

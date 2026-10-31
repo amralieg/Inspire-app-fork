@@ -7,6 +7,10 @@ export const SHOWCASE_DASHBOARD_NOTE = 'In your workspace this opens the dashboa
 export const SHOWCASE_GENIE_NOTE = 'In your workspace this opens the Genie Agent Inspire built. In the demo, ask its suggested questions in the MVP App.';
 export const SHOWCASE_NO_MVP = 'The demo has no MVP for this use case. Choose Get Started to build one on your own data.';
 
+export function readOnlyReason(readOnly) {
+  return readOnly ? SHOWCASE_NOTE : '';
+}
+
 export function showcaseSettings(settings, showcase) {
   if (!showcase) return settings;
   return {

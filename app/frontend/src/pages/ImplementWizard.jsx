@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
 import { Loader2, NotebookPen, X, ChevronLeft, ChevronRight, ChevronDown, LayoutDashboard, Sparkles, AppWindow, Bell, Check, Lock, UserRound, KeyRound } from 'lucide-react';
 import BodyPortal from '../components/BodyPortal';
 import VibesEditor from '../components/VibesEditor';
@@ -36,6 +35,9 @@ import {
   scopeNarrowing,
   emptyScopeError,
   planLines,
+  sharedHolding,
+  sharedSource,
+  takeOutText,
   editedNotebook,
   tableOfRef as refTable,
   columnOfRef as refColumn,
@@ -69,6 +71,12 @@ import {
   lakebaseBlock,
   sentSpec,
   withAppBackend,
+  appWarehouseLabel,
+  appWarehouseOf,
+  withAppWarehouse,
+  warehouseText,
+  buildWarehouseNote,
+  joinedWarehouseText,
   APP_OPTIONS,
   APP_NO_DOWNLOADS,
   APP_REFRESH_NOTE,
@@ -124,9 +132,12 @@ import {
   heldAssets,
   goneAssetText,
   mergeTargetText,
-  vibesKey,
-  vibesEntries,
+  withCollectedVibes,
+  collectedVibesText,
   vibesProblem,
+  vibePreviousProblem,
+  vibePreviousChoices,
+  builtVersion,
   VIBES_STEP_TITLE,
   VIBES_STEP_NOTE,
   vibesSkippedText,
@@ -145,7 +156,16 @@ import {
   withHoldoutPercent,
   unavailableOutputs,
   withoutUnavailableOutputs,
+  capacitySuggestion,
+  withCapacity,
+  withCapacityDefault,
+  withSuggestedCapacity,
+  withDigest,
+  grainCheck,
+  entityKeyOptions,
+  withEntityKey,
 } from '../lib/implementWizard';
+import { DigestChoice, RowSubjectCheck, TeamCapacity } from '../components/WizardStickParts';
 
 const ICONS = { notebook: NotebookPen, dashboard: LayoutDashboard, genie_space: Sparkles, app: AppWindow, alert: Bell };
 const ASSET_NOUNS = { dashboard: 'a dashboard', genie_space: 'a Genie Agent', app: 'an App', alert: 'an alert' };
@@ -155,7 +175,8 @@ const COLUMN_ROLES = ['entity_id', 'event_date', 'measure', 'label', 'segment'];
 const ALL_FEATURES = { apps: true, genie_spaces: true, alerts: true };
 const TILE_CHECKS = { app: ['app_access', 'apps'], genie_space: ['genie_spaces'], alert: ['alerts'] };
 const PLACE_CHECKS = ['app_name'];
-const TILE_CHECK_KEYS = [...Object.values(TILE_CHECKS).flat(), ...PLACE_CHECKS];
+const ACCESS_CHECKS = ['app_warehouse'];
+const TILE_CHECK_KEYS = [...Object.values(TILE_CHECKS).flat(), ...PLACE_CHECKS, ...ACCESS_CHECKS];
 const REMOVE = '__remove__';
 
 const rowWithCard = (card, row) => ({ ...(card || {}), ...(row || {}) });
@@ -262,6 +283,7 @@ export default function ImplementWizard({
   onImplemented,
   onOpenBuild = null,
   focus = null,
+  live = null,
 }) {
   const warehouseId = settings.warehouseId;
   const inspireDatabase = settings.inspireDatabase;
@@ -272,7 +294,6 @@ export default function ImplementWizard({
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState([]);
   const [attempted, setAttempted] = useState({ data: false, delivery: false });
-  const [vibesTab, setVibesTab] = useState('notebook');
   const [checking, setChecking] = useState('');
   const [advanced, setAdvanced] = useState({ data: false, delivery: false });
   const [columnsByTable, setColumnsByTable] = useState({});
@@ -283,11 +304,13 @@ export default function ImplementWizard({
   const [busy, setBusy] = useState(false);
   const [plan, setPlan] = useState(null);
   const [planError, setPlanError] = useState('');
+  const [planShared, setPlanShared] = useState(null);
   const notebookFolder = generationFolder({
     generationPath: context?.generation_path, notebookPath: settings.notebookPath, businessName: context?.business_name,
   });
   const folderWarning = sharedFolderWarning(notebookFolder);
   const [notice, setNotice] = useState(() => lostTablesText(focus?.missingTables));
+  const [collectedNote, setCollectedNote] = useState('');
   const [missingTables, setMissingTables] = useState(() => focus?.missingTables || []);
   const lostReason = (table) => missingTables.find((m) => String(m.table).toLowerCase() === table.toLowerCase())?.reason;
   const [changing, setChanging] = useState({});
@@ -305,6 +328,8 @@ export default function ImplementWizard({
   const [look, setLook] = useState(null);
   const [lookError, setLookError] = useState('');
   const [lakebase, setLakebase] = useState(null);
+  const [warehouses, setWarehouses] = useState(null);
+  const [warehousesError, setWarehousesError] = useState('');
   const [catalogs, setCatalogs] = useState(null);
   const [catalogsError, setCatalogsError] = useState('');
   const [schemas, setSchemas] = useState({});
@@ -367,17 +392,23 @@ export default function ImplementWizard({
         });
         const missing = [...(focus?.missingTables || []), ...(data.missing_tables || [])]
           .filter((m, i, all) => all.findIndex((o) => String(o.table).toLowerCase() === String(m.table).toLowerCase()) === i);
-        const { spec: next, reverted } = revertLostSwaps(specFromLatest(data.latest, fallback, data.assets), row, missing);
+        const { spec: kept, reverted } = revertLostSwaps(specFromLatest(data.latest, fallback, data.assets), row, missing);
+        const collected = withCollectedVibes(kept, focus?.collected);
+        const firstTable = primaryTableOf(row);
+        const next = withCapacityDefault(collected.spec, {
+          latest: data.latest, evidence: data.evidence, table: collected.spec.data.tables?.[firstTable] || firstTable, editing: Boolean(data.latest),
+        });
         if (!next.config.warehouse_id) next.config.warehouse_id = warehouseId;
         setSpec(next);
         setMissingTables(missing);
-        if (focus?.step === 'review') setStep(initialStepIndex(focus, 'mvp', next));
+        if (focus?.step === 'review' || focus?.step === 'vibes') setStep(initialStepIndex(focus, 'mvp', next));
         const same = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
         const chosenOf = (t) => ((next.data.removed_tables || []).some((r) => same(r, t)) ? ''
           : next.data.tables[Object.keys(next.data.tables).find((k) => same(k, t))] || t);
         const lost = tablesOf(row).filter((t) => chosenOf(t) && missing.some((m) => same(m.table, chosenOf(t))));
         const stillLost = missing.filter((m) => lost.some((t) => same(chosenOf(t), m.table)));
         setNotice([revertedSwapsText(reverted), lostTablesText(stillLost)].filter(Boolean).join(' '));
+        setCollectedNote(collectedVibesText(collected));
         if (lost.length) {
           setChanging(Object.fromEntries(lost.map((t) => [t, true])));
           lost.forEach((t) => { loadSwaps(t); });
@@ -428,8 +459,9 @@ export default function ImplementWizard({
   const groups = context?.widget_groups || NO_WIDGET_GROUPS;
   const segmentRef = spec.data.column_roles.segment || '';
   const exclusionRefs = (spec.data.filters || []).filter((f) => f.op === 'not in').map((f) => `${f.table}.${f.column}`);
-  const extras = { columnsByTable, widgets: context?.widgets || [], trainsModel, mergeTargets: targets, held: context?.assets || {}, appLook: look,
-    lakebase };
+  const built = builtVersion(context?.history);
+  const extras = { columnsByTable, widgets: context?.widgets || [], trainsModel, mergeTargets: targets, held: context?.assets || {}, appLook: look, built,
+    lakebase, warehouses };
   const ownErrors = stepErrors(stepId, spec, extras, mode);
 
   const primaryOriginal = primaryTableOf(ucRow);
@@ -444,6 +476,13 @@ export default function ImplementWizard({
     discoveryType,
     ...more,
   }).text;
+
+  const capacityInputs = { latest: context?.latest, evidence: context?.evidence, table: primaryChosen, editing: Boolean(context?.latest) };
+  const capacityCron = spec.schedule.cron;
+  useEffect(() => {
+    if (!context || context.latest) return;
+    setSpec((prev) => withCapacityDefault(prev, { evidence: context.evidence, table: primaryChosen }));
+  }, [capacityCron, context, primaryChosen]);
 
   const setProfile = (section, value) => patch(`config.profiles.${section}`, value);
 
@@ -460,10 +499,9 @@ export default function ImplementWizard({
     setAttempted((prev) => ({ ...prev, [id]: true }));
     if (!stepErrors(id, spec, extras, mode).length) return false;
     if (advancedErrors(id, spec, extras, mode).length) setAdvanced((prev) => ({ ...prev, [id]: true }));
-    const bad = id === 'vibes' && vibesEntries(spec).find((e) => vibesProblem(e.id, e.value));
-    if (bad) {
-      flushSync(() => setVibesTab(bad.id));
-      bodyRef.current?.querySelector(`[data-vibes="${bad.id}"] textarea`)?.focus();
+    if (id === 'vibes') {
+      const where = vibesProblem('mvp', spec.vibes, 'MVP') ? '[data-vibes="mvp"] textarea' : vibePreviousProblem(spec, built) ? '[data-vibe-previous] input' : '';
+      if (where) bodyRef.current?.querySelector(where)?.focus();
     }
     return true;
   };
@@ -514,7 +552,7 @@ export default function ImplementWizard({
     }
   };
 
-  const sent = useMemo(() => sentSpec(spec, lakebase), [spec, lakebase]);
+  const sent = useMemo(() => sentSpec(spec, lakebase, built), [spec, lakebase, built]);
   const specKey = JSON.stringify(sent);
   const ownErrorsKey = ownErrors.join('|');
   const buildStep = BUILD_STEP_IDS.includes(stepId);
@@ -530,6 +568,7 @@ export default function ImplementWizard({
         result_table: spec.config.result_table,
         model_name: modelNameOf(spec),
         app_name: spec.outputs.app && !mergeApp ? spec.outputs.app_name : '',
+        app_warehouse: spec.outputs.app && !mergeApp ? spec.outputs.app_warehouse_id || '' : '',
         merge_app: mergeApp,
         alert: spec.outputs.alert ? '1' : '0',
         genie: spec.outputs.genie_space ? '1' : '0',
@@ -548,12 +587,14 @@ export default function ImplementWizard({
       setPreflightError(pre.status === 'fulfilled' ? '' : pre.reason.message);
       setPlan(planned.status === 'fulfilled' ? planned.value : null);
       setPlanError(planned.status === 'fulfilled' ? '' : planned.reason.message);
+      if (planned.status === 'fulfilled' && sharedSource(planned.value?.shared, null)) setPlanShared(planned.value.shared);
       setChecksBusy(false);
     }, 400);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [buildStep, specKey, ownErrorsKey, planReady, q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const held = useMemo(() => heldAssets(context?.assets, context?.gone_assets), [context]);
+  const shared = sharedSource(planShared, live);
   useEffect(() => {
     if (placeChosen.current || !targets || !context) return;
     const saved = context.latest?.spec_json?.outputs || {};
@@ -582,6 +623,15 @@ export default function ImplementWizard({
       .catch((e) => { if (!cancelled) setLookError(e.message); });
     return () => { cancelled = true; };
   }, [spec.outputs.app, look, lookError, apiFetch]);
+
+  useEffect(() => {
+    if (!spec.outputs.app || !['app_place', 'app_access'].includes(stepId) || warehouses !== null || warehousesError) return undefined;
+    let cancelled = false;
+    apiFetch('/api/warehouses')
+      .then((data) => { if (!cancelled) setWarehouses(data.warehouses || []); })
+      .catch((e) => { if (!cancelled) setWarehousesError(e.message); });
+    return () => { cancelled = true; };
+  }, [spec.outputs.app, stepId, warehouses, warehousesError, apiFetch]);
 
   useEffect(() => {
     if (!spec.outputs.app || lakebase !== null) return undefined;
@@ -725,10 +775,11 @@ export default function ImplementWizard({
   const checkEntries = Object.entries(preflight?.checks || {});
   const generalChecks = checkEntries.filter(([k]) => !TILE_CHECK_KEYS.includes(k));
   const freshness = freshnessOf(spec.schedule);
-  const checkStepOf = (k) => (PLACE_CHECKS.includes(k) ? 'app_place' : 'delivery');
+  const checkStepOf = (k) => (PLACE_CHECKS.includes(k) ? 'app_place' : ACCESS_CHECKS.includes(k) ? 'app_access' : 'delivery');
+  const checkStepLabel = (k) => steps.find((s) => s.id === checkStepOf(k))?.label || 'Delivery';
   const deliveryChecks = buildStep
     ? checkEntries.filter(([k, v]) => !v.ok && checkStepOf(k) !== stepId)
-      .map(([k, v]) => `${PREFLIGHT_LABELS[k] || k.replace(/_/g, ' ')}: ${v.detail} (fix it on ${checkStepOf(k) === 'app_place' ? 'App placement' : 'Delivery'})`)
+      .map(([k, v]) => `${PREFLIGHT_LABELS[k] || k.replace(/_/g, ' ')}: ${v.detail} (fix it on ${checkStepLabel(k)})`)
     : [];
   const earlierGaps = buildStep && lastStep
     ? steps.filter((s) => BUILD_STEP_IDS.includes(s.id) && s.id !== stepId)
@@ -902,6 +953,14 @@ export default function ImplementWizard({
               })}
             </section>
 
+            <RowSubjectCheck
+              check={grainCheck(spec, ucRow, columnsByTable, sourceTables)}
+              options={entityKeyOptions(columnsByTable, sourceTables)}
+              chosen={spec.data.column_roles.entity_id || ''}
+              inputClass={inputBase}
+              onPick={(ref) => setSpec((prev) => withEntityKey(prev, ref))}
+            />
+
             <Advanced open={advanced.data} onToggle={() => setAdvanced((prev) => ({ ...prev, data: !prev.data }))}>
               <Field label="Goal sentence">
                 <textarea className={inputCls} rows={3} value={spec.use_case.goal} onChange={(e) => patch('use_case.goal', e.target.value)} />
@@ -1055,6 +1114,13 @@ export default function ImplementWizard({
               onEnabled={(on) => setSpec((prev) => withHoldout(prev, on))}
               onPercent={(text) => setSpec((prev) => withHoldoutPercent(prev, text))}
             />
+            <TeamCapacity
+              spec={spec}
+              suggestion={capacitySuggestion(spec, capacityInputs)}
+              inputClass={inputBase}
+              onType={(typed) => setSpec((prev) => withCapacity(prev, typed))}
+              onSuggest={() => setSpec((prev) => withSuggestedCapacity(prev, capacityInputs))}
+            />
           </>
         )}
 
@@ -1079,6 +1145,7 @@ export default function ImplementWizard({
                   const locked = item.id === 'genie_space' && spec.outputs.app;
                   const mergeable = on && item.id !== 'app' && MERGE_OUTPUTS.includes(item.id) && !held[item.id];
                   const gone = on && (context?.gone_assets || []).includes(item.id);
+                  const holding = sharedHolding(item.id, shared, live);
                   return (
                     <div key={item.id} data-output={item.id} className={`border rounded-lg p-3 space-y-2 ${on ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`}>
                       <div className="relative">
@@ -1116,12 +1183,13 @@ export default function ImplementWizard({
                             : 'Nobody gets it yet: add an email under Advanced settings.'}
                         </p>
                       )}
+                      {on && item.id === 'alert' && <DigestChoice outputs={spec.outputs} onChange={(checked) => setSpec((prev) => withDigest(prev, checked))} />}
                       {tileChecks.map(([k, v]) => <div key={k} className="pl-7"><CheckLine check={v} label={PREFLIGHT_LABELS[k] || k} /></div>)}
                       {!on && context?.assets?.[item.id] && (
                         <div className="pl-7 space-y-1 text-[11px]">
                           <p className="text-text-secondary">This use case already has {ASSET_NOUNS[item.id]}. What should happen to it?</p>
                           <div className="flex gap-3">
-                            <label><input type="radio" checked={spec.removed_outputs[item.id] === 'delete'} onChange={() => patch('removed_outputs', { ...spec.removed_outputs, [item.id]: 'delete' })} /> Delete it</label>
+                            <label><input type="radio" checked={spec.removed_outputs[item.id] === 'delete'} onChange={() => patch('removed_outputs', { ...spec.removed_outputs, [item.id]: 'delete' })} /> {holding ? takeOutText(holding) : 'Delete it'}</label>
                             <label><input type="radio" checked={spec.removed_outputs[item.id] === 'keep'} onChange={() => patch('removed_outputs', { ...spec.removed_outputs, [item.id]: 'keep' })} /> Keep it unmanaged</label>
                           </div>
                         </div>
@@ -1331,7 +1399,7 @@ export default function ImplementWizard({
                   <h4 className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-tertiary">
                     {plan.based_on_version ? `Version ${plan.spec_version}, edited from version ${plan.based_on_version}` : `Version ${plan.spec_version}`}
                   </h4>
-                  {planLines(plan.summary).map((line) => <p key={line} className="text-[12px] text-text-secondary">{line}</p>)}
+                  {planLines(plan.summary, { shared, live }).map((line) => <p key={line} className="text-[12px] text-text-secondary">{line}</p>)}
                 </div>
               )}
               {checkEntries.length > 0 && (
@@ -1354,6 +1422,7 @@ export default function ImplementWizard({
             targetsError={targetsError}
             heldApp={held.app || ''}
             scope={placeScope}
+            warehouses={warehouses}
             nameCheck={preflight?.checks?.app_name || null}
             onJoin={(target) => { placeChosen.current = true; setSpec((prev) => withMergeTarget(prev, 'app', target)); }}
             onNew={(placement) => { placeChosen.current = true; setSpec((prev) => withNewApp(prev, placement, targets, placeScope)); }}
@@ -1365,9 +1434,13 @@ export default function ImplementWizard({
           <AppAccessStep
             spec={spec}
             lakebase={lakebase}
+            warehouses={warehouses}
+            warehousesError={warehousesError}
+            warehouseCheck={preflight?.checks?.app_warehouse || null}
             onAccess={(access) => setSpec((prev) => withAppAccess(prev, access))}
             onOption={(key, value) => setSpec((prev) => withAppOption(prev, key, value))}
             onBackend={(backend) => setSpec((prev) => withAppBackend(prev, backend))}
+            onWarehouse={(id) => setSpec((prev) => withAppWarehouse(prev, id))}
           />
         )}
 
@@ -1385,8 +1458,12 @@ export default function ImplementWizard({
           />
         )}
 
+        {stepId === 'vibes' && collectedNote && (
+          <p role="status" data-collected-vibes="" className="mb-3 text-[11px] text-text-secondary bg-bg border border-border rounded-md px-3 py-2">{collectedNote}</p>
+        )}
         {stepId === 'vibes' && (
-          <VibesPanel spec={spec} tab={vibesTab} onTab={setVibesTab} onChange={(id, value) => patch(id === 'notebook' ? 'data.notes' : `outputs.${vibesKey(id)}`, value)} />
+          <VibesPanel spec={spec} built={built} next={(context?.latest?.spec_version ?? 0) + 1} onChange={(value) => patch('vibes', value)}
+            onPrevious={(choice) => patch('vibe_previous', choice)} />
         )}
       </div>
 
@@ -1471,36 +1548,41 @@ function SegmentButton({ on, disabled = false, onClick, children }) {
   );
 }
 
-function VibesPanel({ spec, tab, onTab, onChange }) {
-  const entries = vibesEntries(spec);
-  const current = entries.some((o) => o.id === tab) ? tab : entries[0].id;
-  const tabs = entries.map((o) => {
-    const problem = Boolean(vibesProblem(o.id, o.value));
-    const filled = o.value.trim() !== '';
-    const state = problem ? 'problem' : filled ? 'filled' : '';
-    return {
-      id: o.id, label: o.label, icon: ICONS[o.id], ariaLabel: `${o.label}${problem ? ', too long' : filled ? ', has vibes' : ''}`,
-      mark: state && <span aria-hidden="true" data-vibes-mark={state} className={`h-1.5 w-1.5 rounded-full ${problem ? 'bg-error' : 'bg-db-red'}`} />,
-    };
-  });
+function VibesPanel({ spec, built, next, onChange, onPrevious }) {
+  const asked = String(spec.vibes ?? '').trim() !== '';
+  const choices = built != null && asked ? vibePreviousChoices(built, next, Boolean(spec.outputs?.alert)) : [];
+  const skipped = vibesSkippedText(spec);
   return (
     <section aria-label="Vibes" className="space-y-3">
       <div>
         <h3 className="text-sm font-semibold text-text-primary">{VIBES_STEP_TITLE}</h3>
         <p className="text-[11px] text-text-secondary">{VIBES_STEP_NOTE}</p>
       </div>
-      <TabStrip label="Vibes for each asset" idBase="vibes" tabs={tabs} current={current} onPick={onTab} />
-      {entries.map((o) => (
-        <div key={o.id} data-vibes={o.id} {...tabPanel('vibes', o.id, current)}>
-          <VibesEditor id={o.id} value={o.value} onChange={(next) => onChange(o.id, next)} autoFocus={o.id === current} />
-        </div>
-      ))}
-      {vibesSkippedText(spec) && <p data-vibes-skipped="" className="text-[11px] text-text-secondary">{vibesSkippedText(spec)}</p>}
+      <div data-vibes="mvp">
+        <VibesEditor id="mvp" label="MVP" value={spec.vibes ?? ''} onChange={onChange} autoFocus />
+      </div>
+      {choices.length > 0 && (
+        <fieldset data-vibe-previous="" className="space-y-2">
+          <legend className="text-[13px] font-semibold text-text-primary">What happens to v{built}?</legend>
+          {choices.map((choice) => (
+            <label key={choice.id}
+              className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-[12px] cursor-pointer ${spec.vibe_previous === choice.id ? 'border-db-red/40 bg-bg-subtle' : 'border-border'}`}>
+              <input type="radio" name="vibe-previous" value={choice.id} checked={spec.vibe_previous === choice.id} onChange={() => onPrevious(choice.id)} className="mt-0.5" />
+              <span className="min-w-0">
+                <span className="block font-semibold text-text-primary">{choice.label}</span>
+                <span className="block text-text-secondary">{choice.text}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {skipped && <p data-vibes-skipped="" className="text-[11px] text-text-secondary">{skipped}</p>}
     </section>
   );
 }
 
 const FIT_TONE = { recommended: 'text-success-fg', other_domains: 'text-warning-fg', not_recommended: 'text-error-fg' };
+const APP_LIST_HEIGHT = 'h-60';
 const placeCard = (on) => `border rounded-lg p-3 space-y-2 ${on ? 'border-db-red/50 bg-db-red-50/40' : 'border-border'}`;
 
 function AppNameField({ name, nameCheck, onName }) {
@@ -1531,7 +1613,30 @@ function joinListText(targets, targetsError, choices, open) {
   return `${choices.length} App${choices.length === 1 ? '' : 's'} Inspire built, the best fit first.`;
 }
 
-function AppPlacementStep({ spec, targets, targetsError, heldApp, scope, nameCheck, onJoin, onNew, onName }) {
+function JoinedWarehouse({ target, warehouses }) {
+  if (!target?.warehouse_id) return null;
+  return (
+    <div data-app-warehouse="locked" className="pl-7 space-y-1">
+      <Field label="SQL warehouse">
+        <select className={inputCls} value={target.warehouse_id} disabled>
+          <option value={target.warehouse_id}>{warehouseText(warehouses, target.warehouse_id)}</option>
+        </select>
+      </Field>
+      <p className="text-[11px] text-text-tertiary">{joinedWarehouseText(target)}</p>
+    </div>
+  );
+}
+
+function scrollChosenIntoList(list) {
+  const item = list?.querySelector('input[name="app-target"]:checked')?.closest('li');
+  if (!item) return;
+  const top = item.offsetTop;
+  const bottom = top + item.offsetHeight;
+  if (top < list.scrollTop) list.scrollTop = top;
+  else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+}
+
+function AppPlacementStep({ spec, targets, targetsError, heldApp, scope, warehouses, nameCheck, onJoin, onNew, onName }) {
   const joined = joinsApp(spec) ? spec.outputs.merge.app : '';
   const choices = targetsError ? [] : appPlacementChoices(spec, targets, scope);
   const open = choices.filter((c) => !c.block);
@@ -1539,6 +1644,8 @@ function AppPlacementStep({ spec, targets, targetsError, heldApp, scope, nameChe
   const placement = spec.outputs.app_placement;
   const memory = placementMemoryText(targets, scope.business);
   const name = spec.outputs.app_name || '';
+  const listRef = useRef(null);
+  useEffect(() => { scrollChosenIntoList(listRef.current); }, [joined, choices.length]);
   if (heldApp) {
     return (
       <section className="space-y-4" aria-label="App placement">
@@ -1547,6 +1654,7 @@ function AppPlacementStep({ spec, targets, targetsError, heldApp, scope, nameChe
           <p className="text-[11px] text-text-tertiary">This use case already has its App, {heldApp}, so Genie rebuilds it there.</p>
         </div>
         {!joined && <AppNameField name={name} nameCheck={nameCheck} onName={onName} />}
+        {joined && <JoinedWarehouse target={chosen?.target} warehouses={warehouses} />}
       </section>
     );
   }
@@ -1570,7 +1678,8 @@ function AppPlacementStep({ spec, targets, targetsError, heldApp, scope, nameChe
             </span>
           </label>
           {choices.length > 0 && (
-            <ul aria-label="Apps Inspire built" className="pl-7 space-y-2">
+            <ul ref={listRef} aria-label="Apps Inspire built" data-app-list=""
+              className={`relative ml-7 space-y-1.5 overflow-y-auto rounded-md border border-border bg-surface px-2 py-1.5 ${APP_LIST_HEIGHT}`}>
               {choices.map((c) => (
                 <li key={c.target.id} data-app-target={c.target.id}>
                   <label className={`flex items-start gap-2 ${c.block && joined !== c.target.id ? '' : 'cursor-pointer'}`}>
@@ -1593,6 +1702,7 @@ function AppPlacementStep({ spec, targets, targetsError, heldApp, scope, nameChe
           {chosen && !chosen.block && (
             <p role="note" aria-label="The App this use case joins" className="pl-7 text-[11px] text-text-secondary">{joinedAppText(chosen.target)}</p>
           )}
+          {chosen && !chosen.block && <JoinedWarehouse target={chosen.target} warehouses={warehouses} />}
           {joined && !chosen && targets !== null && (
             <p className="pl-7 text-[11px] text-error-fg">{joined} is not one Inspire built that you can open: pick another, or create a new App.</p>
           )}
@@ -1756,7 +1866,7 @@ function HoldoutSetting({ spec, onEnabled, onPercent }) {
   );
 }
 
-function AppBackendChoice({ spec, lakebase, onBackend }) {
+function AppBackendChoice({ spec, lakebase, onBackend, children = null }) {
   const absent = lakebase?.state === 'absent';
   const backend = appBackendOf(spec, lakebase);
   const block = lakebaseBlock(spec, lakebase);
@@ -1787,7 +1897,7 @@ function AppBackendChoice({ spec, lakebase, onBackend }) {
               );
             })}
           </div>
-          {chosen && <p className="text-[12px] text-text-secondary">{chosen.blurb}</p>}
+          {chosen?.blurb && <p className="text-[12px] text-text-secondary">{chosen.blurb}</p>}
           {loading && <p className="text-[11px] text-text-tertiary" role="status">{LAKEBASE_CHECKING}…</p>}
           {block && <p className="text-[11px] text-text-secondary" role="note" aria-label="Why Lakebase is off">{block}</p>}
           {lakebase?.state === 'unknown' && !block && (
@@ -1797,11 +1907,40 @@ function AppBackendChoice({ spec, lakebase, onBackend }) {
           )}
         </>
       )}
+      {children}
     </fieldset>
   );
 }
 
-function AppAccessStep({ spec, lakebase, onAccess, onOption, onBackend }) {
+function AppWarehouseField({ spec, lakebase, warehouses, warehousesError, check, onWarehouse }) {
+  const build = String(spec.config.warehouse_id || '');
+  const chosen = appWarehouseOf(spec);
+  const listed = warehouses || [];
+  const options = [...(listed.some((w) => w.id === build) ? [] : [{ id: build }]),
+    ...(chosen !== build && !listed.some((w) => w.id === chosen) ? [{ id: chosen }] : []), ...listed].filter((w) => w.id);
+  return (
+    <div data-app-warehouse="pick" className="space-y-0.5">
+      <label className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="text-[12px] font-medium text-text-primary">{appWarehouseLabel(appBackendOf(spec, lakebase))}</span>
+        <select className="max-w-[16rem] px-2 py-1 text-[12px] border border-border rounded-md bg-surface text-text-primary glow-focus"
+          value={chosen} disabled={warehouses === null && !warehousesError}
+          onChange={(e) => onWarehouse(e.target.value)}>
+          {options.map((w) => (
+            <option key={w.id} value={w.id}>{warehouseText(listed, w.id)}{w.id === build ? ' · used for the build' : ''}</option>
+          ))}
+        </select>
+      </label>
+      {(chosen !== build || warehousesError) && (
+        <p className="text-[11px] text-text-tertiary">
+          {warehousesError ? `Inspire could not list the SQL warehouses (${warehousesError}). ` : ''}{buildWarehouseNote(listed, build)}
+        </p>
+      )}
+      {check && !check.ok && <p data-app-warehouse-check="" className="text-[11px] text-error-fg">{check.detail}</p>}
+    </div>
+  );
+}
+
+function AppAccessStep({ spec, lakebase, warehouses, warehousesError, warehouseCheck, onAccess, onOption, onBackend, onWarehouse }) {
   const access = spec.outputs.app_access;
   const options = spec.outputs.app_options;
   return (
@@ -1830,10 +1969,14 @@ function AppAccessStep({ spec, lakebase, onAccess, onOption, onBackend }) {
           })}
         </div>
       </fieldset>
-      <AppBackendChoice spec={spec} lakebase={lakebase} onBackend={onBackend} />
+      <AppBackendChoice spec={spec} lakebase={lakebase} onBackend={onBackend}>
+        <AppWarehouseField spec={spec} lakebase={lakebase} warehouses={warehouses} warehousesError={warehousesError} check={warehouseCheck}
+          onWarehouse={onWarehouse} />
+      </AppBackendChoice>
       <fieldset className="space-y-2">
-        <legend className={LEGEND}>What people can do in the App</legend>
-        <p className="text-[11px] text-text-tertiary">Each one stays off unless you turn it on.</p>
+        <legend className={LEGEND}>
+          What people can do in the App<span className="ml-2 normal-case tracking-normal font-normal text-[11px]">Each one stays off unless you turn it on.</span>
+        </legend>
         <div className="space-y-2.5 pt-1">
           {APP_OPTIONS.filter((o) => appOptionShown(spec, o.id)).map((o) => (
             <div key={o.id}>

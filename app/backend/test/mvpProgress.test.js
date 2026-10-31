@@ -57,7 +57,7 @@ test('a queued build waits for its job, and a stage the plan did not need is ski
   const queued = mvpStages([], latestOf('queued'), { now: at('10:00:20') });
   assert.equal(queued[0].state, 'next');
   assert.equal(queued[0].elapsed, '20s');
-  assert.equal(mvpProgressSummary(queued, latestOf('queued'), { now: at('10:00:20') }).headline, 'Inspire is planning the build…');
+  assert.equal(mvpProgressSummary(queued, latestOf('queued'), { now: at('10:00:20') }).headline, 'Inspire is working out what this version rebuilds…');
   const fresh = { ...latestOf('queued'), created_at: '' };
   assert.equal(mvpProgressSummary(mvpStages([], fresh), fresh).headline, 'Waiting for the build job to start');
   const noInstruction = mvpStages([row('Plan', 'ended_success', '10:01:00'), row('Genie Code', 'started', '10:01:02')], latestOf('filling'), { now: at('10:01:10') });
@@ -275,22 +275,23 @@ test('a poll that read the log mid-copy never takes messages off the screen, and
   assert.equal(steadyFeed(shown, null), null);
 });
 
-test('the Progress tab shows the stepper and Genie\'s scrolling messages, never raw log lines or JSON', () => {
+test('the Build tab shows the stepper and Genie\'s messages in the page scroll, never raw log lines, JSON or a scroll box of its own', () => {
   const fs = require('node:fs');
   const src = (p) => fs.readFileSync(path.resolve(__dirname, '..', '..', 'frontend', 'src', p), 'utf8');
   const page = src('pages/ImplementPage.jsx');
   assert.doesNotMatch(page, /log_lines/);
-  const progressTab = page.slice(page.indexOf('{tab === PROGRESS_TAB && ('), page.indexOf('{tab === CONTROL_TAB && ('));
-  assert.ok(progressTab.length > 100);
-  assert.doesNotMatch(progressTab, /<pre|steps \|\| \[\]\)\.map/);
+  const buildTab = page.slice(page.indexOf('if (tab === BUILD_TAB) {'), page.indexOf("if (tab === 'notebook') {"));
+  assert.ok(buildTab.length > 100);
+  assert.match(buildTab, /<GenieFeed /);
+  assert.doesNotMatch(buildTab, /<pre|steps \|\| \[\]\)\.map/);
   assert.match(page, /<MvpProgress /);
-  assert.match(page, /<GenieFeed /);
   const feed = src('components/GenieFeed.jsx');
-  assert.match(feed, /\$\{active \|\| entries\.length \? 'h-\[36rem\] min-h-48 max-h-\[85vh\] resize-y' : 'max-h-\[36rem\]'\} overflow-y-auto/);
+  assert.doesNotMatch(feed, /overflow-y-auto|resize-y|max-h-|scrollTop/, 'the feed grows with the page; only the page scrolls');
+  assert.match(feed, /new IntersectionObserver\(/);
+  assert.match(feed, /if \(pinned\) endRef\.current\?\.scrollIntoView\?\.\(\{ block: 'nearest' \}\)/, 'it follows new messages only while its end is on screen');
   assert.match(src('components/MvpProgress.jsx'), /\{stagesRecorded\(stages\) && \(/);
   assert.match(feed, /role="log"/);
   assert.match(feed, /<GenieLogo /);
-  assert.doesNotMatch(feed, /scrollIntoView/);
   const routes = fs.readFileSync(path.resolve(__dirname, '..', 'implementRoutes.js'), 'utf8');
   assert.doesNotMatch(routes, /log_lines/);
   assert.match(routes, /feed = I\.genieFeed\(text, useCaseId, history\[0\] && history\[0\]\.created_at\)/);
@@ -369,4 +370,202 @@ test('the attempt and the Genie round read as one line while both apply', async 
   const stages = mvpStages(steps, latest, { now: at('10:12:30') });
   assert.equal(mvpProgressSummary(stages, latest, { now: at('10:12:30'), repair: mvpRepairOf(steps, latest) }).detail,
     `Attempt 2 of 3: Inspire is fixing it: ${BUSY}. Round 2 of 3: Genie is fixing what failed in round 1`);
+});
+
+test('progressPercent: a ready version reads 100% even when a stage was skipped; anything else reads the stage count', async () => {
+  const { progressPercent } = await lib('mvpProgress.js');
+  assert.equal(progressPercent({ tone: 'success' }, { percent: 40 }), 100);
+  assert.equal(progressPercent({ tone: 'warning' }, { percent: 75 }), 100);
+  assert.equal(progressPercent({ tone: 'busy' }, { percent: 40 }), 40);
+  assert.equal(progressPercent({ tone: 'error' }, { percent: 60 }), 60, 'a failed build shows how far it got, never 100');
+  assert.equal(progressPercent(null, null), 0);
+});
+
+const VIBE = 'the action plan table needs a filter on every column so I can pick Act now';
+const ALL_OUTPUTS = { dashboard: true, genie_space: true, app: true, alert: true };
+const plan = (fields = {}) => ({
+  build: [], classes: ['outputs', 'retry', 'vibe'], delete: [], keep_unmanaged: [], preview: false, refill: false, refresh: [], repoint: [], restyle: [],
+  rollback: {}, rollback_built: {}, schedule: false, sharing: true, ...fields,
+});
+const APP_ONLY = plan({ refresh: ['app'] });
+const v2 = (status, extra = {}) => ({
+  status, spec_version: 2, created_at: '2026-01-02T10:00:00.000Z', notebook_path: '/Workspace/Users/someone/nb',
+  spec_json: { vibes: VIBE, vibe_previous: 'remove', outputs: ALL_OUTPUTS },
+  asset_status: { notebook: { state: 'ready', spec_version: 1 }, app: { state: 'ready', spec_version: 1, title: 'synthetic-app' } },
+  ...extra,
+});
+const step = (phase, status, time, payload = {}, message = '') => ({
+  step_id: 1, stage_name: 'Implement Use Cases', step_name: `Inspire is working on ${phase.toLowerCase()}`, sub_step_name: 'n01-u01', status, message,
+  last_updated: `2026-01-02T${time}.000Z`,
+  result_json: JSON.stringify({ use_case_id: 'N01-U01', phase, spec_version: 2, event_at: `2026-01-02T${time}+00:00`, ...payload }),
+});
+const unversioned = (phase, status, time) => ({ ...step(phase, status, time), result_json: JSON.stringify({ use_case_id: 'N01-U01', phase, event_at: `2026-01-02T${time}+00:00` }) });
+const routed = (lines, status = 'ended_success') => step('Vibe', status, '10:00:27', { lines },
+  status === 'ended_warning' ? `Inspire has completed vibe with caution: ${lines.join('\n')}` : 'Inspire has completed vibe');
+const APP_VIBE_STEPS = [
+  step('Vibe', 'started', '10:00:23'), routed([`sent to App: ${VIBE}`]), step('Plan', 'ended_success', '10:00:32', { plan: APP_ONLY }),
+  unversioned('Genie Code', 'started', '10:00:50'), unversioned('Genie Code', 'ended_success', '10:00:59'), step('App', 'started', '10:01:21', { round: 1, rounds: 3 }),
+];
+const ids = (stages) => stages.map((s) => s.id);
+const labels = (stages) => stages.map((s) => s.label);
+
+test('an App-only vibe shows Vibe, Plan, Start Genie Code, the App rebuild and Done, and never the notebook stages or another output', async () => {
+  const { mvpStages, mvpProgressSummary, versionPlan } = await lib('mvpProgress.js');
+  const latest = v2('building_outputs');
+  const stages = mvpStages(APP_VIBE_STEPS, latest, { now: at('10:02:00') });
+  assert.deepEqual(ids(stages), ['Vibe', 'Plan', 'Genie Code', 'App', 'Done']);
+  assert.deepEqual(labels(stages), ['Vibe', 'Plan', 'Start Genie Code', 'Rebuild the App', 'Done']);
+  assert.deepEqual(states(stages), [['Vibe', 'done'], ['Plan', 'done'], ['Genie Code', 'done'], ['App', 'running'], ['Done', 'waiting']]);
+  for (const absent of ['Dashboard', 'Genie Agent', 'Alert', 'Instruction', 'Genie build', 'Preview run']) assert.ok(!ids(stages).includes(absent), `${absent} must not show`);
+  const summary = mvpProgressSummary(stages, latest, { now: at('10:02:00') });
+  assert.equal(summary.headline, 'Genie is rebuilding the App…');
+  assert.equal(summary.percent, 60);
+  assert.equal(stages.at(-1).working, 'Inspire is sharing the MVP');
+  assert.deepEqual(versionPlan(APP_VIBE_STEPS, latest).refresh, ['app']);
+  assert.equal(versionPlan(APP_VIBE_STEPS, { ...latest, spec_version: 3 }), null, 'the plan of another version is never this one');
+});
+
+test('the scope says which chosen parts this version keeps as they are, and a core change says the notebook and every part after it are rebuilt', async () => {
+  const { mvpScope } = await lib('mvpProgress.js');
+  const app = mvpScope(APP_VIBE_STEPS, v2('building_outputs'));
+  assert.deepEqual(app.notes, [{ kind: 'kept', text: 'Kept as is: the notebook, the Dashboard, the Genie Agent and the Alert' }]);
+  assert.deepEqual(app.vibe, [{ kind: 'route', id: 'app', text: `Sent to the App: “${VIBE}”`, note: '' }]);
+  const core = plan({ classes: ['data'], refill: true, preview: true, refresh: ['genie_space', 'dashboard', 'app', 'alert'], schedule: true, sharing: false });
+  const coreScope = mvpScope([step('Plan', 'ended_success', '10:00:32', { plan: core })], v2('filling', { spec_json: { outputs: ALL_OUTPUTS } }));
+  assert.deepEqual(coreScope.notes, [{ kind: 'refill', text: 'This change reaches the analysis, so Genie rebuilds the notebook and every part after it' }]);
+  assert.deepEqual(coreScope.vibe, []);
+  const first = mvpScope([step('Plan', 'ended_success', '10:00:32', { plan: plan({ classes: ['initial'], refill: true, preview: true, build: ['dashboard'] }) })],
+    v2('filling', { spec_json: { outputs: { dashboard: true, alert: true } } }));
+  assert.equal(first.pending, false);
+  assert.deepEqual(first.notes, [], 'a first build keeps nothing and changes nothing, so it says neither');
+  const unticked = mvpScope([step('Plan', 'ended_success', '10:00:32', { plan: plan({ classes: ['deselect'], keep_unmanaged: ['alert'], sharing: false }) })],
+    v2('building_outputs', { spec_json: { outputs: { ...ALL_OUTPUTS, alert: false } } }));
+  assert.deepEqual(unticked.notes.map((n) => n.text), ['Kept as is: the notebook, the Dashboard, the Genie Agent and the App', 'Left in place and no longer refreshed: the Alert']);
+});
+
+test('a core plan shows the notebook stages, the preview run and every output it rebuilds, in the order the agent builds them', async () => {
+  const { mvpStages } = await lib('mvpProgress.js');
+  const core = plan({ classes: ['data'], refill: true, preview: true, refresh: ['dashboard', 'genie_space', 'app', 'alert'], schedule: true, sharing: false });
+  const latest = { ...v2('filling'), spec_json: { outputs: ALL_OUTPUTS } };
+  const stages = mvpStages([step('Plan', 'ended_success', '10:00:32', { plan: core }), unversioned('Genie Code', 'started', '10:00:40')], latest, { now: at('10:01:00') });
+  assert.deepEqual(ids(stages), ['Plan', 'Instruction', 'Genie Code', 'Genie build', 'Preview run', 'Genie Agent', 'Dashboard', 'Alert', 'App', 'Done']);
+  assert.deepEqual(labels(stages).slice(5, 9), ['Rebuild the Genie Agent', 'Rebuild the Dashboard', 'Rebuild the Alert', 'Rebuild the App']);
+  assert.deepEqual(states(stages).slice(0, 3), [['Plan', 'done'], ['Instruction', 'skipped'], ['Genie Code', 'running']]);
+  assert.equal(stages.at(-1).working, 'Inspire is scheduling the job');
+});
+
+test('a restyle, a roll back, a new build after a lost roll back, a removal and a repoint are each worded by what Inspire does', async () => {
+  const { mvpStages } = await lib('mvpProgress.js');
+  const latest = { ...v2('building_outputs'), spec_json: { outputs: ALL_OUTPUTS } };
+  const stagesOf = (p) => mvpStages([step('Plan', 'ended_success', '10:00:32', { plan: p })], latest, { now: at('10:01:00') });
+  const restyle = stagesOf(plan({ classes: ['outputs'], refresh: ['app'], restyle: ['app'] }));
+  assert.deepEqual(labels(restyle), ['Plan', 'Restyle the App', 'Done']);
+  assert.ok(!ids(restyle).includes('Genie Code'), 'a restyle never starts Genie Code');
+  const back = stagesOf(plan({ classes: ['outputs', 'rollback'], rollback: { dashboard: 2 } }));
+  assert.deepEqual(labels(back), ['Plan', 'Roll the Dashboard back to v2', 'Done']);
+  assert.ok(!ids(back).includes('Genie Code'), 'a roll back never calls Genie');
+  assert.equal(back[1].working, 'Inspire is putting v2 of the Dashboard back');
+  const lost = stagesOf(plan({ classes: ['outputs', 'rollback'], build: ['dashboard'], rollback_built: { dashboard: { version: 2, why: 'gone' } } }));
+  assert.deepEqual(labels(lost), ['Plan', 'Start Genie Code', 'Build a new Dashboard', 'Done']);
+  assert.equal(lost[2].working, 'Genie is building a new Dashboard, because v2 could not be put back');
+  const removed = stagesOf(plan({ classes: ['deselect'], delete: ['alert'], sharing: false }));
+  assert.deepEqual(labels(removed), ['Plan', 'Remove the Alert', 'Done']);
+  assert.equal(removed.at(-1).working, 'Inspire is finishing this version');
+  const pointed = stagesOf(plan({ classes: ['retry'], refresh: ['genie_space'], repoint: ['app'] }));
+  assert.deepEqual(labels(pointed), ['Plan', 'Start Genie Code', 'Rebuild the Genie Agent', 'Point the App at the Genie Agent', 'Done']);
+  const alertOnly = stagesOf(plan({ classes: ['outputs'], refresh: ['alert'] }));
+  assert.deepEqual(labels(alertOnly), ['Plan', 'Rebuild the Alert', 'Done'], 'Inspire writes the alert without starting Genie Code');
+});
+
+test('an AI reasoning ask runs the notebook again on a preview and rebuilds no output', async () => {
+  const { mvpStages, mvpScope } = await lib('mvpProgress.js');
+  const latest = v2('previewing');
+  const steps = [step('Vibe', 'started', '10:00:23'),
+    routed(['sent to AI reasoning: say how sure each row is; this ask changes the AI reasoning, so Inspire runs the notebook again']),
+    step('Plan', 'ended_success', '10:00:32', { plan: plan({ preview: true }) }), step('Preview run', 'started', '10:00:40')];
+  const stages = mvpStages(steps, latest, { now: at('10:01:00') });
+  assert.deepEqual(labels(stages), ['Vibe', 'Plan', 'Preview run', 'Done']);
+  const scope = mvpScope(steps, latest);
+  assert.deepEqual(scope.notes.map((n) => n.kind), ['rerun', 'kept']);
+  assert.equal(scope.notes[1].text, 'Kept as is: the Dashboard, the Genie Agent, the App and the Alert', 'the notebook runs again, so it is not listed as kept');
+  assert.deepEqual(scope.vibe, [{ kind: 'route', id: 'ai_reasoning', text: 'Sent to the AI reasoning: “say how sure each row is”',
+    note: 'This ask changes the AI reasoning, so Inspire runs the notebook again.' }]);
+});
+
+test('before the plan lands the stepper shows only the vibe and the plan, never the full list, and percent waits for the plan', async () => {
+  const { mvpStages, mvpProgressSummary, versionPlan, PLAN_PENDING } = await lib('mvpProgress.js');
+  const latest = v2('queued');
+  const reading = mvpStages([step('Vibe', 'started', '10:00:23')], latest, { now: at('10:00:25') });
+  assert.deepEqual(states(reading), [['Vibe', 'running'], ['Plan', 'waiting']]);
+  assert.equal(mvpProgressSummary(reading, latest, { now: at('10:00:25') }).headline, 'Inspire is reading your vibe to send each ask to the part it changes…');
+  const planning = mvpStages(APP_VIBE_STEPS.slice(0, 2), latest, { now: at('10:00:30') });
+  assert.deepEqual(states(planning), [['Vibe', 'done'], ['Plan', 'next']]);
+  const summary = mvpProgressSummary(planning, latest, { now: at('10:00:30') });
+  assert.equal(summary.headline, 'Inspire is working out what this version rebuilds…');
+  assert.equal(summary.percent, 0, 'no share of an unknown list');
+  assert.equal(versionPlan([], latest), PLAN_PENDING);
+  const broken = mvpStages([step('Vibe', 'started', '10:00:23'), step('Vibe', 'ended_error', '10:00:24')], v2('failed'));
+  assert.deepEqual(states(broken), [['Vibe', 'error'], ['Plan', 'not_reached']], 'a vibe that could not be routed fails at the vibe');
+});
+
+test('a version whose Plan step carries no plan keeps the full list, and its vibe step is not a stage', async () => {
+  const { mvpStages, versionPlan } = await lib('mvpProgress.js');
+  const old = APP_VIBE_STEPS.map((r) => (r.result_json.includes('"Plan"') ? step('Plan', 'ended_success', '10:00:32') : r));
+  const latest = v2('building_outputs');
+  assert.equal(versionPlan(old, latest), null);
+  assert.deepEqual(ids(mvpStages(old, latest, { now: at('10:02:00') })),
+    ['Plan', 'Instruction', 'Genie Code', 'Genie build', 'Preview run', 'Dashboard', 'Genie Agent', 'App', 'Alert', 'Done']);
+  assert.equal(versionPlan([], v2('building_outputs')), null, 'a build without step rows keeps today\'s list');
+  assert.equal(versionPlan([], v2('ready')), null);
+});
+
+test('the vibe step shows where each ask went and how many asks no part can do, and the finished record names them with the reason', async () => {
+  const { vibeRouting, vibeRoutingLines } = await lib('mvpProgress.js');
+  const lines = ['sent to App page decisions: add a filter on every column', 'sent to Dashboard: put the weekly trend first; 2 ask(s) no part can do'];
+  const building = v2('building_outputs', { asset_status: { 'app:page:decisions': { state: 'ready', name: 'Decisions' } } });
+  const during = vibeRoutingLines(vibeRouting([step('Vibe', 'started', '10:00:23'), routed(lines, 'ended_warning')], building));
+  assert.deepEqual(during.map((l) => [l.kind, l.text]), [
+    ['route', 'Sent to the Decisions page: “add a filter on every column”'],
+    ['route', 'Sent to the Dashboard: “put the weekly trend first”'],
+    ['unnamed', 'Vibe not done on 2 asks: no part can do them. Inspire names them when this version is built'],
+  ]);
+  const record = { state: 'routed', text: VIBE, previous: 'remove', spec_version: 2, routes: { app: 'add a filter' },
+    not_routed: [{ ask: 'a map by region', reason: 'the results have no region column' }, { ask: 'a forecast', reason: 'the results hold no future dates' }] };
+  const done = vibeRoutingLines(vibeRouting([routed(lines, 'ended_warning')], v2('ready_with_warnings', { asset_status: { vibe: record } })));
+  assert.deepEqual(done.map((l) => [l.kind, l.text]), [
+    ['route', 'Sent to the App: “add a filter”'],
+    ['not_routed', 'Vibe not done: “a map by region”: the results have no region column'],
+    ['not_routed', 'Vibe not done: “a forecast”: the results hold no future dates'],
+  ]);
+  assert.ok(!done.some((l) => l.kind === 'unnamed'), 'once the record names them, the count is gone');
+  const older = vibeRoutingLines(vibeRouting([routed(lines, 'ended_warning')], v2('ready', { asset_status: { vibe: { ...record, spec_version: 1 } } })));
+  assert.equal(older.length, 3, 'the record of another version is not this one');
+  assert.deepEqual(vibeRoutingLines(vibeRouting([routed(['no part can do this vibe'], 'ended_warning')], building)).map((l) => [l.kind, l.text]),
+    [['no_part', 'Vibe not done: no part can do this vibe']]);
+  assert.equal(vibeRouting([], { ...building, spec_json: { outputs: ALL_OUTPUTS } }), null, 'no vibe, nothing to show');
+  assert.equal(vibeRouting([step('Vibe', 'started', '10:00:23')], building).state, 'reading');
+  assert.deepEqual(vibeRoutingLines(vibeRouting([step('Vibe', 'ended_error', '10:00:24')], building)), []);
+});
+
+test('one parser reads every vibe line form, the lines of the step result first and the message of an older run after', async () => {
+  const { vibeLine, vibeRouting } = await lib('mvpProgress.js');
+  const core = 'this ask changes the analysis, so Inspire rebuilds the notebook and every part after it';
+  assert.deepEqual(vibeLine(`sent to Notebook: count returns by week; ${core}`), { noPart: false, id: 'notebook', words: 'count returns by week', note: core, unrouted: 0 });
+  assert.deepEqual(vibeLine(`sent to Money at stake formula: net of refunds; ${core}; 1 ask(s) no part can do`),
+    { noPart: false, id: 'value_formula', words: 'net of refunds', note: core, unrouted: 1 });
+  for (const [heading, id] of [['Dashboard', 'dashboard'], ['App', 'app'], ['Genie Agent', 'genie_space'], ['Alert', 'alert'], ['AI reasoning', 'ai_reasoning'],
+    ['Dashboard chart w1a2', 'dashboard:w1a2'], ['App page detail', 'app:page:detail']]) {
+    assert.equal(vibeLine(`sent to ${heading}: keep it short: two lines`).id, id, heading);
+    assert.equal(vibeLine(`sent to ${heading}: keep it short: two lines`).words, 'keep it short: two lines');
+  }
+  for (const bad of ['sent to Somewhere: x', 'sent to App:', 'routed to App: x', '', null, 'Inspire has completed vibe']) assert.equal(vibeLine(bad), null, String(bad));
+  assert.equal(vibeLine('no part can do this vibe').noPart, true);
+  const latest = v2('building_outputs');
+  const oneLine = vibeRouting([step('Vibe', 'ended_warning', '10:00:27', {}, 'Inspire has completed vibe with caution: sent to App: dark header; Dashboard: weekly trend; 1 ask(s) no part can do')], latest);
+  assert.deepEqual([oneLine.routes.map((r) => [r.id, r.words]), oneLine.unnamed], [[['app', 'dark header'], ['dashboard', 'weekly trend']], 1]);
+  const multi = vibeRouting([step('Vibe', 'ended_warning', '10:00:27', {},
+    'Inspire has completed vibe with caution: sent to App: dark header\nrows first\nsent to Alert: only Act now; 1 ask(s) no part can do')], latest);
+  assert.deepEqual(multi.routes.map((r) => [r.id, r.words]), [['app', 'dark header\nrows first'], ['alert', 'only Act now']]);
+  const listed = vibeRouting([step('Vibe', 'ended_success', '10:00:27', { lines: ['sent to Genie Agent: answer in euros'] }, 'Inspire has completed vibe')], latest);
+  assert.deepEqual(listed.routes.map((r) => [r.id, r.words]), [['genie_space', 'answer in euros']], 'a successful step keeps its lines in the result');
 });

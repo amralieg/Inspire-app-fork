@@ -179,7 +179,7 @@ function registerImplementRoutes(app, deps) {
     return { apps: apps.ok, genie_spaces: spaces.ok, alerts: alerts.ok };
   }
 
-  async function appWarehouseCheck(req, warehouseId, identity, warehouseName) {
+  async function appWarehouseCheck(req, warehouseId, identity, warehouseName, forApp = false) {
     const [permissions, me, warehouse] = await Promise.all([
       jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/permissions/sql/warehouses/${encodeURIComponent(warehouseId)}`),
       loadMe(req),
@@ -188,7 +188,7 @@ function registerImplementRoutes(app, deps) {
     const identities = [identity, me.userName, me.applicationId, ...(me.emails || []).map((e) => e && e.value)];
     const groups = (me.groups || []).map((g) => g && (g.display || g.value));
     const name = warehouseName || (warehouse && warehouse.ok && warehouse.data.name) || warehouseId;
-    return I.warehouseManageCheck(permissions, identities, groups, name);
+    return I.warehouseManageCheck(permissions, identities, groups, name, forApp);
   }
 
   async function loadResultTableHolder(req, warehouseId, catalog, schema, table) {
@@ -224,10 +224,13 @@ function registerImplementRoutes(app, deps) {
     const access = I.outputAccess(rows, table);
     const model = I.trainsModel(useCase) ? I.modelAccess(elsewhere ? modelRows : rows, modelName) : null;
     const warehouse = await appWarehouseCheck(req, warehouseId, access.identity, options.warehouseName);
+    const own = Boolean(options.appWarehouse) && options.appWarehouse !== warehouseId;
+    const appWarehouse = own ? await appWarehouseCheck(req, options.appWarehouse, access.identity, '', true) : warehouse;
     const warnings = [...I.shareWarnings(table, rows, options.principals),
       ...I.shareWarehouseWarnings(warehouse, options.principals, options.viewed, options.warehouseName)];
     if (warnings.length) access.grant = { ...access.grant, warn: warnings.join(' ') };
-    access.app = I.appAccessCheck(access.app, warehouse);
+    access.app = I.appAccessCheck(access.app, own ? null : warehouse);
+    access.app_warehouse = appWarehouse;
     let safety = { ok: true, detail: access.exists ? `${access.table} holds only this use case's rows` : `${access.table} is new; the first run creates it` };
     const held = I.resultTableHolderProblem(table, holder, sid, useCaseId);
     if (held) safety = { ok: false, detail: held };
@@ -617,6 +620,7 @@ function registerImplementRoutes(app, deps) {
       const resultTable = q(req, 'result_table');
       const appName = q(req, 'app_name');
       const mergeApp = q(req, 'merge_app');
+      const appWarehouse = appName && I.IMPLEMENT_MERGE_ID_RE.test(q(req, 'app_warehouse')) ? q(req, 'app_warehouse') : '';
       const wantsAlert = q(req, 'alert') === '1';
       const wantsGenie = q(req, 'genie') === '1';
       const wantsDashboard = q(req, 'dashboard') !== '0';
@@ -636,7 +640,8 @@ function registerImplementRoutes(app, deps) {
       try {
         const viewed = [wantsDashboard && 'the dashboard', wantsGenie && 'the Genie Agent'];
         moved = await movedResultTable(req, warehouseId, useCaseId, resultTable);
-        output = await checkOutput(req, warehouseId, moved ? moved.to : resultTable, useCaseId, { principals, warehouseName, viewed });
+        output = await checkOutput(req, warehouseId, moved ? moved.to : resultTable, useCaseId,
+          { principals, warehouseName, viewed, appWarehouse });
       } catch (err) {
         outputError = err.message || String(err);
       }
@@ -655,6 +660,10 @@ function registerImplementRoutes(app, deps) {
         const name = I.appNameCheck(appName, existingApp && existingApp.ok ? existingApp.data : null, { useCaseId, sessionId: sid });
         checks.app_name = name;
         if (name.creates) checks.app_access = output ? output.app : { ok: false, detail: 'not checked, because the warehouse could not run the access check' };
+        const swaps = !name.creates && I.appWarehouseMoves(existingApp && existingApp.ok ? existingApp.data : null, appWarehouse || warehouseId);
+        if ((name.creates && appWarehouse && appWarehouse !== warehouseId) || swaps) {
+          checks.app_warehouse = output ? output.app_warehouse : { ok: false, detail: 'not checked, because the warehouse could not run the access check' };
+        }
         if (!features.apps) checks.apps = { ok: false, detail: 'this workspace cannot create Databricks Apps' };
         else {
           const limit = I.appsLimit(req.dbHost);
@@ -777,9 +786,11 @@ function registerImplementRoutes(app, deps) {
 
   app.post('/api/inspire/implement/plan', requireToken, async (req, res) => {
     try {
-      const { useCaseId, plan } = await prepareSubmission(req);
+      const { sid, warehouseId, catalog, schema, useCaseId, plan } = await prepareSubmission(req);
+      const sharing = plan.summary.delete.some((name) => I.IMPLEMENT_MERGE_OUTPUTS.includes(name))
+        ? await sharedOf(req, { sid, warehouseId, catalog, schema, useCaseId }) : {};
       res.json({ use_case_id: useCaseId, spec_version: plan.nextVersion, based_on_version: plan.built ? plan.built.spec_version : null,
-        summary: plan.summary, unchanged: plan.unchanged });
+        summary: plan.summary, unchanged: plan.unchanged, ...sharing });
     } catch (err) {
       sendError(res, err);
     }
@@ -905,7 +916,7 @@ function registerImplementRoutes(app, deps) {
         log_path: logPath,
         feed,
         rerun_widgets: I.rerunWidgets(history),
-        app_status: I.appStatusFrom(appInfo, { useCaseId, sessionId: sid }),
+        app_status: I.appStatusFrom(appInfo, { useCaseId, sessionId: sid, history }),
         runs: I.jobRunsFrom(runInfo, jobInfo),
       });
     } catch (err) {
@@ -954,6 +965,16 @@ function registerImplementRoutes(app, deps) {
     };
   }
 
+  async function sharedOf(req, ctx) {
+    try {
+      const table = I.implementTableName(ctx.catalog, ctx.schema);
+      const rows = await implementRows(req.dbHost, req.dbToken, ctx.warehouseId, table, (existing) => I.implementRegistryStatement(table, existing));
+      return { shared: I.sharedHolders(rows, { sessionId: ctx.sid, useCaseId: ctx.useCaseId }), shared_error: '' };
+    } catch (err) {
+      return { shared: null, shared_error: err.message };
+    }
+  }
+
   app.get('/api/inspire/implement/live', requireToken, async (req, res) => {
     try {
       const ctx = await controlContext(req);
@@ -968,11 +989,14 @@ function registerImplementRoutes(app, deps) {
         } catch (err) {
           if (!isMissingTableError(err)) throw err;
         }
+        const { shared, shared_error: sharedError } = await sharedOf(req, ctx);
         return {
           targets: ctx.targets,
           assets: C.liveStatus(ctx.targets, Object.fromEntries(names.map((name, i) => [name, got[i]])),
-            { useCaseId: ctx.useCaseId, sessionId: ctx.sid }),
+            { useCaseId: ctx.useCaseId, sessionId: ctx.sid, history: ctx.history }),
           actions,
+          shared,
+          shared_error: sharedError,
           checked_at: new Date().toISOString(),
         };
       });
@@ -1010,8 +1034,13 @@ function registerImplementRoutes(app, deps) {
         throw I.badRequest(`spec v${latest.spec_version} is still ${latest.status}; ${C.controlPhrase(label)} after it finishes, or stop the build first`, 409);
       }
       const owner = await jsonOf(dbFetch, req.dbHost, req.dbToken, C.ownerCheckPath(asset, id));
-      const problem = C.ownerProblem(asset, owner, { useCaseId: ctx.useCaseId, sessionId: ctx.sid });
+      const problem = C.ownerProblem(asset, owner, { useCaseId: ctx.useCaseId, sessionId: ctx.sid, history: ctx.history });
       if (problem) throw I.badRequest(`Inspire did not ${C.controlPhrase(label)}: ${problem}`, 409);
+      if (C.SHARED_CONTROL_ASSETS.includes(asset) && q(req, 'confirm_shared') !== 'true') {
+        const { shared, shared_error: sharedError } = await sharedOf(req, ctx);
+        const sharing = C.sharedControlProblem(asset, action, id, shared, sharedError);
+        if (sharing) throw I.badRequest(`Inspire did not ${C.controlPhrase(label)}: ${sharing}`, 409);
+      }
       const spec = latest.spec_json ? I.validateImplementSpec(latest.spec_json).spec : null;
       const request = C.controlRequest(asset, action, id, { warehouseId: spec && spec.config.warehouse_id });
       await executeSql(req.dbHost, req.dbToken, ctx.warehouseId, C.controlLogCreateSql(ctx.logTable));

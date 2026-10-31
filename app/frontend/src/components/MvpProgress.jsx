@@ -1,7 +1,7 @@
 import { AlertTriangle, Check, CheckCircle2, Circle, Loader2, Minus, X, XCircle } from 'lucide-react';
 import GenieLogo from './GenieLogo';
 import { IconChip, PANEL_CLASS, SectionTitle } from './BuildUi';
-import { stagesRecorded } from '../lib/mvpProgress';
+import { progressPercent, stagesRecorded } from '../lib/mvpProgress';
 
 const STAGE_LOOK = {
   done: { Icon: Check, node: 'bg-success-bg text-success-fg ring-1 ring-inset ring-success/40', words: 'done' },
@@ -51,7 +51,7 @@ function StageNodes({ stages }) {
         const { Icon } = look;
         const settled = stage.state === 'done' || stage.state === 'warning';
         return (
-          <li key={stage.id} data-stage-state={stage.state} className="relative flex-1 min-w-0 flex flex-col items-center">
+          <li key={stage.id} data-stage={stage.id} data-stage-state={stage.state} className="relative flex-1 min-w-0 flex flex-col items-center">
             {i < stages.length - 1 && (
               <span className={`absolute top-4 left-1/2 w-full h-0.5 ${settled ? 'bg-success/70' : 'bg-border'}`} aria-hidden />
             )}
@@ -61,7 +61,7 @@ function StageNodes({ stages }) {
                 <Icon size={14} className={look.live ? 'motion-safe:animate-spin' : ''} />
               </span>
             </span>
-            <span className={`mt-2 px-1 text-center text-[11px] font-semibold leading-tight ${look.live ? 'text-db-red-fg' : 'text-text-secondary'}`}>
+            <span data-stage-label="" className={`mt-2 px-1 text-center text-[11px] font-semibold leading-tight ${look.live ? 'text-db-red-fg' : 'text-text-secondary'}`}>
               {stage.label}
             </span>
             {stage.elapsed && <span className="text-[10px] tabular-nums text-text-tertiary">{stage.elapsed}</span>}
@@ -73,8 +73,25 @@ function StageNodes({ stages }) {
   );
 }
 
-export default function MvpProgress({ stages, summary, chip, reason, toneClass, version, children }) {
-  const percent = chip?.tone === 'success' || chip?.tone === 'warning' ? 100 : summary.percent;
+function ScopeNotes({ scope }) {
+  const vibe = scope?.vibe || [];
+  const notes = scope?.notes || [];
+  if (!vibe.length && !notes.length) return null;
+  return (
+    <ul aria-label="What this version changes" data-mvp-scope="" className="space-y-1 text-[12px]">
+      {vibe.map((line) => (
+        <li key={`${line.kind}:${line.text}`} data-vibe-route={line.kind} className={line.kind === 'route' ? 'text-text-primary' : 'text-warning-fg'}>
+          {line.text}
+          {line.note && <span className="block text-text-secondary">{line.note}</span>}
+        </li>
+      ))}
+      {notes.map((note) => <li key={note.kind} data-scope-note={note.kind} className="text-text-secondary">{note.text}</li>)}
+    </ul>
+  );
+}
+
+export default function MvpProgress({ stages, summary, chip, reason, toneClass, version, scope = null, children }) {
+  const percent = progressPercent(chip, summary);
   const bar = BAR_TONE[chip?.tone] || BAR_TONE.idle;
   const headline = summary.headline || chip?.label || '';
   return (
@@ -127,6 +144,7 @@ export default function MvpProgress({ stages, summary, chip, reason, toneClass, 
             <StageNodes stages={stages} />
           </div>
         )}
+        <ScopeNotes scope={scope} />
       </div>
       {children}
     </section>

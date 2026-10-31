@@ -5,22 +5,6 @@ const { pathToFileURL } = require('node:url');
 
 const lib = (name) => import(pathToFileURL(path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib', name)).href);
 
-test('the global vibe box names only the live outputs it can change, in a fixed order, and the notebook is never one', async () => {
-  const C = await lib('implementControl.js');
-  const cards = [
-    { output: 'dashboard', live: true }, { output: 'notebook', live: true }, { output: 'alert', live: false },
-    { output: 'app', live: true }, { output: 'genie_space', live: true }, { output: 'mystery', live: true },
-  ];
-  assert.deepEqual(C.vibeOutputs(cards), ['genie_space', 'app', 'dashboard']);
-  assert.deepEqual(C.vibeOutputs([{ output: 'notebook', live: true }]), []);
-  assert.deepEqual(C.vibeOutputs(null), []);
-  assert.equal(C.vibePlaceholder(['genie_space', 'app', 'dashboard']), 'Tell us what to change in the Genie Agent, the App or the dashboard');
-  assert.equal(C.vibePlaceholder(['dashboard', 'alert']), 'Tell us what to change in the dashboard or the alert');
-  assert.equal(C.vibePlaceholder(['app']), 'Tell us what to change in the App');
-  assert.equal(C.vibePlaceholder(['notebook']), '', 'nothing to vibe gives no prompt');
-  assert.equal(C.vibePlaceholder([]), '');
-});
-
 test('the version a vibe builds on is the newest built one, and each action sends only its own keys', async () => {
   const C = await lib('implementControl.js');
   const rows = [{ spec_version: 1, status: 'ready' }, { spec_version: 4, status: 'failed' }, { spec_version: 3, status: 'ready_with_warnings' },
@@ -28,7 +12,6 @@ test('the version a vibe builds on is the newest built one, and each action send
   assert.equal(C.liveVersion(rows), 3, 'a failed or uninstalled version is not live');
   assert.equal(C.liveVersion([{ spec_version: 1, status: 'queued' }]), null);
   assert.equal(C.liveVersion(null), null);
-  assert.deepEqual(C.globalVibeChanges('  Put the riskiest first \n', 'keep'), { vibes: 'Put the riskiest first', vibe_previous: 'keep' });
   assert.deepEqual(C.removeKeptChanges('2'), { remove_kept: [2] });
   assert.deepEqual(C.uninstallChanges(), { uninstall: true });
 });
@@ -44,7 +27,7 @@ test('a new version drops every one-version action of the version it is based on
       confirm_notebook_overwrite: true, based_on_version: 3,
     },
   };
-  const next = W.nextSpecFrom(latest, C.globalVibeChanges('New ask', 'keep'));
+  const next = W.nextSpecFrom(latest, { vibes: 'New ask', vibe_previous: 'keep' });
   assert.deepEqual(next, { use_case_id: 'N01-U01', outputs: { dashboard: true, dashboard_vibes: 'Trend first' }, based_on_version: 4,
     vibes: 'New ask', vibe_previous: 'keep' });
   const plain = W.nextSpecFrom(latest);
@@ -52,28 +35,6 @@ test('a new version drops every one-version action of the version it is based on
     assert.ok(!Object.hasOwn(plain, key), `${key} is carried into the next version`);
   }
   assert.deepEqual(W.nextSpecFrom(latest, C.uninstallChanges()).uninstall, true);
-});
-
-test('the last vibe shows where each part of it went and what no asset could do, from the newest version that routed one', async () => {
-  const C = await lib('implementControl.js');
-  const routed = {
-    state: 'routed', text: ' Put the riskiest first. Add a map. ', previous: 'keep',
-    routes: { dashboard: 'Put the riskiest first', 'app:page:overview': 'Add the risk column', genie_space: '  ' },
-    not_routed: [{ ask: 'Add a map', reason: 'no map data' }, { ask: ' ', reason: 'empty' }, null],
-  };
-  const history = [
-    { spec_version: 2, status: 'ready', asset_status: { vibe: { state: 'routed', text: 'older', routes: { dashboard: 'older' } } } },
-    { spec_version: 3, status: 'ready_with_warnings', asset_status: { vibe: routed, 'app:page:overview': { state: 'ready', name: 'Overview' } } },
-    { spec_version: 4, status: 'ready', asset_status: { dashboard: { state: 'ready' } } },
-  ];
-  assert.deepEqual(C.lastVibe(history), {
-    version: 3, status: 'ready_with_warnings', text: 'Put the riskiest first. Add a map.', previous: 'keep',
-    routes: [{ id: 'dashboard', label: 'Dashboard', words: 'Put the riskiest first' }, { id: 'app:page:overview', label: 'Overview page', words: 'Add the risk column' }],
-    notRouted: [{ ask: 'Add a map', reason: 'no map data' }],
-  });
-  assert.equal(C.lastVibe([{ spec_version: 1, asset_status: { vibe: 'text' } }]), null, 'a vibe that is not an object is ignored');
-  assert.equal(C.lastVibe([{ spec_version: 1, asset_status: { vibe: ['x'] } }]), null);
-  assert.equal(C.lastVibe([]), null);
 });
 
 test('kept versions come from the newest list, grouped by version newest first, and bad entries are dropped', async () => {

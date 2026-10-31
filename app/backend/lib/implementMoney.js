@@ -85,6 +85,9 @@ function moneyView(summary, edits = []) {
     act_now_amount: numberOrNull(summary.act_now_amount), review_amount: numberOrNull(summary.review_amount),
     act_now_records: numberOrNull(summary.act_now_records), review_records: numberOrNull(summary.review_records), records: numberOrNull(summary.records),
     value_at_stake: numberOrNull(summary.value_at_stake), nothing_to_act: String(summary.nothing_to_act ?? '').trim(), accepted: truthy(summary.accepted),
+    preview_sample_entities: numberOrNull(summary.preview_sample_entities),
+    not_reliable: String(summary.not_reliable ?? '').trim(), act_now_capacity: numberOrNull(summary.act_now_capacity),
+    over_capacity_records: numberOrNull(summary.over_capacity_records),
   };
   const model = template || assumptions.length ? {
     template, parts: formulaParts(template, assumptions), assumptions, currency: run.currency,

@@ -1,18 +1,30 @@
 import {
-  BUILT_ASSET_STATES, IMPLEMENT_OUTPUTS, IMPLEMENT_UNINSTALLED, holdoutText, partLabel, partOf, rebuildableOutputs, statusChip, versionActive, vibesKey,
+  BUILT_ASSET_STATES, GENIE_FOR_APP_NOTE, IMPLEMENT_DONE_STATUSES, IMPLEMENT_OUTPUTS, IMPLEMENT_UNINSTALLED, assetLabel, holderNames, holdersText, holdoutText, partLabel, partOf,
+  rebuildableOutputs, statusChip, versionActive, vibesKey,
 } from './implementWizard.js';
 import { formatWhen } from './formatWhen.js';
+import { planActionText, planActions } from './mvpProgress.js';
 
 export const CONTROL_REFRESH_MS = 15000;
 
-export const PROGRESS_TAB = 'Progress';
-export const CONTROL_TAB = 'Control Tower';
+export const BUILD_TAB = 'build';
+export const MVP_TABS = [
+  { id: BUILD_TAB, label: 'Build' }, { id: 'app', label: 'App' }, { id: 'dashboard', label: 'Dashboard' },
+  { id: 'alert', label: 'Alert' }, { id: 'genie_space', label: 'Agent' }, { id: 'notebook', label: 'Notebook' },
+];
+const MVP_TAB_IDS = MVP_TABS.map((t) => t.id);
 
-export function implementDefaultTab(view, active, picked = null) {
+export function idleMvpTab(latest) {
+  if (!BUILT_ASSET_STATES.includes(String(latest?.status || ''))) return BUILD_TAB;
+  const outputs = latest?.spec_json?.outputs || {};
+  return ['app', 'dashboard', 'alert', 'genie_space'].find((id) => outputs[id]) || 'notebook';
+}
+
+export function implementDefaultTab(view, active, picked = null, idle = BUILD_TAB) {
   const on = Boolean(active);
-  if ([PROGRESS_TAB, CONTROL_TAB].includes(picked)) return { tab: picked, active: on };
+  if (MVP_TAB_IDS.includes(picked)) return { tab: picked, active: on };
   if (view && view.active === on) return view;
-  return { tab: on ? PROGRESS_TAB : CONTROL_TAB, active: on };
+  return { tab: on ? BUILD_TAB : idle, active: on };
 }
 
 const APP_STATES = {
@@ -173,23 +185,110 @@ export function buildSummary(items) {
   };
 }
 
-export function controlTiles(live, latest, { active = false, buildingNow = '' } = {}) {
+const STAGE_PENDING = ['running', 'next', 'waiting'];
+
+function plannedWork(plan, stages, buildingNow) {
+  const acts = new Map(planActions(plan).map((a) => [a.id, a]));
+  return (output) => {
+    const act = acts.get(output.id);
+    if (!act) return null;
+    const stage = (stages || []).find((s) => s.id === output.label) || null;
+    if (stage && !STAGE_PENDING.includes(stage.state)) return { settled: true };
+    return { now: stage ? stage.state === 'running' : buildingNow === output.label, doing: planActionText(act).now };
+  };
+}
+
+export function controlTiles(live, latest, { active = false, buildingNow = '', plan = null, stages = null } = {}) {
   const rows = controlRows(live, latest);
   const byId = new Map(rows.map((row) => [row.id, row]));
   const chosen = latest?.spec_json?.outputs || {};
   const assets = latest?.asset_status || {};
+  const work = active && plan && !plan.pending ? plannedWork(plan, stages, buildingNow) : null;
   return {
     strips: rows.filter((row) => row.id === 'build' || row.id === 'job'),
     tiles: IMPLEMENT_OUTPUTS.map((output) => {
       const row = byId.get(output.id);
-      if (row) return { output, kind: 'live', row };
-      if (!chosen[output.id]) return { output, kind: 'off' };
-      if (active) return { output, kind: 'building', now: buildingNow === output.label };
+      const planned = work ? work(output) : null;
+      const building = planned && !planned.settled ? planned : null;
+      if (row) return { output, kind: 'live', row, ...(building ? { building } : {}) };
+      if (!chosen[output.id]) {
+        const note = takenOutText(assets[output.id], output.id);
+        return { output, kind: 'off', ...(note ? { note } : {}) };
+      }
+      if (active && plan?.pending) return { output, kind: 'planning' };
+      if (active && !plan) return { output, kind: 'building', now: buildingNow === output.label };
+      if (building) return { output, kind: 'building', ...building };
       if (assets[output.id]?.state === 'failed') return { output, kind: 'failed', error: String(assets[output.id].error || '') };
-      if (!live) return { output, kind: 'checking' };
+      if (!live || planned?.settled) return { output, kind: 'checking' };
       return { output, kind: 'missing' };
     }),
   };
+}
+
+const SHARED_PART_WORDS = { app: 'pages', dashboard: 'pages', genie_space: 'tables, instructions and sample questions' };
+const SHARED_CONTROL_WORDS = { stop: ['stops', 'stop'], start: ['starts', 'start'], unpublish: ['unpublishes', 'are unpublished'], publish: ['publishes', 'are published'] };
+const SHARED_CONTROL_ASSETS = ['app', 'dashboard'];
+
+export function sharedControlAsks(a, uninstall) {
+  return Boolean(uninstall) && SHARED_CONTROL_ASSETS.includes(a.asset) && Object.hasOwn(SHARED_CONTROL_WORDS, a.action)
+    && (uninstall.others.length > 0 || uninstall.unknown);
+}
+
+export function sharedControlText(a, uninstall) {
+  const [does, effect] = SHARED_CONTROL_WORDS[a.action];
+  const part = SHARED_PART_WORDS[a.asset];
+  const names = holderNames(uninstall.others);
+  if (!names.length) return `Inspire could not check whether other use cases hold ${part} in ${uninstall.target}. If one does, its ${part} ${effect} with it too.`;
+  return `Inspire ${does} ${uninstall.target} for every use case in it: the ${part} of ${holdersText(names)} ${effect} with this use case's ${part}.`;
+}
+
+export function sharedNote(id, uninstall, builtBy) {
+  if (!uninstall || !SHARED_CONTROL_ASSETS.includes(id)) return '';
+  const part = SHARED_PART_WORDS[id];
+  if (builtBy) {
+    const rest = holderNames((uninstall.others || []).filter((u) => !(String(u?.use_case_id) === String(builtBy.use_case_id)
+      && String(u?.session_id) === String(builtBy.session_id))));
+    return `This use case's ${part} are part of ${uninstall.target}, which ${builtBy.name || builtBy.use_case_id} built.${
+      rest.length ? ` It also holds the ${part} of ${holdersText(rest)}.` : ''}`;
+  }
+  const names = holderNames(uninstall.others);
+  return names.length ? `${uninstall.target} also holds the ${part} of ${holdersText(names)}.` : '';
+}
+
+export function takenOutText(entry, id) {
+  const target = String(entry?.taken_out_of ?? '').trim();
+  if (entry?.state !== 'released' || !target) return '';
+  const who = (Array.isArray(entry.stays_for) ? entry.stays_for : []).map((u) => String(u ?? '').trim()).filter(Boolean);
+  return `This use case's ${SHARED_PART_WORDS[id] || 'part'} were taken out of ${target}${who.length ? `, which stays for ${holdersText(who)}` : ''}.`;
+}
+
+export function assetUninstall(id, latest, live, name = '') {
+  const outputs = latest?.spec_json?.outputs || {};
+  const shared = live?.shared?.[id] || null;
+  const others = Array.isArray(shared?.use_cases) ? shared.use_cases : [];
+  const target = String(name || shared?.id || '').trim();
+  return {
+    label: others.length && target ? `Remove from ${target}` : 'Uninstall',
+    others,
+    target,
+    blocked: id === 'genie_space' && outputs.app ? `${GENIE_FOR_APP_NOTE} Uninstall the App first.` : '',
+    unknown: Boolean(live) && !live.shared,
+  };
+}
+
+export function uninstallText(output, row, uninstall) {
+  const name = String(row?.name || uninstall?.target || '').trim();
+  const who = holderNames(uninstall?.others);
+  if (who.length) {
+    return `Inspire takes this use case's ${SHARED_PART_WORDS[output.id] || 'part'} out of ${name} in a new version of this MVP and keeps the other outputs. `
+      + `${name} stays for ${holdersText(who)}. If no other use case holds it by the time the job runs, Inspire deletes it instead.`;
+  }
+  const shareable = Object.hasOwn(SHARED_PART_WORDS, output.id);
+  const check = !shareable ? ''
+    : uninstall?.unknown
+      ? ' Inspire could not check whether other use cases share it, so it checks again first: if one does, it takes out only this use case\'s part.'
+      : ` Inspire checks again when the job runs: if another use case shares it by then, Inspire takes out only this use case's ${SHARED_PART_WORDS[output.id]} and keeps it for them.`;
+  return `Inspire deletes the ${output.label} ${name} in a new version of this MVP and keeps the other outputs. You can add it back with Edit MVP.${check}`;
 }
 
 export function removeChanges(latest, output) {
@@ -200,7 +299,7 @@ export function removeChanges(latest, output) {
   };
 }
 
-const DONE = ['ready', 'ready_with_warnings'];
+const DONE = IMPLEMENT_DONE_STATUSES;
 const BUILD_STEP = { queued: 0, checking: 2 };
 const WARNING_START = /; (?=[A-Z][A-Za-z ]{0,40}: )/;
 const savedVibes = (row, id) => String(row?.spec_json?.outputs?.[vibesKey(id)] ?? '').trim();
@@ -248,16 +347,18 @@ export function vibeChecks(raw) {
     ask: String(check.ask).trim(),
     done: String(check.status ?? '').trim().toLowerCase() === 'done',
     evidence: String(check.evidence ?? '').trim(),
+    doable: check.doable !== false,
   }));
 }
 
 export function checksSummary(checks) {
   const done = checks.filter((check) => check.done).length;
-  return `You asked for ${checks.length} ${checks.length === 1 ? 'thing' : 'things'}. Done: ${done} of ${checks.length}.`;
+  const cannot = checks.filter((check) => !check.done && !check.doable).length;
+  return `You asked for ${checks.length} ${checks.length === 1 ? 'thing' : 'things'}. Done: ${done} of ${checks.length}.${cannot ? ` ${cannot} cannot be done here.` : ''}`;
 }
 
 export function missingAsks(checks) {
-  return checks.filter((check) => !check.done).map((check) => check.ask);
+  return checks.filter((check) => !check.done && check.doable).map((check) => check.ask);
 }
 
 export function askCount(text) {
@@ -282,7 +383,7 @@ function assetPill(entry, checks, rebuilding) {
   return ASSET_PILLS[state] || statusChip(state);
 }
 
-function rebuildTargets(latest, base) {
+function legacyRebuildTargets(latest, base) {
   if (String(latest?.change_classes || '').split(',').some((c) => ['initial', 'data', 'config'].includes(c.trim()))) return ALL_ASSETS;
   const spec = latest?.spec_json || {};
   const ids = new Set([...(spec.retry_outputs || []), ...Object.keys(spec.rollback_outputs || {})]);
@@ -300,30 +401,78 @@ function rebuildTargets(latest, base) {
   return ids;
 }
 
-export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
+function legacyRebuild(latest, base) {
+  const targets = legacyRebuildTargets(latest, base);
+  const rolling = latest.spec_json?.rollback_outputs || {};
+  return (id, output, gone) => (targets === ALL_ASSETS || targets.has(id) || targets.has(output) ? { rollback: gone ? null : Number(rolling[output]) || null } : null);
+}
+
+const NOTEBOOK_REBUILDS = { notebook: (plan) => plan.refill, value_formula: (plan) => plan.refill, ai_reasoning: (plan) => plan.refill || plan.preview };
+const CARD_ACTIONS = ['build', 'rollback_built', 'rebuild', 'restyle', 'rollback'];
+const cardActions = (plan) => planActions(plan).filter((a) => CARD_ACTIONS.includes(a.action));
+
+function plannedRebuild(plan, latest) {
+  const acts = new Map(cardActions(plan).map((a) => [a.id, a]));
+  const retry = (Array.isArray(latest.spec_json?.retry_outputs) ? latest.spec_json.retry_outputs : []).map(String);
+  return (id, output) => {
+    if (output === 'notebook') return NOTEBOOK_REBUILDS[id]?.(plan) ? { rollback: null } : null;
+    const act = acts.get(output);
+    if (!act) return null;
+    const parts = retry.filter((r) => partOf(r)?.output === output);
+    if (act.action === 'rebuild' && parts.length && !retry.includes(output) && !parts.includes(id)) return null;
+    return { rollback: act.action === 'rollback' ? act.version : null };
+  };
+}
+
+function planReach(plan) {
+  const removed = planActions(plan).filter((a) => a.action === 'delete').map((a) => a.id);
+  return new Set([...cardActions(plan).map((a) => a.id), ...removed, ...(plan.refill || plan.preview ? ['notebook'] : [])]);
+}
+
+function markAlone(cards, plan) {
+  const busy = cards.filter((c) => c.building);
+  const reach = plan ? planReach(plan) : new Set(busy.map((c) => c.output));
+  for (const c of busy) {
+    c.building.alone = reach.size === 1 && reach.has(c.output) && (c.id === c.output || busy.filter((b) => b.output === c.output).length === 1);
+  }
+  return cards;
+}
+
+export function rebuildingText(card) {
+  const alone = Boolean(card?.building?.alone);
+  const rest = alone ? 'Nothing else changes.' : 'This version changes other parts too.';
+  if (card.appFollows) return `Rebuilding the ${card.label}, then pointing the App page at it. ${rest}`;
+  return alone ? `Rebuilding the ${card.label} only. ${rest}` : `Rebuilding the ${card.label}. ${rest}`;
+}
+
+export function rollingBackText(card) {
+  return `Putting version ${card.building.rollback} live again. Genie is not called${card.building.alone ? ' and nothing else changes' : ' for it'}.`;
+}
+
+export function vibeCards(history, latest, stalled = null, notebookUrl = '', plan = null) {
   const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
   const active = versionActive(latest, stalled);
   const base = active ? rows.find((r) => DONE.includes(r.status)) : latest;
   if (!base || !DONE.includes(String(base.status))) return [];
   const chosen = latest.spec_json?.outputs || {};
   const built = rebuildableOutputs(base).map((o) => o.id);
-  const targets = active ? rebuildTargets(latest, base) : new Set();
+  const planned = active && plan && !plan.pending ? plan : null;
+  const rebuildOf = !active || plan?.pending ? () => null : planned ? plannedRebuild(planned, latest) : legacyRebuild(latest, base);
   const asking = latest.spec_json?.retry_asks || {};
-  const rolling = latest.spec_json?.rollback_outputs || {};
   const at = (row) => String(row?.updated_at || row?.created_at || '');
   const liveAt = (version) => (version == null ? null : { version, at: at(rows.find((r) => r.spec_version === version)) });
   const urlOf = (output) => (output === 'notebook' ? String(notebookUrl || '') : String(base[OUTPUT_URLS[output]] || latest[OUTPUT_URLS[output]] || ''));
   const card = (id, output, entry, version, fields) => {
     const kind = partOf(id)?.kind || id;
     const { checks, checkedOn } = builtChecks(rows, version, id);
-    const rebuilding = targets === ALL_ASSETS || targets.has(id) || targets.has(output);
     const gone = Object.hasOwn(OUTPUT_IDS, output) && !base[OUTPUT_IDS[output]];
-    const rollback = gone ? null : Number(rolling[output]) || null;
+    const doing = rebuildOf(id, output, gone);
+    const rollback = doing?.rollback ?? null;
     const asks = rollback ? 0 : Array.isArray(asking[id]) ? asking[id].length : askCount(fields.vibes);
     return {
       id, output, name: '', versions: [], warnings: [], ...fields, gone, live: liveAt(version), url: urlOf(output),
       what: String(entry?.what ?? entry?.description ?? '').trim() || ASSET_WHAT[kind], noun: ASSET_NOUNS[kind],
-      checks, checkedOn, state: assetPill(entry, checks, rebuilding), building: rebuilding ? { step: BUILD_STEP[latest.status] ?? 1, asks, rollback } : null,
+      checks, checkedOn, state: assetPill(entry, checks, Boolean(doing)), building: doing ? { step: BUILD_STEP[latest.status] ?? 1, asks, rollback, alone: false } : null,
     };
   };
   const parts = (output) => Object.entries(base.asset_status || {})
@@ -337,7 +486,7 @@ export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
   const notebookVersion = notebookEntry?.spec_version ?? null;
   const notebook = notebookVersion == null ? []
     : [card('notebook', 'notebook', notebookEntry, notebookVersion, { label: 'notebook', vibes: String(latest.spec_json?.data?.notes ?? '').trim(), rebuild: true })];
-  return [...notebook, ...parts('notebook'), ...IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id]).flatMap((o) => {
+  return markAlone([...notebook, ...parts('notebook'), ...IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id]).flatMap((o) => {
     const entry = base.asset_status?.[o.id];
     const liveVersion = BUILT_ASSET_STATES.includes(entry?.state) ? (entry.spec_version ?? base.spec_version ?? null) : null;
     const versions = rows.filter((r) => {
@@ -348,11 +497,11 @@ export function vibeCards(history, latest, stalled = null, notebookUrl = '') {
     }));
     const whole = card(o.id, o.id, entry, liveVersion, {
       label: o.label, blurb: o.blurb, vibes: String(chosen[vibesKey(o.id)] ?? '').trim(), rebuild: built.includes(o.id), versions,
-      appFollows: o.id === 'genie_space' && built.includes('app'),
+      appFollows: o.id === 'genie_space' && (planned ? planned.repoint.includes('app') : built.includes('app')),
     });
     whole.warnings = whole.checks.length ? [] : vibeWarnings(base, o.id);
     return [whole, ...parts(o.id)];
-  }).filter((c) => c.rebuild || c.versions.length)];
+  }).filter((c) => c.rebuild || c.versions.length)], planned);
 }
 
 const PICK_GROUPS = [['notebook', 'Genie Code notebook'], ['results', 'Results'], ['app', 'App'], ['dashboard', 'Dashboard'], ['genie_space', 'Genie Agent'], ['alert', 'Alert']];
@@ -373,12 +522,10 @@ export function assetGroups(cards, rows = []) {
   const list = cards || [];
   return PICK_GROUPS.map(([key, label]) => {
     const own = list.filter((c) => pickGroup(c) === key);
-    const parts = own.filter((c) => c.id !== c.output);
-    const shown = ['app', 'dashboard'].includes(key) && parts.length ? parts : own;
     return {
       key,
       label,
-      assets: shown.map((c) => ({
+      assets: own.map((c) => ({
         ...c, group: label, title: pickTitle(c, names.get(c.id)), name: c.name || names.get(c.id) || '', parent: c.id === c.output ? null : list.find((p) => p.id === c.output) || null,
       })),
     };
@@ -389,19 +536,109 @@ export function tryAgainChanges(id, asks) {
   return { retry_outputs: [id], retry_asks: { [id]: [...asks] } };
 }
 
-export function vibeChanges(latest, id, text) {
-  const outputs = latest?.spec_json?.outputs || {};
+export const COLLECTED_VIBES_KEY = 'inspire.collected_vibes.v1';
+
+export function collectedScope(host, database, sessionId, useCaseId) {
+  return [host, database, sessionId, useCaseId].map((part) => String(part ?? '').trim()).join('|');
+}
+
+function readCollected(storage) {
+  try {
+    const all = JSON.parse(storage?.getItem(COLLECTED_VIBES_KEY) || '{}');
+    return all && typeof all === 'object' && !Array.isArray(all) ? all : {};
+  } catch {
+    return {};
+  }
+}
+
+const asked = (text) => ({ kind: 'ask', text });
+const sameText = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+
+function collectedEntry(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const text = String(entry.text ?? '').trim();
+  const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+  if (!text) return null;
+  if (entry.kind === 'ask') return asked(text);
+  if (entry.kind === 'remove') return id ? { kind: 'remove', id, label: String(entry.label ?? '').trim(), text } : null;
+  if (entry.kind !== undefined || !id) return null;
+  const name = String(entry.label ?? '').trim() || assetLabel(id);
+  return asked(`${name.charAt(0).toUpperCase()}${name.slice(1)}: ${text}`);
+}
+
+export function loadCollectedVibes(scope, storage = globalThis.localStorage) {
+  const entries = readCollected(storage)[scope];
+  return (Array.isArray(entries) ? entries : []).map(collectedEntry).filter(Boolean);
+}
+
+export function saveCollectedVibes(scope, entries, storage = globalThis.localStorage) {
+  const all = readCollected(storage);
+  const kept = (entries || []).filter((entry) => String(entry?.text ?? '').trim());
+  if (kept.length) all[scope] = kept;
+  else delete all[scope];
+  try {
+    storage.setItem(COLLECTED_VIBES_KEY, JSON.stringify(all));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function collectAsk(entries, text) {
+  const list = entries || [];
   const next = String(text ?? '').trim();
-  if (id === 'notebook') {
-    const data = latest?.spec_json?.data || {};
-    return next === String(data.notes ?? '').trim() ? { retry_outputs: ['notebook'] } : { data: { ...data, notes: next } };
+  if (!next || list.some((entry) => entry.kind === 'ask' && sameText(entry.text, next))) return list;
+  return [...list, asked(next)];
+}
+
+export function collectRemoval(entries, id, label, text) {
+  const list = entries || [];
+  const ask = String(text ?? '').trim();
+  if (!ask || !id || list.some((entry) => entry.kind === 'remove' && entry.id === id && sameText(entry.text, ask))) return list;
+  return [...list, { kind: 'remove', id, label: String(label ?? '').trim(), text: ask }];
+}
+
+export function dropCollected(entries, dropped) {
+  return (entries || []).filter((entry) => !(entry.kind === dropped?.kind && (entry.id || '') === (dropped?.id || '') && sameText(entry.text, dropped?.text)));
+}
+
+export function removingAsk(entries, id, ask) {
+  return (entries || []).find((entry) => entry.kind === 'remove' && entry.id === id && sameText(entry.text, ask)) || null;
+}
+
+export function collectedNoteText(entries, active = false) {
+  const count = (entries || []).length;
+  if (!count) return '';
+  const out = entries.filter((entry) => entry.kind === 'remove').length;
+  const one = count === 1;
+  const lead = one ? 'One ask is waiting' : `${count} asks are waiting`;
+  const outs = out && !one ? `, ${out} of them to take out` : out ? ', to take out' : '';
+  return `${lead}${outs}. ${active ? 'After this build finishes, ' : ''}Edit MVP opens ${one ? 'it' : 'them'} in the Vibes step so one build carries ${one ? 'it' : 'them all'}.`;
+}
+
+export const RAIL_WIDTH = { min: 240, max: 520, start: 320, step: 16 };
+const RAIL_WIDTH_KEY = 'inspire.implement_rail_width';
+
+export function railWidth(value) {
+  const n = value === null || value === undefined || value === '' ? NaN : Math.round(Number(value));
+  return Number.isFinite(n) ? Math.min(RAIL_WIDTH.max, Math.max(RAIL_WIDTH.min, n)) : RAIL_WIDTH.start;
+}
+
+export function loadRailWidth(storage = globalThis.localStorage) {
+  try {
+    return railWidth(storage?.getItem(RAIL_WIDTH_KEY));
+  } catch {
+    return RAIL_WIDTH.start;
   }
-  if (partOf(id)) {
-    return next === String(outputs[vibesKey(id)] ?? '').trim()
-      ? { retry_outputs: [id] }
-      : { outputs: { ...outputs, [vibesKey(id)]: String(text ?? '') }, retry_outputs: [id] };
+}
+
+export function saveRailWidth(width, storage = globalThis.localStorage) {
+  try {
+    storage.setItem(RAIL_WIDTH_KEY, String(railWidth(width)));
+    return true;
+  } catch {
+    return false;
   }
-  return next === String(outputs[vibesKey(id)] ?? '').trim() ? { retry_outputs: [id] } : { outputs: { ...outputs, [vibesKey(id)]: next } };
 }
 
 export function rollbackChanges(latest, id, version, vibes) {
@@ -418,27 +655,10 @@ export function controlActionText(entry) {
   return `${entry?.message || `${entry?.asset} ${entry?.action}`}${who}${when}`;
 }
 
-const VIBE_OUTPUT_WORDS = { genie_space: 'the Genie Agent', app: 'the App', dashboard: 'the dashboard', alert: 'the alert' };
-const heading = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 const newestFirst = (history) => [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
-
-export function vibeOutputs(cards) {
-  const live = new Set((cards || []).filter((c) => c.live && Object.hasOwn(VIBE_OUTPUT_WORDS, c.output)).map((c) => c.output));
-  return Object.keys(VIBE_OUTPUT_WORDS).filter((id) => live.has(id));
-}
-
-export function vibePlaceholder(outputs) {
-  const words = (outputs || []).map((id) => VIBE_OUTPUT_WORDS[id]).filter(Boolean);
-  if (!words.length) return '';
-  return `Tell us what to change in ${words.length === 1 ? words[0] : `${words.slice(0, -1).join(', ')} or ${words.at(-1)}`}`;
-}
 
 export function liveVersion(history) {
   return newestFirst(history).find((row) => DONE.includes(String(row?.status)))?.spec_version ?? null;
-}
-
-export function globalVibeChanges(text, previous) {
-  return { vibes: String(text ?? '').trim(), vibe_previous: previous };
 }
 
 export function removeKeptChanges(version) {
@@ -447,20 +667,6 @@ export function removeKeptChanges(version) {
 
 export function uninstallChanges() {
   return { uninstall: true };
-}
-
-export function lastVibe(history) {
-  const row = newestFirst(history).find((r) => r?.asset_status?.vibe && typeof r.asset_status.vibe === 'object' && !Array.isArray(r.asset_status.vibe));
-  if (!row) return null;
-  const vibe = row.asset_status.vibe;
-  const named = (id) => String(row.asset_status?.[id]?.name ?? row.asset_status?.[id]?.title ?? '');
-  const routes = Object.entries(vibe.routes && typeof vibe.routes === 'object' ? vibe.routes : {})
-    .map(([id, words]) => ({ id, label: heading(partLabel(id, named(id))), words: String(words ?? '').trim() }))
-    .filter((route) => route.words);
-  const notRouted = (Array.isArray(vibe.not_routed) ? vibe.not_routed : [])
-    .map((item) => ({ ask: String(item?.ask ?? '').trim(), reason: String(item?.reason ?? '').trim() }))
-    .filter((item) => item.ask);
-  return { version: row.spec_version, status: String(row.status || ''), text: String(vibe.text ?? '').trim(), previous: String(vibe.previous ?? ''), routes, notRouted };
 }
 
 export function keptVersions(history) {

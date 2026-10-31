@@ -269,6 +269,27 @@ test('the merge registry lists the assets other use cases hold, with their use c
   assert.match(I.implementRegistryStatement('t').sql, /WHERE `app_name` IS NOT NULL OR `dashboard_id` IS NOT NULL OR `genie_space_id` IS NOT NULL OR `asset_status` IS NOT NULL/);
 });
 
+test('the use case\'s own App, dashboard or Genie Agent is shared when another use case holds it too, and only then', () => {
+  const rows = [
+    row('42', 'N01-U01', 2, { app_name: 'hub-desk', dashboard_id: 'own-dash', genie_space_id: 'g1' }),
+    row('42', 'N01-U01', 1, { app_name: 'old-desk' }),
+    row('42', 'N01-U02', 1, { app_name: 'hub-desk', spec_json: named('Forecast demand') }),
+    row('7', 'N03-U04', 1, { app_name: 'hub-desk', genie_space_id: 'g1', spec_json: named('Plan routes') }),
+    row('42', 'N01-U05', 1, { app_name: 'old-desk', spec_json: named('Old holder') }),
+    row('42', 'N02-U01', 1, { dashboard_id: 'other-dash', spec_json: named('Other dashboard') }),
+  ].map(I.parseImplementRow);
+  const shared = I.sharedHolders(rows, { sessionId: '42', useCaseId: 'N01-U01' });
+  assert.deepEqual(shared.app, { id: 'hub-desk', use_cases: [
+    { session_id: '42', use_case_id: 'N01-U02', name: 'Forecast demand' }, { session_id: '7', use_case_id: 'N03-U04', name: 'Plan routes' }] });
+  assert.deepEqual(shared.genie_space.use_cases.map((u) => u.use_case_id), ['N03-U04'], 'another session counts');
+  assert.equal(shared.dashboard, null, 'a dashboard only this use case holds is not shared');
+  assert.deepEqual(I.sharedHolders(rows, { sessionId: '42', useCaseId: 'N09-U09' }), { dashboard: null, genie_space: null, app: null },
+    'a use case that holds nothing shares nothing');
+  assert.deepEqual(I.sharedHolders([], { sessionId: '42', useCaseId: 'N01-U01' }), { dashboard: null, genie_space: null, app: null });
+  const alone = I.sharedHolders(rows.filter((r) => r.use_case_id === 'N01-U01'), { sessionId: '42', useCaseId: 'N01-U01' });
+  assert.equal(alone.app, null, 'the App the use case built alone is its own to uninstall');
+});
+
 test('a per-user use case cannot join a service-principal App, and a merge target must be one Inspire listed', () => {
   const sp = { id: 'churn-desk', name: 'churn-desk', access: 'sp', use_cases: [] };
   const user = { id: 'care-desk', name: 'care-desk', access: 'user', use_cases: [] };

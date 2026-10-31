@@ -14,14 +14,8 @@ test.after(closeBrowser);
 
 const next = (page) => page.getByRole('button', { name: 'Next' }).click();
 const footerErrors = (page) => page.locator('[role="alert"] p').allTextContents();
-const VIBES_TABS = { 'Notebook vibes': 'notebook', 'Vibes for the Dashboard': 'dashboard', 'Vibes for the Genie Agent': 'genie_space', 'App vibes': 'app', 'Vibes for the Alert': 'alert' };
-const vibesTabs = (page) => page.getByRole('tablist', { name: 'Vibes for each asset', exact: true });
-async function vibesBox(page, name) {
-  await vibesTabs(page).locator(`[data-tab="${VIBES_TABS[name]}"]`).click();
-  const box = page.getByRole('textbox', { name, exact: true });
-  await box.waitFor();
-  return box;
-}
+const ONE_BOX = 'Vibes for the MVP';
+const wizardBox = (page) => page.getByRole('region', { name: 'Vibes', exact: true }).getByRole('textbox', { name: ONE_BOX, exact: true });
 
 async function toDelivery(page) {
   await onStep(page, 'Choose');
@@ -58,7 +52,6 @@ async function readable(page, selectors, name) {
 
 const STEPS_WITH_APP = ['1. Choose', '2. Data', '3. Results', '4. Delivery', '5. App placement', '6. App access', '7. App look', '8. Vibes'];
 const boxLabels = (panel) => panel.locator('textarea').evaluateAll((boxes) => boxes.map((b) => b.getAttribute('aria-label')));
-const tabNames = (page) => vibesTabs(page).getByRole('tab').evaluateAll((tabs) => tabs.map((t) => t.textContent));
 
 async function grayExamples(page, panel) {
   return panel.locator('textarea').evaluateAll((boxes) => boxes.map((b) => {
@@ -76,7 +69,7 @@ function assertGray(examples, mode) {
   }
 }
 
-test('Vibes is the last step: Delivery asks for no vibes, each picked output gets a box with a gray example, and the step names what has no box', async () => {
+test('Vibes is the last step: Delivery asks for no vibes, the step has one box for the whole MVP with a gray example, a first build asks nothing about a version before, and the step names what Genie does not build', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page } = ui;
   try {
@@ -90,21 +83,25 @@ test('Vibes is the last step: Delivery asks for no vibes, each picked output get
     await toVibes(page);
     const panel = page.getByRole('region', { name: 'Vibes' });
     await panel.getByRole('heading', { name: 'Anything else Genie should build in?' }).waitFor();
-    await panel.getByText('Each box is optional: leave it empty and Genie builds it the way Inspire would. The gray text in a box is only an example.', { exact: false }).waitFor();
-    assert.deepEqual(await boxLabels(panel), ['Notebook vibes', 'Vibes for the Dashboard', 'Vibes for the Genie Agent'], 'the notebook, then one box per picked output');
-    assert.deepEqual(await tabNames(page), ['Notebook', 'Dashboard', 'Genie Agent'], 'one tab per box, in the same order');
+    await panel.getByText('There is one box for the whole MVP: Inspire sends each ask to the part it changes, and an ask that changes the analysis rebuilds the notebook and every '
+      + 'part after it. The box is optional, and its gray text is only an example.', { exact: false }).waitFor();
+    assert.deepEqual(await boxLabels(panel), [ONE_BOX], 'one box, never one per asset');
+    assert.equal(await panel.getByRole('tablist').count(), 0, 'no tab per asset');
+    assert.equal(await panel.locator('[data-vibe-previous]').count(), 0);
+    await wizardBox(page).fill('Put the weekly trend first');
+    assert.equal(await panel.getByRole('group', { name: /^What happens to v/ }).count(), 0, 'a first build has no version before to keep or remove');
+    await wizardBox(page).fill('');
     assert.equal(await panel.locator('[data-vibes-skipped]').textContent(),
-      'No box for App and Alert: Genie builds only what you picked in the Delivery step. To vibe them, go Back to Delivery and pick them.');
-    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Notebook vibes', 'the first box has the focus');
+      'Genie builds only what you picked in the Delivery step, so an ask for the App and the Alert is not done. To vibe them, go Back to Delivery and pick them.');
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), ONE_BOX, 'the box has the focus');
     for (const dark of [false, true]) {
       await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
       const examples = await grayExamples(page, panel);
-      assert.equal(examples.length, 3);
+      assert.equal(examples.length, 1);
       assertGray(examples, dark ? 'dark' : 'light');
-      assert.equal(new Set(examples.map((e) => e.text)).size, 3, 'each box has its own example');
     }
     await page.evaluate(() => document.documentElement.classList.remove('dark'));
-    assert.deepEqual((await grayExamples(page, panel)).map((e) => e.value), ['', '', ''], 'the example is never typed into the box');
+    assert.deepEqual((await grayExamples(page, panel)).map((e) => e.value), [''], 'the example is never typed into the box');
 
     await page.getByRole('button', { name: 'Back' }).click();
     await onStep(page, 'Delivery');
@@ -113,8 +110,7 @@ test('Vibes is the last step: Delivery asks for no vibes, each picked output get
     await toAppAccess(page);
     await page.getByRole('radio', { name: /^Internal data/ }).check();
     await toVibes(page);
-    assert.deepEqual(await boxLabels(panel), ['Notebook vibes', 'Vibes for the Dashboard', 'Vibes for the Genie Agent', 'App vibes', 'Vibes for the Alert']);
-    assert.deepEqual(await tabNames(page), ['Notebook', 'Dashboard', 'Genie Agent', 'App', 'Alert']);
+    assert.deepEqual(await boxLabels(panel), [ONE_BOX], 'still one box with every output picked');
     assert.equal(await panel.locator('[data-vibes-skipped]').count(), 0, 'every output picked, nothing to name');
     assertGray(await grayExamples(page, panel), 'every output');
     assert.deepEqual(ui.pageErrors, []);
@@ -123,7 +119,7 @@ test('Vibes is the last step: Delivery asks for no vibes, each picked output get
   }
 });
 
-test('the Vibes step shows one asset at a time in tabs, each with a full-width box that grows, and marks the tabs that hold asks', async () => {
+test('the one box on the Vibes step takes the full width, is 8 lines tall and grows, and keeps what was typed when the person goes Back and returns', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page } = ui;
   try {
@@ -134,48 +130,31 @@ test('the Vibes step shows one asset at a time in tabs, each with a full-width b
     await toAppAccess(page);
     await page.getByRole('radio', { name: /^Internal data/ }).check();
     await toVibes(page);
-    const panel = page.getByRole('region', { name: 'Vibes' });
-    const states = () => vibesTabs(page).getByRole('tab').evaluateAll((tabs) => tabs.map((t) => [t.dataset.tab, t.getAttribute('aria-selected'), t.getAttribute('aria-label'), t.querySelector('[data-vibes-mark]')?.dataset.vibesMark || '']));
-    assert.deepEqual(await states(), [
-      ['notebook', 'true', 'Notebook', ''], ['dashboard', 'false', 'Dashboard', ''], ['genie_space', 'false', 'Genie Agent', ''], ['app', 'false', 'App', ''], ['alert', 'false', 'Alert', ''],
-    ], 'the notebook tab is open first and no tab holds an ask yet');
-    assert.equal(await panel.getByRole('textbox').count(), 1, 'one box shows at a time');
-    const notebook = await vibesBox(page, 'Notebook vibes');
-    const size = await notebook.evaluate((el) => ({ rows: el.rows, resize: getComputedStyle(el).resize, width: el.getBoundingClientRect().width, panel: el.closest('[role="tabpanel"]').getBoundingClientRect().width }));
+    const box = wizardBox(page);
+    const size = await box.evaluate((el) => ({ rows: el.rows, resize: getComputedStyle(el).resize, width: el.getBoundingClientRect().width,
+      panel: el.closest('section').getBoundingClientRect().width }));
     assert.deepEqual([size.rows, size.resize], [8, 'vertical'], 'the box is 8 lines tall and the person can make it taller');
-    assert.ok(size.width >= size.panel - 2, `the box takes the full width of its tab (${size.width} of ${size.panel})`);
-    const before = await notebook.boundingBox();
+    assert.ok(size.width >= size.panel - 2, `the box takes the full width of the step (${size.width} of ${size.panel})`);
+    const before = await box.boundingBox();
     await page.mouse.move(before.x + before.width - 3, before.y + before.height - 3);
     await page.mouse.down();
     await page.mouse.move(before.x + before.width - 3, before.y + before.height + 120, { steps: 6 });
     await page.mouse.up();
-    const after = await notebook.boundingBox();
+    const after = await box.boundingBox();
     assert.ok(after.height > before.height + 60, `dragging the corner makes the box taller (${before.height} to ${after.height})`);
-
-    await (await vibesBox(page, 'Vibes for the Dashboard')).fill('Make the trend weekly');
-    await (await vibesBox(page, 'Vibes for the Alert')).fill('a'.repeat(2001));
-    assert.deepEqual(await states(), [
-      ['notebook', 'false', 'Notebook', ''], ['dashboard', 'false', 'Dashboard, has vibes', 'filled'], ['genie_space', 'false', 'Genie Agent', ''], ['app', 'false', 'App', ''], ['alert', 'true', 'Alert, too long', 'problem'],
-    ], 'a tab shows a dot when it holds an ask and a red dot when the ask is too long');
-    await vibesTabs(page).locator('[data-tab="alert"]').focus();
-    for (const [key, id] of [['Home', 'notebook'], ['ArrowLeft', 'alert'], ['ArrowRight', 'notebook'], ['ArrowRight', 'dashboard'], ['End', 'alert']]) {
-      await page.keyboard.press(key);
-      assert.equal(await page.evaluate(() => document.activeElement?.dataset.tab), id, `${key} moves to ${id}`);
-      assert.equal(await vibesTabs(page).locator(`[data-tab="${id}"]`).getAttribute('aria-selected'), 'true');
-    }
-    assert.equal(await (await vibesBox(page, 'Vibes for the Dashboard')).inputValue(), 'Make the trend weekly', 'switching tabs keeps what was typed');
+    await box.fill('Make the trend weekly\nAnswer in euros');
     await page.getByRole('button', { name: 'Back' }).click();
     await onStep(page, 'App look');
     await next(page);
     await onStep(page, 'Vibes');
-    assert.equal(await vibesTabs(page).locator('[data-tab="dashboard"]').getAttribute('aria-selected'), 'true', 'coming back opens the same tab');
+    assert.equal(await wizardBox(page).inputValue(), 'Make the trend weekly\nAnswer in euros', 'coming back keeps the asks');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
   }
 });
 
-test('every gray example on the Vibes step shows in full, on a desktop and on a phone', async () => {
+test('the gray example of the one box on the Vibes step shows in full, on a desktop and on a phone', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page } = ui;
   try {
@@ -184,10 +163,10 @@ test('every gray example on the Vibes step shows in full, on a desktop and on a 
     await page.getByRole('checkbox', { name: /^Alert/ }).check();
     await page.getByText(`Emails ${OWNER} when`, { exact: false }).waitFor();
     await toVibes(page);
-    assert.equal(await page.getByRole('region', { name: 'Vibes', exact: true }).locator('textarea').count(), 5, 'the notebook and the 4 outputs');
+    assert.equal(await page.getByRole('region', { name: 'Vibes', exact: true }).locator('textarea').count(), 1, 'one box for the notebook and every output');
     for (const [width, height, device] of [[1440, 900, 'desktop'], [390, 844, 'phone']]) {
       await page.setViewportSize({ width, height });
-      for (const name of Object.keys(VIBES_TABS)) assert.deepEqual(await clippedExamples(page, await vibesBox(page, name)), [], `${device}: ${name}`);
+      assert.deepEqual(await clippedExamples(page, wizardBox(page)), [], device);
     }
     assert.deepEqual(ui.pageErrors, []);
   } finally {
@@ -195,7 +174,7 @@ test('every gray example on the Vibes step shows in full, on a desktop and on a 
   }
 });
 
-test('the Vibes step keeps a live counter, an ask over 2000 characters stops Start with the shared message and focuses its box, and the asks reach the spec', async () => {
+test('the Vibes step keeps a live counter, an ask over 2000 characters stops Start with the shared message and focuses the box, and a first build sends the vibe with no choice for a version before', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page, made } = ui;
   try {
@@ -205,45 +184,41 @@ test('the Vibes step keeps a live counter, an ask over 2000 characters stops Sta
     await toAppAccess(page);
     await page.getByRole('radio', { name: /^Internal data/ }).check();
     await toVibes(page);
-    const panel = page.getByRole('region', { name: 'Vibes' });
-    const dash = panel.locator('[data-vibes="dashboard"]');
-    await (await vibesBox(page, 'Vibes for the Dashboard')).fill(`  ${LONG_ASK}  `);
-    assert.equal(await dash.locator('[data-vibes-count]').textContent(), `${LONG_ASK.length}/2000`, 'the counter counts the trimmed ask');
-    const genie = panel.locator('[data-vibes="genie_space"]');
-    await (await vibesBox(page, 'Vibes for the Genie Agent')).fill('g'.repeat(2001));
-    const count = genie.locator('[data-vibes-count]');
+    const one = page.getByRole('region', { name: 'Vibes' }).locator('[data-vibes="mvp"]');
+    await wizardBox(page).fill(`  ${LONG_ASK}  `);
+    assert.equal(await one.locator('[data-vibes-count]').textContent(), `${LONG_ASK.length}/2000`, 'the counter counts the trimmed ask');
+    await wizardBox(page).fill('g'.repeat(2001));
+    const count = one.locator('[data-vibes-count]');
     assert.equal(await count.textContent(), '2001/2000');
     assert.match(await count.getAttribute('class'), /text-error-fg/, 'the counter turns to the error style over the limit');
-    await genie.getByText('the Genie Agent vibes are 2001 characters; at most 2000 are allowed').waitFor();
-    assert.equal(await (await vibesBox(page, 'Vibes for the Genie Agent')).getAttribute('aria-invalid'), 'true');
-
-    await (await vibesBox(page, 'Notebook vibes')).focus();
+    await one.getByText('the MVP vibes are 2001 characters; at most 2000 are allowed').waitFor();
+    assert.equal(await wizardBox(page).getAttribute('aria-invalid'), 'true');
+    await page.getByRole('button', { name: 'Back' }).focus();
     await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
     await page.locator('[role="alert"]').waitFor();
-    assert.deepEqual(await footerErrors(page), ['the Genie Agent vibes are 2001 characters; at most 2000 are allowed']);
-    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Vibes for the Genie Agent', 'Start moves the focus to the box to shorten');
-    assert.equal(await vibesTabs(page).locator('[data-tab="genie_space"]').getAttribute('aria-selected'), 'true', 'and opens its tab');
+    assert.deepEqual(await footerErrors(page), ['the MVP vibes are 2001 characters; at most 2000 are allowed']);
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), ONE_BOX, 'Start moves the focus to the box to shorten');
     await onStep(page, 'Vibes');
     assert.equal(made.jobs.length, 0, 'an ask over the limit starts nothing');
     assert.equal(insertsOf(made).length, 0, 'and records no version');
 
-    await (await vibesBox(page, 'Vibes for the Genie Agent')).fill('g'.repeat(2000));
-    assert.equal(await count.textContent(), '2000/2000');
+    await wizardBox(page).fill(`  ${LONG_ASK}\nOne page: the decision list on the left and the row detail on the right  `);
     assert.doesNotMatch(await count.getAttribute('class'), /text-error-fg/);
     await page.locator('[role="alert"]').waitFor({ state: 'detached' });
-    await (await vibesBox(page, 'App vibes')).fill('One page: the decision list on the left and the row detail on the right');
     await startMvp(page);
     await page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    const [{ spec }] = insertsOf(made);
-    assert.deepEqual([spec.data.notes, spec.outputs.dashboard_vibes, spec.outputs.genie_space_vibes.length, spec.outputs.app_vibes, spec.outputs.alert_vibes],
-      ['', LONG_ASK, 2000, 'One page: the decision list on the left and the row detail on the right', ''], 'an empty box sends no ask');
+    const [{ spec, classes }] = insertsOf(made);
+    assert.equal(spec.vibes, `${LONG_ASK}\nOne page: the decision list on the left and the row detail on the right`, 'the one box is sent as the vibe the agent routes');
+    assert.equal('vibe_previous' in spec, false, 'a first build sends no choice for a version before');
+    assert.deepEqual([spec.data.notes, spec.outputs.dashboard_vibes, spec.outputs.app_vibes, spec.outputs.alert_vibes], ['', '', '', ''], 'no part holds an ask before the agent routes it');
+    assert.equal(classes, 'initial');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
   }
 });
 
-test('the Vibes step with every output picked fits 1440x900 with every box filled, and reads at 4.5:1 in light and dark', async () => {
+test('the Vibes step with every output picked fits 1440x900 with its box filled past the limit, and reads at 4.5:1 in light and dark', async () => {
   const ui = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
   const { page } = ui;
   const fits = async (name) => {
@@ -267,11 +242,8 @@ test('the Vibes step with every output picked fits 1440x900 with every box fille
     await page.getByRole('radio', { name: /^Internal data/ }).check();
     await toVibes(page);
     await fits('vibes-step-empty');
-    for (const [name, words] of [['Notebook vibes', 'Score the baseline and every model on the same held-out rows'], ['Vibes for the Dashboard', LONG_ASK],
-      ['Vibes for the Genie Agent', 'Answer in plain words and always say which rows you counted'],
-      ['App vibes', 'One page: the decision list on the left and the row detail on the right'], ['Vibes for the Alert', 'a'.repeat(2001)]]) {
-      await (await vibesBox(page, name)).fill(words);
-    }
+    await wizardBox(page).fill([LONG_ASK, 'Score the baseline and every model on the same held-out rows', 'Answer in plain words and always say which rows you counted',
+      'One page: the decision list on the left and the row detail on the right', 'a'.repeat(1700)].join('\n'));
     await fits('vibes-step-filled');
     await readable(page, ['[role="dialog"]'], 'vibes-step');
     assert.deepEqual(ui.pageErrors, []);
@@ -317,16 +289,13 @@ const HISTORY = [
 
 const STATE = { history: HISTORY, appExists: true, app: { name: 'churn-desk', description: 'Inspire use case N01-U01 (session 42): Predict churn', compute_status: { state: 'ACTIVE' }, app_status: { state: 'RUNNING' } } };
 
-const LABELS = { notebook: 'Genie Code notebook', dashboard: 'Dashboard', genie_space: 'Genie Agent', app: 'App', alert: 'Alert' };
 const OUTPUTS = ['dashboard', 'genie_space', 'app', 'alert'];
 
 async function openVibes(state = STATE) {
   const ui = await openUi('implement', state);
   try {
     await ui.page.getByRole('heading', { name: 'Build', exact: true }).waitFor();
-    const control = ui.page.getByRole('tab', { name: 'Control Tower', exact: true });
-    if (await control.getAttribute('aria-selected') !== 'true') await control.click();
-    await ui.page.getByRole('region', { name: 'History', exact: true }).getByText(/^\d+ spec versions? · /).waitFor({ timeout: 15000 });
+    await ui.page.getByRole('tablist', { name: 'MVP views' }).waitFor({ timeout: 15000 });
   } catch (e) {
     await ui.close();
     throw e;
@@ -334,130 +303,108 @@ async function openVibes(state = STATE) {
   return ui;
 }
 
-async function openDrawer(page, id) {
-  await page.getByRole('region', { name: 'Control tower' }).getByRole('button', { name: `${LABELS[id]} details`, exact: true }).click();
-  const drawer = page.getByRole('dialog', { name: `${LABELS[id]} details`, exact: true });
-  await drawer.waitFor();
-  return drawer;
-}
-
-async function closeDrawer(page, drawer) {
-  await page.keyboard.press('Escape');
-  await drawer.waitFor({ state: 'detached' });
+async function showTab(page, output) {
+  const tab = page.locator(`[data-mvp-tab="${output}"]`);
+  if (await tab.getAttribute('aria-selected') !== 'true') await tab.click();
+  const panel = page.locator(`[data-mvp-panel="${output}"]`);
+  await panel.waitFor();
+  return panel;
 }
 
 const card = (scope, id) => scope.locator(`[data-vibe-card="${id}"]`);
 const cardIds = (scope) => scope.locator('[data-vibe-card]').evaluateAll((cards) => cards.map((c) => c.dataset.vibeCard));
-const askBox = (scope) => scope.getByRole('textbox', { name: 'How should it work?', exact: true });
-const rebuildThis = (scope) => scope.getByRole('button', { name: 'Rebuild this', exact: true });
+const mvpBox = (page) => page.locator('[data-vibe-box="mvp"]').getByRole('textbox', { name: ONE_BOX, exact: true });
+const addVibes = (page) => page.locator('[data-vibe-box="mvp"]').getByRole('button', { name: 'Add vibes', exact: true });
+const heldOf = (scope) => scope.locator('[data-held-ask]').evaluateAll((items) => items.map((li) => li.querySelector('span').textContent));
+const editMvp = (page) => page.locator('[data-edit-mvp]');
 const versionIds = (scope) => scope.getByRole('region', { name: 'Versions' }).locator('[data-version]').evaluateAll((rows) => rows.map((r) => r.dataset.version));
+const rollbacks = (page) => page.locator('[data-mvp-panel]').getByRole('button', { name: /^Roll back to version / });
 
-test('the gray example in each Details drawer\'s ask box shows in full, on a desktop and on a phone', async () => {
+test('the one vibe box sits above the tabs with its gray example in full on a desktop, a laptop and a phone, a squeezed box stays 8 lines tall, and no tab has a box of its own', async () => {
   const ui = await openVibes();
   const { page } = ui;
   try {
-    for (const width of [1440, 390]) {
+    for (const [width, device] of [[1440, 'desktop'], [1024, 'laptop'], [390, 'phone']]) {
       await page.setViewportSize({ width, height: 900 });
-      for (const id of OUTPUTS) {
-        const drawer = await openDrawer(page, id);
-        await card(drawer, id).waitFor();
-        assert.deepEqual(await clippedExamples(page, askBox(card(drawer, id))), [], `${id} at ${width}px`);
-        await closeDrawer(page, drawer);
+      assert.deepEqual(await clippedExamples(page, mvpBox(page)), [], device);
+      for (const id of [...OUTPUTS, 'build']) {
+        const panel = await showTab(page, id);
+        assert.equal(await panel.locator('textarea').count(), 0, `${id} on a ${device} has no box of its own`);
+        assert.equal(await panel.getByRole('button', { name: /^(Add|Update) vibes$/ }).count(), 0, `${id} on a ${device}`);
       }
     }
+    const squeezed = await mvpBox(page).evaluate((el) => {
+      const style = getComputedStyle(el);
+      return { height: el.offsetHeight, most: parseFloat(style.lineHeight) * 8 + el.offsetHeight - el.clientHeight + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) };
+    });
+    assert.ok(squeezed.height <= squeezed.most + 2, `a squeezed box stays at most 8 lines tall ${JSON.stringify(squeezed)}`);
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
   }
 });
 
-test('each Details drawer holds only its own output\'s card, starts from the live asks, a changed ask rebuilds only that output, an unchanged one is a retry, and a draft survives the drawer and the tabs', async () => {
+test('each output tab holds only its own card with the asks it was built with, and an ask being typed in the one box survives the tabs and Use case details until it is added', async () => {
   const ui = await openVibes();
   const { page, made } = ui;
   try {
     const held = {};
-    for (const id of OUTPUTS) {
-      const drawer = await openDrawer(page, id);
-      await card(drawer, id).waitFor();
-      held[id] = await cardIds(drawer);
-      await closeDrawer(page, drawer);
-    }
-    assert.deepEqual(held, { dashboard: ['dashboard'], genie_space: ['genie_space'], app: ['app'], alert: ['alert'] }, 'each drawer shows only its output\'s card');
-    let drawer = await openDrawer(page, 'genie_space');
-    assert.match(await card(drawer, 'genie_space').locator('[data-live]').textContent(), /^Version 1, built /, 'a carried asset names the version it was built on');
-    await closeDrawer(page, drawer);
+    for (const id of OUTPUTS) held[id] = await cardIds(await showTab(page, id));
+    assert.deepEqual(held, { dashboard: ['dashboard'], genie_space: ['genie_space'], app: ['app'], alert: ['alert'] }, 'each tab shows only its output\'s card');
+    let panel = await showTab(page, 'genie_space');
+    assert.match(await card(panel, 'genie_space').locator('[data-live]').textContent(), /^Version 1, built /, 'a carried asset names the version it was built on');
+    assert.equal(await card(panel, 'genie_space').locator('[data-built-with]').count(), 0, 'an output that holds no ask lists none');
 
-    drawer = await openDrawer(page, 'dashboard');
-    const dash = card(drawer, 'dashboard');
-    assert.equal(await askBox(dash).inputValue(), 'Make the trend weekly');
+    panel = await showTab(page, 'dashboard');
+    const dash = card(panel, 'dashboard');
+    assert.deepEqual(await heldOf(dash), ['\u201cMake the trend weekly\u201d']);
     assert.match(await dash.locator('[data-live]').textContent(), /^Version 3, built .+/);
     assert.deepEqual(await dash.getByRole('list', { name: /^Vibes Genie could not do on the / }).getByRole('listitem').allTextContents(),
       ['Dashboard vibe not done: put it in Arabic: the dashboard has no Arabic font'], 'only this asset\'s warnings show under it');
 
-    await askBox(dash).fill('  Make the trend weekly and add a map  ');
-    await closeDrawer(page, drawer);
-    await closeDrawer(page, await openDrawer(page, 'app'));
-    await page.getByRole('tab', { name: 'Progress', exact: true }).click();
-    await page.getByRole('tab', { name: 'Control Tower', exact: true }).click();
-    drawer = await openDrawer(page, 'dashboard');
-    assert.equal(await askBox(card(drawer, 'dashboard')).inputValue(), '  Make the trend weekly and add a map  ',
-      'an ask being typed survives closing the drawer, another drawer and the other tab');
-    await rebuildThis(card(drawer, 'dashboard')).click();
-    await until(() => made.jobs.length === 1, 'the vibed rebuild');
-    const vibed = insertsOf(made)[0];
-    assert.equal(vibed.classes, 'outputs');
-    assert.equal(vibed.spec.outputs.dashboard_vibes, 'Make the trend weekly and add a map');
-    assert.deepEqual([vibed.spec.outputs.app_vibes, vibed.spec.outputs.genie_space_vibes, vibed.spec.outputs.alert_vibes], ['Dark header', '', ''],
-      'only the vibed output\'s asks change');
-    assert.deepEqual([vibed.spec.retry_outputs, vibed.spec.rollback_outputs, vibed.spec.based_on_version], [[], {}, 3]);
-    await closeDrawer(page, drawer);
-
-    drawer = await openDrawer(page, 'app');
-    assert.equal(await askBox(card(drawer, 'app')).inputValue(), 'Dark header');
-    await rebuildThis(card(drawer, 'app')).click();
-    await until(() => made.jobs.length === 2, 'the unchanged rebuild');
-    const retried = insertsOf(made)[1];
-    assert.equal(retried.classes, 'retry');
-    assert.deepEqual(retried.spec.retry_outputs, ['app']);
-    assert.equal(retried.spec.outputs.app_vibes, 'Dark header');
-    await closeDrawer(page, drawer);
-
-    drawer = await openDrawer(page, 'alert');
-    const over = card(drawer, 'alert');
-    await askBox(over).fill('z'.repeat(2001));
-    await over.getByText('the Alert vibes are 2001 characters; at most 2000 are allowed').waitFor();
-    assert.equal(await rebuildThis(over).isDisabled(), true, 'an ask over the limit cannot be sent');
-    assert.equal(insertsOf(made).length, 2);
+    await mvpBox(page).fill('  Add a map by region  ');
+    await showTab(page, 'app');
+    assert.deepEqual(await heldOf(card(page.locator('[data-mvp-panel]'), 'app')), ['\u201cDark header\u201d']);
+    await showTab(page, 'build');
+    await page.getByRole('button', { name: 'Use case details', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await showTab(page, 'dashboard');
+    assert.equal(await mvpBox(page).inputValue(), '  Add a map by region  ', 'an ask being typed survives the tabs and the details drawer');
+    assert.equal(await editMvp(page).getAttribute('data-collected'), null, 'typing alone collects nothing');
+    await addVibes(page).click();
+    assert.equal(await mvpBox(page).inputValue(), '', 'the box empties once the ask is kept');
+    await page.locator('[data-vibe-box="mvp"] [data-waiting="ask"]').getByText('\u201cAdd a map by region\u201d', { exact: true }).waitFor();
+    await showTab(page, 'alert');
+    assert.equal(await editMvp(page).getAttribute('data-collected'), '1');
+    assert.deepEqual([made.jobs.length, insertsOf(made).length], [0, 0], 'nothing is written or started until Edit MVP builds');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
   }
 });
 
-test('Versions in each drawer lists the live version and only the earlier ones that kept a snapshot, and a confirmed roll back submits the version and its vibes', async () => {
+test('Versions in each tab lists the live version and only the earlier ones that kept a snapshot, and a confirmed roll back submits the version and its vibes', async () => {
   const ui = await openVibes();
   const { page, made } = ui;
   const sent = [];
   page.on('request', (req) => { if (req.url().includes('/api/inspire/implement/submit')) sent.push(JSON.parse(req.postData())); });
   try {
-    let drawer = await openDrawer(page, 'app');
-    await card(drawer, 'app').waitFor();
-    assert.deepEqual(await versionIds(drawer), ['3', '2', '1']);
-    await drawer.locator('[data-version="2"]').getByText('no vibes', { exact: true }).waitFor();
-    await closeDrawer(page, drawer);
+    let panel = await showTab(page, 'app');
+    await card(panel, 'app').waitFor();
+    assert.deepEqual(await versionIds(panel), ['3', '2', '1']);
+    await panel.locator('[data-version="2"]').getByText('no vibes', { exact: true }).waitFor();
     for (const id of ['genie_space', 'alert']) {
-      drawer = await openDrawer(page, id);
-      await card(drawer, id).waitFor();
-      assert.deepEqual(await versionIds(drawer), ['1'], `${id}: only the live version, nothing earlier to roll back to`);
-      assert.equal(await drawer.getByRole('button', { name: /^Roll back to version / }).count(), 0, id);
-      await closeDrawer(page, drawer);
+      panel = await showTab(page, id);
+      await card(panel, id).waitFor();
+      assert.deepEqual(await versionIds(panel), ['1'], `${id}: only the live version, nothing earlier to roll back to`);
+      assert.equal(await rollbacks(page).count(), 0, id);
     }
 
-    drawer = await openDrawer(page, 'dashboard');
-    await card(drawer, 'dashboard').waitFor();
-    assert.deepEqual(await versionIds(drawer), ['3', '2'], 'v3 is live and v1 kept no snapshot');
-    const row = drawer.getByRole('region', { name: 'Versions' }).locator('[data-version="2"]');
-    assert.ok((await row.textContent()).includes(`“${LONG_ASK.slice(0, 80).trimEnd()}…”`), await row.textContent());
+    panel = await showTab(page, 'dashboard');
+    await card(panel, 'dashboard').waitFor();
+    assert.deepEqual(await versionIds(panel), ['3', '2'], 'v3 is live and v1 kept no snapshot');
+    const row = panel.getByRole('region', { name: 'Versions' }).locator('[data-version="2"]');
+    assert.ok((await row.textContent()).includes(`\u201c${LONG_ASK.slice(0, 80).trimEnd()}\u2026\u201d`), await row.textContent());
 
     await row.getByRole('button', { name: 'Roll back to version 2', exact: true }).click();
     const confirm = row.getByRole('group', { name: 'Confirm the roll back to version 2' });
@@ -485,22 +432,21 @@ test('Versions in each drawer lists the live version and only the earlier ones t
   }
 });
 
-test('while a version builds or a submit is on its way, every vibe and roll back control in every drawer is disabled', async () => {
+test('while a version builds or a submit is on its way, every roll back on every tab is disabled, and an ask can still be added for later', async () => {
   const building = versionRow(4, { status: 'building_outputs', implement_run_id: '5555555555555555', updated_at: new Date().toISOString(),
     vibes: { dashboard_vibes: 'Make the trend weekly', app_vibes: 'Dark header' }, assets: {} });
   const busy = await openVibes({ ...STATE, history: [building, ...HISTORY], implementRun: { run_id: 5555555555555555, state: { life_cycle_state: 'RUNNING' } } });
   try {
     const { page } = busy;
-    let rollbacks = 0;
+    let count = 0;
     for (const id of ['dashboard', 'app']) {
-      const drawer = await openDrawer(page, id);
-      await drawer.getByText('A version is building now; vibes and roll backs apply after it finishes.').waitFor();
-      assert.equal(await rebuildThis(card(drawer, id)).isDisabled(), true, id);
-      for (const button of await drawer.getByRole('button', { name: /^Roll back to version / }).all()) assert.equal(await button.isDisabled(), true);
-      rollbacks += await drawer.getByRole('button', { name: /^Roll back to version / }).count();
-      await closeDrawer(page, drawer);
+      const panel = await showTab(page, id);
+      await card(panel, id).getByText('A version is building now; roll backs apply after it finishes, and the asks you add or remove wait for Edit MVP.').waitFor();
+      for (const button of await rollbacks(page).all()) assert.equal(await button.isDisabled(), true, id);
+      count += await rollbacks(page).count();
+      assert.equal(await mvpBox(page).isDisabled(), false, `${id}: an ask can still be written for the next build`);
     }
-    assert.equal(rollbacks, 3);
+    assert.equal(count, 3);
     assert.deepEqual(busy.pageErrors, []);
   } finally {
     await busy.close();
@@ -512,61 +458,56 @@ test('while a version builds or a submit is on its way, every vibe and roll back
     let release;
     const held = new Promise((resolve) => { release = resolve; });
     await page.route('**/api/inspire/implement/submit', async (route) => { await held; await route.continue(); });
-    const app = await openDrawer(page, 'app');
-    await rebuildThis(card(app, 'app')).click();
-    await page.waitForFunction(() => [...document.querySelectorAll('[data-details-drawer] button')].filter((b) => /^Roll back to version /.test(b.getAttribute('aria-label') || ''))
+    const app = await showTab(page, 'app');
+    const row = app.getByRole('region', { name: 'Versions' }).locator('[data-version="2"]');
+    await row.getByRole('button', { name: 'Roll back to version 2', exact: true }).click();
+    await row.getByRole('group', { name: 'Confirm the roll back to version 2' }).getByRole('button', { name: 'Roll back', exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-mvp-panel] button')].filter((b) => /^Roll back to version /.test(b.getAttribute('aria-label') || b.textContent))
       .every((b) => b.disabled));
-    assert.equal(await card(app, 'app').locator('svg.animate-spin').count(), 1, 'the asked rebuild shows its spinner');
-    await closeDrawer(page, app);
-    const dash = await openDrawer(page, 'dashboard');
-    assert.equal(await rebuildThis(card(dash, 'dashboard')).isDisabled(), true, 'another output waits for the submit too');
-    assert.equal(await dash.getByRole('button', { name: 'Roll back to version 2', exact: true }).isDisabled(), true);
+    await showTab(page, 'dashboard');
+    assert.equal(await page.locator('[data-mvp-panel]').getByRole('button', { name: 'Roll back to version 2', exact: true }).isDisabled(), true, 'another tab waits for the submit too');
     release();
-    await until(() => made.jobs.length === 1, 'the held rebuild');
-    await page.waitForFunction(() => [...document.querySelectorAll('[data-details-drawer] button')]
-      .some((b) => /^Roll back to version /.test(b.getAttribute('aria-label') || '') && !b.disabled));
+    await until(() => made.jobs.length === 1, 'the held roll back');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
   }
 });
 
-test('the Build page cards and versions fit their drawer on a 1440x900 screen and read at 4.5:1 in light and dark', async () => {
+test('the Build page cards and versions fit a 1440x900 screen and read at 4.5:1 in light and dark', async () => {
   const ui = await openVibes();
   const { page } = ui;
   const fits = (id) => page.evaluate((which) => {
-    const dialog = document.querySelector('[role="dialog"]').getBoundingClientRect();
+    const panel = document.querySelector('[data-mvp-panel]').getBoundingClientRect();
     const c = document.querySelector(`[data-vibe-card="${which}"]`);
-    const v = document.querySelector('[role="dialog"] [aria-label="Versions"]');
+    const v = document.querySelector('[data-mvp-panel] [aria-label="Versions"]');
     const r = c.getBoundingClientRect();
     const vr = v ? v.getBoundingClientRect() : r;
     return {
-      page: document.scrollingElement.scrollWidth, dialog: { left: dialog.left, right: dialog.right, bottom: dialog.bottom },
+      page: document.scrollingElement.scrollWidth, panel: { left: panel.left, right: panel.right },
       card: { left: r.left, right: r.right, wide: c.scrollWidth <= c.clientWidth + 1 }, versions: { left: vr.left, right: vr.right },
     };
   }, id);
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
-    let drawer = await openDrawer(page, 'dashboard');
-    const dash = card(drawer, 'dashboard');
-    await askBox(dash).fill('Make the trend weekly and add a map');
-    await drawer.locator('[data-version="2"]').getByRole('button', { name: 'Roll back to version 2', exact: true }).click();
-    for (const [id, open] of [['dashboard', null], ['alert', async (d) => askBox(card(d, 'alert')).fill('z'.repeat(2001))]]) {
+    let panel = await showTab(page, 'dashboard');
+    await mvpBox(page).fill('Make the trend weekly and add a map');
+    await addVibes(page).click();
+    await panel.locator('[data-held-ask]').getByRole('button', { name: 'Remove “Make the trend weekly”', exact: true }).click();
+    await panel.locator('[data-version="2"]').getByRole('button', { name: 'Roll back to version 2', exact: true }).click();
+    for (const [id, open] of [['dashboard', null], ['alert', async () => mvpBox(page).fill('z'.repeat(2001))]]) {
       if (open) {
-        await closeDrawer(page, drawer);
-        drawer = await openDrawer(page, id);
-        await open(drawer);
+        panel = await showTab(page, id);
+        await open(panel);
       }
       const sizes = await fits(id);
       assert.ok(sizes.page <= 1440, `the page does not scroll sideways (${sizes.page})`);
-      assert.ok(sizes.dialog.left >= 0 && sizes.dialog.right <= 1440 && sizes.dialog.bottom <= 900, JSON.stringify(sizes.dialog));
-      assert.ok(sizes.card.wide && sizes.card.left >= sizes.dialog.left && sizes.card.right <= sizes.dialog.right + 1, JSON.stringify(sizes));
-      assert.ok(sizes.versions.left >= sizes.dialog.left && sizes.versions.right <= sizes.dialog.right + 1, JSON.stringify(sizes));
-      await readable(page, ['[role="dialog"]'], `vibes-build-${id}`);
+      assert.ok(sizes.card.wide && sizes.card.left >= sizes.panel.left && sizes.card.right <= sizes.panel.right + 1, JSON.stringify(sizes));
+      assert.ok(sizes.versions.left >= sizes.panel.left && sizes.versions.right <= sizes.panel.right + 1, JSON.stringify(sizes));
+      await readable(page, ['[data-mvp-panel]', '[data-vibe-box="mvp"]'], `vibes-build-${id}`);
     }
-    await closeDrawer(page, drawer);
-    drawer = await openDrawer(page, 'app');
-    await card(drawer, 'app').scrollIntoViewIfNeeded();
+    panel = await showTab(page, 'app');
+    await card(panel, 'app').scrollIntoViewIfNeeded();
     await shot(page, 'vibes-build-versions-light');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
@@ -574,51 +515,42 @@ test('the Build page cards and versions fit their drawer on a 1440x900 screen an
   }
 });
 
-test('the notebook has its own vibes in the wizard and a card on the Build page that rewrites it or rebuilds it', async () => {
-  const wizard = await openUi('wizard', { me: { userName: OWNER, displayName: 'Owner' } });
-  try {
-    const { page } = wizard;
-    await toDelivery(page);
-    await toAppAccess(page);
-    await page.getByRole('radio', { name: /^Internal data/ }).check();
-    await toVibes(page);
-    const panel = page.getByRole('region', { name: 'Vibes' });
-    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Notebook vibes', 'the notebook box comes first, with the focus');
-    await (await vibesBox(page, 'Notebook vibes')).fill('n'.repeat(2001));
-    await panel.locator('[data-vibes="notebook"]').getByText('the notebook vibes are 2001 characters; at most 2000 are allowed').waitFor();
-    await (await vibesBox(page, 'App vibes')).focus();
-    await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
-    await page.locator('[role="alert"]').waitFor();
-    assert.deepEqual(await footerErrors(page), ['the notebook vibes are 2001 characters; at most 2000 are allowed']);
-    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Notebook vibes', 'Start moves the focus back to the over-limit box');
-    assert.equal(wizard.made.jobs.length, 0);
-    assert.deepEqual(wizard.pageErrors, []);
-  } finally {
-    await wizard.close();
-  }
-
-  const history = HISTORY.map((row, i) => (i ? row : { ...row, asset_status: JSON.stringify({ ...JSON.parse(row.asset_status), notebook: { spec_version: 2, modified_at: 1 } }) }));
+test('a notebook ask the notes hold is removed on the Notebook tab and built without it, and a vibe on a rebuild needs keep or remove before Start', async () => {
+  const history = HISTORY.map((row, i) => (i ? row : {
+    ...row,
+    spec_json: JSON.stringify({ ...JSON.parse(row.spec_json), data: { ...JSON.parse(row.spec_json).data, notes: 'Score on the last 90 days\nCount returns by week' } }),
+    asset_status: JSON.stringify({ ...JSON.parse(row.asset_status), notebook: { spec_version: 2, modified_at: 1 } }),
+  }));
   const ui = await openVibes({ ...STATE, history });
   const { page, made } = ui;
   try {
-    assert.deepEqual(await page.getByRole('region', { name: 'Control tower' }).locator('[data-tile]').evaluateAll((tiles) => tiles.map((t) => t.dataset.tile)),
-      ['notebook', 'dashboard', 'genie_space', 'app', 'alert'], 'the notebook the MVP built has its tile, first');
-    const drawer = await openDrawer(page, 'notebook');
-    await card(drawer, 'notebook').waitFor();
-    assert.deepEqual(await cardIds(drawer), ['notebook']);
-    const nb = card(drawer, 'notebook');
+    const panel = await showTab(page, 'notebook');
+    await card(panel, 'notebook').waitFor();
+    assert.deepEqual(await cardIds(panel), ['notebook'], 'the notebook the MVP built has its own card on its tab');
+    const nb = card(panel, 'notebook');
     assert.match(await nb.locator('[data-live]').textContent(), /^Version 2, built /);
-    await nb.getByText('Genie checks every cell against the current rules, runs the notebook, and refreshes every output from the new result.').waitFor();
-    await rebuildThis(nb).click();
-    await until(() => made.jobs.length === 1, 'the notebook rebuild');
-    const rebuilt = insertsOf(made)[0];
-    assert.deepEqual([rebuilt.classes, rebuilt.spec.retry_outputs], ['retry', ['notebook']], 'with no asks the notebook is rebuilt as it is');
-    await askBox(nb).fill('  Score every model on the same held-out baskets  ');
-    await nb.getByText(/^Genie rewrites the notebook with your asks/).waitFor();
-    await rebuildThis(nb).click();
-    await until(() => made.jobs.length === 2, 'the notebook vibe');
-    const vibed = insertsOf(made)[1];
-    assert.deepEqual([vibed.classes, vibed.spec.data.notes, vibed.spec.retry_outputs], ['data', 'Score every model on the same held-out baskets', []]);
+    assert.deepEqual(await heldOf(nb), ['\u201cScore on the last 90 days\u201d', '\u201cCount returns by week\u201d'], 'the asks the notes hold, one per line');
+    await nb.getByRole('button', { name: 'Remove \u201cCount returns by week\u201d', exact: true }).click();
+    await editMvp(page).and(page.locator('[data-collected="1"]')).waitFor();
+    assert.equal(made.jobs.length, 0, 'removing an ask starts nothing');
+    await editMvp(page).click();
+    const wizard = page.getByRole('dialog', { name: /^Start Use Case MVP with Genie/ });
+    await onStep(page, 'Vibes');
+    await wizardBox(page).fill('Score every model on the same held-out baskets');
+    const choice = wizard.getByRole('group', { name: 'What happens to v3?' });
+    await choice.getByRole('radio', { name: /^Keep v3 live/ }).waitFor();
+    await choice.getByText('v3 stays as it is. Inspire builds each changed part again next to it, named v4, so you can compare them. Remove v3 later on the Build page. '
+      + 'The alert is changed in place.', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
+    await page.locator('[role="alert"]').waitFor();
+    assert.deepEqual(await footerErrors(page), ['choose what happens to v3, the version before this vibe: keep it live or remove it'], 'a rebuild without the choice is refused');
+    assert.equal(made.jobs.length, 0);
+    await choice.getByRole('radio', { name: /^Keep v3 live/ }).check();
+    await page.getByRole('button', { name: 'Start MVP', exact: true }).click();
+    await until(() => made.jobs.length === 1, 'the notebook build');
+    const [built] = insertsOf(made);
+    assert.deepEqual([built.spec.data.notes, built.spec.vibes, built.spec.vibe_previous],
+      ['Score on the last 90 days', 'Score every model on the same held-out baskets', 'keep'], 'the removed ask leaves the notes and the new ask goes to the router');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();

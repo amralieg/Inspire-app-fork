@@ -7456,6 +7456,7 @@
       "config",
       "schedule",
       "holdout",
+      "capacity",
       "outputs",
       "deselect",
       "sharing",
@@ -7508,7 +7509,8 @@
         "app_vibes",
         "app_owners",
         "app_charts",
-        "app_pages"
+        "app_pages",
+        "app_warehouse_id"
       ],
       "alert": [
         "alert_name",

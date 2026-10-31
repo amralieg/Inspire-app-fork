@@ -57,7 +57,10 @@ function makeApp(overrides = {}, { mount } = {}) {
           { col_name: '', data_type: '' }, { col_name: '# Clustering Information', data_type: '' }, { col_name: 'session_id', data_type: '' }] };
       }
       if (sql.includes('__inspire_implement') && sql.includes('INSERT')) return { rows: [] };
-      if (sql.includes('__inspire_implement') && sql.includes('`app_name` IS NOT NULL')) return { rows: state.registry || [] };
+      if (sql.includes('__inspire_implement') && sql.includes('`app_name` IS NOT NULL')) {
+        if (state.registryError) throw new Error(state.registryError);
+        return { rows: state.registry || [] };
+      }
       if (sql.includes('__inspire_implement') && sql.includes('UPDATE')) return { rows: [] };
       if (sql.includes('__inspire_implement') && sql.includes('held AS')) {
         if (state.holderError) throw new Error(state.holderError);
@@ -181,6 +184,10 @@ function makeApp(overrides = {}, { mount } = {}) {
     });
   });
   app.get('/api/inspire/step-results', (_req, res) => res.json({ results: null }));
+  app.get('/api/warehouses', (_req, res) => {
+    const listed = (state.warehouses && state.warehouses.warehouses) || [];
+    return res.json({ warehouses: listed.map((w) => ({ id: w.id, name: w.name, state: w.state, cluster_size: w.cluster_size })) });
+  });
   app.get('/api/catalogs', (_req, res) => {
     if (state.catalogsError) return res.status(500).json({ error: state.catalogsError });
     return res.json({ catalogs: (state.catalogs || ['main']).map((name) => ({ name })) });

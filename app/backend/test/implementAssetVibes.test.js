@@ -16,7 +16,7 @@ const BASE = {
 const PAGE = 'app:page:decisions';
 const CHART = 'dashboard:w1a2b3c4';
 const ASKED = '  Put the rows to act on first,\n  then a map by region  ';
-const NOT_BUILT = (label) => `Inspire has not built the ${label} on this MVP, so it cannot rebuild it with your vibes; pick an asset the Control tower lists`;
+const NOT_BUILT = (label) => `Inspire has not built the ${label} on this MVP, so it cannot rebuild it with your vibes; pick one this MVP built`;
 
 function spec(outputs = {}, top = {}) {
   return I.validateImplementSpec({ ...JSON.parse(JSON.stringify(BASE)), ...top, outputs: { ...BASE.outputs, ...outputs } });
@@ -196,7 +196,6 @@ test('vibes carried for a part that is gone never block an unrelated change, and
 
 test('the wizard names, limits and sends part vibes the way the backend reads them', async () => {
   const w = await lib('implementWizard.js');
-  const c = await lib('implementControl.js');
   for (const id of [PAGE, CHART, 'ai_reasoning', 'value_formula', 'notebook', 'dashboard', 'app:page:', 'app:page:two words', 'pdf', '', null]) {
     const mine = w.partOf(id);
     assert.deepEqual(mine && { output: mine.output, label: mine.label }, I.implementPart(id), String(id));
@@ -206,13 +205,21 @@ test('the wizard names, limits and sends part vibes the way the backend reads th
   assert.equal(w.vibesLabel(CHART), 'Vibes for the dashboard chart w1a2b3c4');
   assert.deepEqual([w.partLabel(PAGE, 'Decisions'), w.partLabel(PAGE, 'Row detail page'), w.partLabel(CHART, ' '), w.partLabel('value_formula', 'x')],
     ['Decisions page', 'Row detail page', 'dashboard chart w1a2b3c4', 'money at stake formula']);
-  const latest = { spec_json: { outputs: { app: true, app_vibes: 'Dark header', [`${PAGE}_vibes`]: 'Rows first' } } };
-  assert.deepEqual(c.vibeChanges(latest, PAGE, ASKED), { outputs: { ...latest.spec_json.outputs, [`${PAGE}_vibes`]: ASKED }, retry_outputs: [PAGE] },
-    'the ask goes as typed, with only that part to rebuild');
-  assert.deepEqual(c.vibeChanges(latest, PAGE, ' Rows first '), { retry_outputs: [PAGE] });
-  assert.deepEqual(c.vibeChanges(latest, 'ai_reasoning', ''), { retry_outputs: ['ai_reasoning'] });
-  const sent = I.validateImplementSpec({ ...JSON.parse(JSON.stringify(BASE)), ...c.vibeChanges(latest, PAGE, ASKED), outputs: { ...BASE.outputs, ...c.vibeChanges(latest, PAGE, ASKED).outputs } });
-  assert.deepEqual([sent.errors, sent.spec.outputs[`${PAGE}_vibes`], sent.spec.retry_outputs], [[], ASKED, [PAGE]]);
+  const before = { ...JSON.parse(JSON.stringify(BASE)), outputs: { ...BASE.outputs, app_vibes: 'Dark header', [`${PAGE}_vibes`]: 'Rows first\nA filter by region',
+    [`${CHART}_vibes`]: 'Bigger bars' } };
+  const collected = [
+    { kind: 'ask', text: ASKED },
+    { kind: 'remove', id: PAGE, label: w.partLabel(PAGE, 'Decisions'), text: 'Rows first' },
+    { kind: 'remove', id: CHART, label: w.partLabel(CHART), text: 'Bigger bars' },
+  ];
+  const { spec: next, added, removed, gone } = w.withCollectedVibes(before, collected);
+  assert.deepEqual([added, removed, gone], [1, 2, []]);
+  assert.equal(next.vibes, 'Put the rows to act on first,\nthen a map by region', 'an ask goes into the one box with each line trimmed, for the router to send');
+  assert.equal(next.outputs.app_vibes, 'Dark header', 'no part gets a new ask from the wizard; the agent routes it');
+  assert.deepEqual([next.outputs[`${PAGE}_vibes`], next.outputs[`${CHART}_vibes`]], ['A filter by region', ''], 'a part loses only the asks taken out');
+  assert.deepEqual(next.retry_outputs, [PAGE, CHART], 'each part whose asks changed is rebuilt on its own, as the backend asks');
+  const sent = I.validateImplementSpec(next);
+  assert.deepEqual([sent.errors, sent.spec.outputs[`${PAGE}_vibes`], sent.spec.retry_outputs], [[], 'A filter by region', [PAGE, CHART]]);
 });
 
 test('the control tower lists every built asset grouped by output with its parts, and a part with warnings or a failed one stays listed', async () => {
@@ -245,12 +252,12 @@ test('the control tower lists every built asset grouped by output with its parts
   assert.deepEqual(groups.map((g) => [g.key, g.label, g.assets.map((a) => [a.title, a.group])]), [
     ['notebook', 'Genie Code notebook', [['Notebook', 'Genie Code notebook']]],
     ['results', 'Results', [['AI reasoning', 'Results'], ['Money at stake', 'Results']]],
-    ['app', 'App', [['Page: Decisions', 'App'], ['Page: Row detail page', 'App']]],
-    ['dashboard', 'Dashboard', [['Chart: Weekly trend', 'Dashboard']]],
+    ['app', 'App', [['The whole App', 'App'], ['Page: Decisions', 'App'], ['Page: Row detail page', 'App']]],
+    ['dashboard', 'Dashboard', [['The whole dashboard', 'Dashboard'], ['Chart: Weekly trend', 'Dashboard']]],
     ['genie_space', 'Genie Agent', [['Instructions', 'Genie Agent']]],
     ['alert', 'Alert', [['Alert: Churn over 25', 'Alert']]],
-  ], 'one row per page and per chart, and the results of the notebook in their own group');
-  assert.deepEqual(groups[2].assets.map((a) => a.parent && a.parent.id), ['app', 'app'], 'a page rolls back with its App');
+  ], 'the whole App and the whole dashboard come first so each can take a vibe, then one row per page and per chart, and the results of the notebook in their own group');
+  assert.deepEqual(groups[2].assets.map((a) => a.parent && a.parent.id), [null, 'app', 'app'], 'a page rolls back with its App');
   const bare = c.assetGroups(cards.filter((x) => !x.id.includes(':')), []);
   assert.deepEqual(bare.find((g) => g.key === 'app').assets.map((a) => [a.title, a.parent]), [['The whole App', null]], 'with no pages in the build status the App itself is listed');
   assert.deepEqual(bare.find((g) => g.key === 'alert').assets.map((a) => a.title), ['Alert']);
@@ -274,15 +281,15 @@ const checksOf = (...pairs) => pairs.map(([ask, status, evidence = '']) => ({ as
 test('the build record vibes_checks read as a list of asks, each done or missing with its evidence, from an array or its JSON text', async () => {
   const c = await lib('implementControl.js');
   const raw = checksOf(['Rows to act on first', 'done', 'the first widget lists them'], ['A map by region', 'missing', 'no region column'], ['Dark header', ' DONE ']);
-  const read = [{ ask: 'Rows to act on first', done: true, evidence: 'the first widget lists them' }, { ask: 'A map by region', done: false, evidence: 'no region column' },
-    { ask: 'Dark header', done: true, evidence: '' }];
+  const read = [{ ask: 'Rows to act on first', done: true, evidence: 'the first widget lists them', doable: true },
+    { ask: 'A map by region', done: false, evidence: 'no region column', doable: true }, { ask: 'Dark header', done: true, evidence: '', doable: true }];
   assert.deepEqual(c.vibeChecks(raw), read);
   assert.deepEqual(c.vibeChecks(JSON.stringify(raw)), read, 'the agent may store the list as JSON text');
   assert.deepEqual(c.vibeChecks([{ ask: '  ', status: 'done' }, null, 'text', { ask: 'Bigger', status: 'skipped' }, { ask: 'Blue' }]),
-    [{ ask: 'Bigger', done: false, evidence: '' }, { ask: 'Blue', done: false, evidence: '' }], 'only a done status counts as done; an empty ask is dropped');
+    [{ ask: 'Bigger', done: false, evidence: '', doable: true }, { ask: 'Blue', done: false, evidence: '', doable: true }], 'only a done status counts as done; an empty ask is dropped');
   for (const bad of [undefined, null, '', 'not json', '{"ask":"x"}', 5, {}]) assert.deepEqual(c.vibeChecks(bad), [], JSON.stringify(bad));
   assert.equal(c.checksSummary(c.vibeChecks(raw)), 'You asked for 3 things. Done: 2 of 3.');
-  assert.equal(c.checksSummary([{ ask: 'x', done: true, evidence: '' }]), 'You asked for 1 thing. Done: 1 of 1.');
+  assert.equal(c.checksSummary([{ ask: 'x', done: true, evidence: '', doable: true }]), 'You asked for 1 thing. Done: 1 of 1.');
   assert.deepEqual(c.missingAsks(c.vibeChecks([...raw, { ask: 'Bigger bars', status: 'missing' }])), ['A map by region', 'Bigger bars']);
 });
 
@@ -411,7 +418,7 @@ test('an output whose options an edit changed reads Rebuilding with its parts wh
   const partsOf = { dashboard: ['dashboard', CHART], genie_space: ['genie_space'], app: ['app', PAGE, 'app:page:detail'], alert: ['alert'] };
   const changed = { dashboard_name: 'Churn board', dashboard_filters: ['region'], genie_space_name: 'Churn agent', genie_questions: ['Who left?'], app_purpose: 'Act on churn',
     app_access: 'user', app_look: { style: 'b' }, app_options: { modify: true }, app_backend: 'lakebase', app_owners: ['b@example.com'],
-    app_charts: ['trend', 'bars', 'split'], app_pages: { impact: false },
+    app_charts: ['trend', 'bars', 'split'], app_pages: { impact: false }, app_warehouse_id: 'wh2',
     alert_name: 'Churn alert', alert_tiers: 'act_now_review',
     alert_operator: '>', alert_threshold: 9, alert_threshold_basis: 'baseline', alert_condition_text: 'more than nine', alert_recipients: ['b@example.com'],
     alert_destinations: [{ id: 'abcdef12', name: 'Ops' }], dashboard_vibes: 'x', genie_space_vibes: 'x', app_vibes: 'x', alert_vibes: 'x' };
