@@ -31,6 +31,7 @@ import {
   Compass,
   Flag,
   Star,
+  ShieldAlert,
 } from 'lucide-react';
 import AnimatedCounter from '../components/AnimatedCounter';
 import GenieMarkdownPreview from '../components/GenieMarkdownPreview';
@@ -2356,13 +2357,14 @@ const MVP_TILES = [
   { id: 'has', label: 'MVPs started', icon: Layers },
   { id: 'live', label: 'MVPs live', icon: CheckCircle2 },
   { id: 'building', label: 'Building', icon: Loader2 },
+  { id: 'held', label: 'Vibes not met', icon: ShieldAlert },
   { id: 'failed', label: 'Failed', icon: AlertCircle },
   { id: 'none', label: 'No MVP yet', icon: FileText },
 ];
 
 function MvpTiles({ counts, active, onPick }) {
   return (
-    <div role="group" aria-label="MVPs" className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+    <div role="group" aria-label="MVPs" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
       {MVP_TILES.map(({ id, label, icon: Icon }) => (
         <button
           key={id}

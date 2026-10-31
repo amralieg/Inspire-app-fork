@@ -1,5 +1,5 @@
-import { IMPLEMENT_OUTPUTS, IMPLEMENT_ACTIVE_STATUSES, IMPLEMENT_DONE_STATUSES, joinWords, partLabel } from './implementWizard.js';
-import { formatDuration } from './formatWhen.js';
+import { IMPLEMENT_OUTPUTS, IMPLEMENT_ACTIVE_STATUSES, IMPLEMENT_DONE_STATUSES, IMPLEMENT_VIBE_NOT_MET, joinWords, partLabel } from './implementWizard.js';
+import { formatDuration, formatWhen } from './formatWhen.js';
 
 export const MVP_BUILD_STAGES = [
   { id: 'Plan', label: 'Plan', working: 'Inspire is working out what this version rebuilds' },
@@ -253,7 +253,8 @@ export function mvpStages(steps, latest, { now = Date.now(), stalled = null } = 
     }
   }
   const status = String(latest?.status || '');
-  const finished = IMPLEMENT_DONE_STATUSES.includes(status);
+  const held = status === IMPLEMENT_VIBE_NOT_MET;
+  const finished = IMPLEMENT_DONE_STATUSES.includes(status) || held;
   const failed = status === 'failed';
   const active = IMPLEMENT_ACTIVE_STATUSES.includes(status);
   if (active) {
@@ -272,7 +273,8 @@ export function mvpStages(steps, latest, { now = Date.now(), stalled = null } = 
   stages.forEach((s, i) => { if (s.state === 'waiting' && i < last) s.state = 'skipped'; });
   const finish = stages[stages.length - 1];
   if (finished) {
-    if (finish.state === 'waiting' || finish.state === 'running') finish.state = status === 'ready' ? 'done' : 'warning';
+    if (held && finish.state !== 'error') finish.state = 'warning';
+    else if (finish.state === 'waiting' || finish.state === 'running') finish.state = status === 'ready' ? 'done' : 'warning';
     stages.forEach((s) => { if (s.state === 'waiting') s.state = 'skipped'; });
   }
   if (failed) {
@@ -446,6 +448,101 @@ export function mvpScope(steps, latest) {
     ...(unmanaged.length ? [{ kind: 'unmanaged', text: `Left in place and no longer refreshed: ${joinWords(unmanaged)}` }] : []),
   ];
   return { pending: false, notes, vibe };
+}
+
+export const VIBE_CHECKLIST_PHASE = 'Vibe checklist';
+const said = (value) => String(value ?? '').trim();
+
+function listOf(value) {
+  if (typeof value !== 'string' || !value) return Array.isArray(value) ? value : null;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function checklistEntry(raw, i) {
+  const item = isMap(raw) ? raw : { requirement: raw };
+  const n = Number(item.n);
+  const rounds = Number(item.rounds);
+  const anyway = isMap(item.published_anyway) ? item.published_anyway : null;
+  const met = said(item.status).toLowerCase() === 'met';
+  return {
+    n: Number.isInteger(n) && n > 0 ? n : i + 1,
+    requirement: said(item.requirement),
+    part: said(item.part),
+    where: said(item.where),
+    met,
+    unchecked: !met && item.unchecked === true,
+    evidence: said(item.evidence),
+    rounds: Number.isInteger(rounds) && rounds > 0 ? rounds : null,
+    tried: (listOf(item.tried) || []).map(said).filter(Boolean),
+    checks: (listOf(item.checks) || []).filter(isMap).map((c) => ({ name: said(c.name), passed: c.passed === true })).filter((c) => c.name),
+    publishedAnyway: anyway ? { by: said(anyway.by), at: said(anyway.at) } : null,
+  };
+}
+
+function checklistFrom(list, live, row) {
+  const entries = list.filter((item) => isMap(item) || said(item)).map(checklistEntry);
+  const open = entries.filter((e) => !e.met && !e.publishedAnyway);
+  return {
+    live, version: row?.spec_version ?? null, entries, met: entries.filter((e) => e.met).length, total: entries.length,
+    missed: open.filter((e) => !e.unchecked).length, unchecked: open.filter((e) => e.unchecked).length,
+  };
+}
+
+export function vibeChecklist(steps, row) {
+  const recorded = listOf(isMap(row?.asset_status) ? row.asset_status.checklist : null);
+  if (recorded) return checklistFrom(recorded, false, row);
+  let last = null;
+  for (const event of stepEvents(steps)) {
+    if (isPhase(event.row, event.payload, VIBE_CHECKLIST_PHASE) && sameVersion(event.payload, row) && listOf(event.payload.checklist)) last = event;
+  }
+  return last ? checklistFrom(listOf(last.payload.checklist), true, row) : null;
+}
+
+export function checklistHeadline(checklist) {
+  const met = `${checklist.met} of ${checklist.total} vibe ${checklist.total === 1 ? 'requirement' : 'requirements'} met`;
+  if (!checklist.unchecked) return met;
+  return `${met}, ${checklist.missed ? `${checklist.missed} not met, ` : ''}${checklist.unchecked} could not be checked`;
+}
+
+export function checklistPlace(entry, assets = {}) {
+  const named = (id) => said(assets?.[id]?.name ?? assets?.[id]?.title);
+  const label = entry.part ? partLabel(entry.part, named(entry.part)) : '';
+  return [label && `${label.charAt(0).toUpperCase()}${label.slice(1)}`, entry.where].filter(Boolean).join(', ');
+}
+
+export function checklistState(entry) {
+  if (entry.met) return 'met';
+  if (entry.publishedAnyway) return 'anyway';
+  return entry.unchecked ? 'unchecked' : 'not_met';
+}
+
+const STATE_WORDS = { met: 'Met', anyway: 'Not met', not_met: 'Not met', unchecked: 'Could not be checked' };
+
+export function checklistRounds(entry) {
+  return entry.rounds ? `${STATE_WORDS[checklistState(entry)]} after ${plural(entry.rounds, 'round')}` : '';
+}
+
+export function checklistStatusText(entry) {
+  return checklistRounds(entry) || STATE_WORDS[checklistState(entry)];
+}
+
+export function publishedAnywayText(entry) {
+  const anyway = entry.publishedAnyway;
+  if (!anyway) return '';
+  return `Published anyway${anyway.by ? ` by ${anyway.by}` : ''}${anyway.at ? ` on ${formatWhen(anyway.at, anyway.at)}` : ''}`;
+}
+
+export function notMetAsks(checklist) {
+  return (checklist?.entries || []).filter((e) => !e.met && !e.publishedAnyway);
+}
+
+export function missedAsks(checklist) {
+  return notMetAsks(checklist).filter((e) => !e.unchecked);
 }
 
 function plural(count, word) {

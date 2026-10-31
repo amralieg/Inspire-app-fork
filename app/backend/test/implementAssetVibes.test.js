@@ -281,15 +281,15 @@ const checksOf = (...pairs) => pairs.map(([ask, status, evidence = '']) => ({ as
 test('the build record vibes_checks read as a list of asks, each done or missing with its evidence, from an array or its JSON text', async () => {
   const c = await lib('implementControl.js');
   const raw = checksOf(['Rows to act on first', 'done', 'the first widget lists them'], ['A map by region', 'missing', 'no region column'], ['Dark header', ' DONE ']);
-  const read = [{ ask: 'Rows to act on first', done: true, evidence: 'the first widget lists them', doable: true },
-    { ask: 'A map by region', done: false, evidence: 'no region column', doable: true }, { ask: 'Dark header', done: true, evidence: '', doable: true }];
+  const read = [{ ask: 'Rows to act on first', done: true, evidence: 'the first widget lists them' },
+    { ask: 'A map by region', done: false, evidence: 'no region column' }, { ask: 'Dark header', done: true, evidence: '' }];
   assert.deepEqual(c.vibeChecks(raw), read);
   assert.deepEqual(c.vibeChecks(JSON.stringify(raw)), read, 'the agent may store the list as JSON text');
   assert.deepEqual(c.vibeChecks([{ ask: '  ', status: 'done' }, null, 'text', { ask: 'Bigger', status: 'skipped' }, { ask: 'Blue' }]),
-    [{ ask: 'Bigger', done: false, evidence: '', doable: true }, { ask: 'Blue', done: false, evidence: '', doable: true }], 'only a done status counts as done; an empty ask is dropped');
+    [{ ask: 'Bigger', done: false, evidence: '' }, { ask: 'Blue', done: false, evidence: '' }], 'only a done status counts as done; an empty ask is dropped');
   for (const bad of [undefined, null, '', 'not json', '{"ask":"x"}', 5, {}]) assert.deepEqual(c.vibeChecks(bad), [], JSON.stringify(bad));
   assert.equal(c.checksSummary(c.vibeChecks(raw)), 'You asked for 3 things. Done: 2 of 3.');
-  assert.equal(c.checksSummary([{ ask: 'x', done: true, evidence: '', doable: true }]), 'You asked for 1 thing. Done: 1 of 1.');
+  assert.equal(c.checksSummary([{ ask: 'x', done: true, evidence: '' }]), 'You asked for 1 thing. Done: 1 of 1.');
   assert.deepEqual(c.missingAsks(c.vibeChecks([...raw, { ask: 'Bigger bars', status: 'missing' }])), ['A map by region', 'Bigger bars']);
 });
 

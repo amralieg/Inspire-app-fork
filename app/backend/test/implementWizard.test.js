@@ -1079,7 +1079,7 @@ test('the Implement page groups every use case in a fixed order, keeps MVPs of u
     { use_case_id: 'N09-U09', use_case_name: 'Removed from the catalog', status: 'ready' },
   ];
   const groups = w.implementGroups(useCases, latest, RUN('running'));
-  assert.deepEqual(groups.map((g) => g.label), ['In progress', 'Ready', 'Failed', 'Not started']);
+  assert.deepEqual(groups.map((g) => g.label), ['In progress', 'Ready', 'Failed', 'Not started'], 'the Vibes not met group shows only when a use case is held');
   assert.deepEqual(groups.map((g) => g.items.map((i) => i.id)), [['N01-U01', 'N02-U01'], ['N01-U02', 'N09-U09'], ['N02-U02'], []]);
   assert.equal(groups[1].items[1].name, 'Removed from the catalog');
   assert.equal(groups[0].items[1].state.label, 'Notebook running');
@@ -1266,29 +1266,30 @@ test('every MVP state falls in one bucket: ready and with warnings are live, run
 test('the MVP filter keeps only its bucket, Has an MVP keeps every bucket but none, and Any keeps everything', async () => {
   const w = await load();
   const states = { live: w.implementState({ status: 'ready' }), building: w.implementState({ status: 'filling' }),
-    failed: w.implementState({ status: 'failed' }), none: w.implementState(null) };
+    held: w.implementState({ status: w.IMPLEMENT_VIBE_NOT_MET }), failed: w.implementState({ status: 'failed' }), none: w.implementState(null) };
   const kept = (filter) => Object.entries(states).filter(([, state]) => w.mvpFilterMatches(filter, state)).map(([name]) => name);
-  assert.deepEqual(kept('all'), ['live', 'building', 'failed', 'none']);
-  assert.deepEqual(kept(''), ['live', 'building', 'failed', 'none']);
-  assert.deepEqual(kept('has'), ['live', 'building', 'failed']);
+  assert.deepEqual(kept('all'), ['live', 'building', 'held', 'failed', 'none']);
+  assert.deepEqual(kept(''), ['live', 'building', 'held', 'failed', 'none']);
+  assert.deepEqual(kept('has'), ['live', 'building', 'held', 'failed']);
   assert.deepEqual(kept('none'), ['none']);
   assert.deepEqual(kept('live'), ['live']);
   assert.deepEqual(kept('building'), ['building']);
+  assert.deepEqual(kept('held'), ['held']);
   assert.deepEqual(kept('failed'), ['failed']);
   assert.equal(w.mvpFilterMatches('none', null), true, 'a use case without an id has no MVP');
-  assert.deepEqual(w.MVP_FILTERS.map((f) => f.id), ['all', 'has', 'none', 'live', 'building', 'failed']);
+  assert.deepEqual(w.MVP_FILTERS.map((f) => f.id), ['all', 'has', 'none', 'live', 'building', 'held', 'failed']);
 });
 
-test('the MVP counts add up: started is live plus building plus failed, and started plus none is every use case', async () => {
+test('the MVP counts add up: started is live plus building plus held plus failed, and started plus none is every use case', async () => {
   const w = await load();
-  const states = [{ status: 'ready' }, { status: 'ready_with_warnings' }, { status: 'checking' }, { status: 'failed' }, { status: 'uninstalled' }, null]
-    .map((latest) => w.implementState(latest));
+  const states = [{ status: 'ready' }, { status: 'ready_with_warnings' }, { status: 'checking' }, { status: w.IMPLEMENT_VIBE_NOT_MET }, { status: 'failed' },
+    { status: 'uninstalled' }, null].map((latest) => w.implementState(latest));
   const counts = w.mvpCounts([...states, null]);
-  assert.deepEqual(counts, { useCases: 7, has: 4, none: 3, live: 2, building: 1, failed: 1 });
-  assert.equal(counts.has, counts.live + counts.building + counts.failed);
+  assert.deepEqual(counts, { useCases: 8, has: 5, none: 3, live: 2, building: 1, held: 1, failed: 1 });
+  assert.equal(counts.has, counts.live + counts.building + counts.held + counts.failed);
   assert.equal(counts.has + counts.none, counts.useCases);
-  assert.deepEqual(w.mvpCounts([]), { useCases: 0, has: 0, none: 0, live: 0, building: 0, failed: 0 });
-  assert.deepEqual(w.mvpCounts(undefined), { useCases: 0, has: 0, none: 0, live: 0, building: 0, failed: 0 });
+  assert.deepEqual(w.mvpCounts([]), { useCases: 0, has: 0, none: 0, live: 0, building: 0, held: 0, failed: 0 });
+  assert.deepEqual(w.mvpCounts(undefined), { useCases: 0, has: 0, none: 0, live: 0, building: 0, held: 0, failed: 0 });
 });
 
 test('Build again is offered on a failed or stopped version, never on an uninstall, a hand-edited notebook or missing source tables', async () => {

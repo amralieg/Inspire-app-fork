@@ -4,8 +4,9 @@ const { IMPLEMENT_RUN_ID_PARAM } = require('./inspireJobParams');
 const IMPLEMENT_OPERATION = 'Implement Use Cases';
 const IMPLEMENT_TABLE = '__inspire_implement';
 const IMPLEMENT_UNINSTALLED = 'uninstalled';
+const IMPLEMENT_VIBE_NOT_MET = 'vibe_not_met';
 const IMPLEMENT_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs', 'checking', 'ready', 'ready_with_warnings', 'failed',
-  IMPLEMENT_UNINSTALLED];
+  IMPLEMENT_VIBE_NOT_MET, IMPLEMENT_UNINSTALLED];
 const IMPLEMENT_ACTIVE_STATUSES = ['queued', 'filling', 'previewing', 'building_outputs', 'checking'];
 const IMPLEMENT_DONE_STATUSES = ['ready', 'ready_with_warnings'];
 const IMPLEMENT_OUTPUTS = ['dashboard', 'genie_space', 'app', 'alert'];
@@ -540,6 +541,12 @@ function validateImplementSpec(input, { shell = null, legacyAccess = '' } = {}) 
       errors.push('Uninstall All removes everything this use case built, so it cannot also rebuild, vibe, roll back or remove a kept version '
         + 'in the same version');
     }
+  }
+  if (spec.publish_held != null && spec.publish_held !== '') {
+    const held = wholeNumber(spec.publish_held);
+    if (held == null || held < 1) errors.push(`publish_held ${shownValue(spec.publish_held)} must be a version number, 1 or more`);
+    else if (out.uninstall) errors.push('Publish anyway puts a held version live, so it cannot run with Uninstall All in the same version');
+    else out.publish_held = held;
   }
 
   const sharing = objectField(spec.sharing, 'sharing', errors);
@@ -1341,6 +1348,49 @@ function mvpActionProblems(history, spec) {
   return problems;
 }
 
+const personKey = (name) => str(name).trim().toLowerCase();
+
+function implementOwners(row) {
+  const spec = row && isPlainObject(row.spec_json) ? row.spec_json : {};
+  const outputs = isPlainObject(spec.outputs) ? spec.outputs : {};
+  const named = [row && row.created_by, ...(Array.isArray(outputs.app_owners) ? outputs.app_owners : [])].map(personKey).filter(Boolean);
+  return [...new Set(named)];
+}
+
+function publishHeldRefusal(history, spec, requester) {
+  const version = spec && spec.publish_held;
+  if (version == null) return null;
+  const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
+  const held = rows.find((r) => r.spec_version === version);
+  if (!held) return { status: 404, message: `there is no v${version} to publish` };
+  if (held.status !== IMPLEMENT_VIBE_NOT_MET) {
+    return { status: 409, message: `v${version} is ${str(held.status).replace(/_/g, ' ') || 'not built'}, not held for vibes that were not met, so there is nothing to publish anyway` };
+  }
+  if (rows[0].spec_version !== version) {
+    return { status: 409, message: `v${version} is no longer the latest version (v${rows[0].spec_version} is), so it cannot be published anyway` };
+  }
+  const who = personKey(requester);
+  if (!who) return { status: 403, message: 'Inspire could not tell who you are, so it cannot check that you own this MVP' };
+  if (!implementOwners(held).includes(who)) {
+    return { status: 403, message: `only the owners of this MVP can publish v${version} anyway: the person who asked for v${version} and the App owners it names` };
+  }
+  return null;
+}
+
+const PUBLISH_KEYS = ['publish_held', 'based_on_version'];
+const withoutPublishKeys = (spec) => Object.fromEntries(Object.entries(spec || {}).filter(([key]) => !PUBLISH_KEYS.includes(key)));
+
+function publishHeldDifference(history, spec, legacyAccess = '') {
+  const version = spec && spec.publish_held;
+  if (version == null) return '';
+  const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
+  const held = rows.find((r) => r.spec_version === version);
+  if (!held || held.status !== IMPLEMENT_VIBE_NOT_MET || rows[0].spec_version !== version) return '';
+  const stored = validateImplementSpec(held.spec_json, { legacyAccess }).spec;
+  if (sortedJson(withoutPublishKeys(stored)) === sortedJson(withoutPublishKeys(spec))) return '';
+  return `the spec sent to publish v${version} anyway is not v${version} as it was held; reload the page and press Publish anyway again`;
+}
+
 function rollbackSpec(history, spec) {
   const asked = Object.entries((spec && spec.rollback_outputs) || {});
   if (!asked.length) return spec;
@@ -1367,12 +1417,14 @@ function rollbackSpec(history, spec) {
   return { ...spec, outputs };
 }
 
-function planSubmission(history, spec, stalled = null) {
+function planSubmission(history, spec, stalled = null, { requester = null } = {}) {
   const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
   const latest = rows[0] || null;
   if (latest && IMPLEMENT_ACTIVE_STATUSES.includes(latest.status) && !stalled) {
     throw badRequest(`spec v${latest.spec_version} is still ${latest.status}; your edit applies after the current run`, 409);
   }
+  const refused = publishHeldRefusal(rows, spec, requester);
+  if (refused) throw badRequest(refused.message, refused.status);
   const built = rows.find((r) => IMPLEMENT_DONE_STATUSES.includes(r.status)) || null;
   if (built && spec.based_on_version != null && built.spec_version > spec.based_on_version) {
     throw badRequest(`v${built.spec_version} was built after the version you edited (v${spec.based_on_version}); `
@@ -2401,6 +2453,7 @@ module.exports = {
   IMPLEMENT_ACTIVE_STATUSES,
   IMPLEMENT_DONE_STATUSES,
   IMPLEMENT_UNINSTALLED,
+  IMPLEMENT_VIBE_NOT_MET,
   IMPLEMENT_VIBE_PREVIOUS,
   keptAssets,
   mvpActionProblems,
@@ -2495,6 +2548,9 @@ module.exports = {
   carriedAssets,
   rollbackSpec,
   planSubmission,
+  implementOwners,
+  publishHeldRefusal,
+  publishHeldDifference,
   refuseUnchanged,
   implementJobParams,
   widgetsFromInstruction,

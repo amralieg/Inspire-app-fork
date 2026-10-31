@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +9,9 @@ import { HARNESS_USE_CASE } from './implementFixtures.js';
 
 const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { makeApp, listen } = createRequire(import.meta.url)('../../../backend/test/support/implementApp.js');
+
+export const VITE_CACHE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'inspire-ui-vite-'));
+process.once('exit', () => fs.rmSync(VITE_CACHE_DIR, { recursive: true, force: true }));
 
 let browser;
 
@@ -22,6 +27,7 @@ export async function openUi(open, overrides = {}, query = '', { mount, init } =
   const vite = await createServer({
     root: frontend,
     configFile: path.join(frontend, 'vite.config.js'),
+    cacheDir: VITE_CACHE_DIR,
     logLevel: 'error',
     clearScreen: false,
     server: { host: '127.0.0.1', port: 0, proxy: { '/api': backend.url, '/showcase': backend.url }, hmr: false },

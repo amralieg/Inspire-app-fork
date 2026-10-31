@@ -758,13 +758,16 @@ function registerImplementRoutes(app, deps) {
     const legacyAccess = I.legacyAppAccess(history);
     const { spec: asked, errors } = legacyAccess ? I.validateImplementSpec(raw, { legacyAccess }) : draft;
     if (errors.length) throw I.badRequest(errors.join('; '));
+    const changed = I.publishHeldDifference(history, asked, legacyAccess);
+    if (changed) throw I.badRequest(changed, 409);
     const rolled = I.rollbackSpec(history, asked);
     const useCaseId = I.validateUseCaseId(rolled.use_case_id);
     const moved = await movedResultTable(req, warehouseId, useCaseId, rolled.config.result_table, history);
     const spec = moved ? I.withResultTable(rolled, moved.to) : rolled;
-    const [session, useCase] = await Promise.all([
+    const [session, useCase, me] = await Promise.all([
       loadSession(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid),
       loadUseCase(req.dbHost, req.dbToken, warehouseId, catalog, schema, sid, useCaseId),
+      loadMe(req),
     ]);
     if (!useCase) throw I.badRequest(`No use case ${useCaseId} in this session.`, 404);
     const problems = I.removedTableProblems(spec, I.useCaseTables(useCase), I.primaryTableOf(useCase));
@@ -778,10 +781,10 @@ function registerImplementRoutes(app, deps) {
       if (mergeIssues.length) throw I.badRequest(mergeIssues.join('; '));
     }
     const stalled = await stalledOf(req, history[0]);
-    const plan = I.planSubmission(history, spec, stalled);
+    const plan = I.planSubmission(history, spec, stalled, { requester: requesterOf(req, me) });
     if (moved) plan.summary.result_table_moved = moved;
     if (plan.summary.refill) await refuseMissingSources(req, warehouseId, spec, useCase);
-    return { sid, warehouseId, inspire_database, catalog, schema, spec, useCaseId, session, history, plan };
+    return { sid, warehouseId, inspire_database, catalog, schema, spec, useCaseId, session, history, plan, me };
   }
 
   app.post('/api/inspire/implement/plan', requireToken, async (req, res) => {
@@ -796,69 +799,83 @@ function registerImplementRoutes(app, deps) {
     }
   });
 
+  async function startVersion(req, { sid, warehouseId, inspire_database, catalog, schema, spec, useCaseId, session, plan, me }) {
+    I.refuseUnchanged(plan);
+    if (spec.config.result_table) {
+      const output = await checkOutput(req, warehouseId, spec.config.result_table, useCaseId);
+      if (!output.ok) throw I.badRequest(output.write.ok ? output.safety.detail : output.write.detail, 403);
+    }
+    const params = I.implementJobParams(notebookParamsFromSessionForGenerateRun(session, sid), useCaseId, plan.nextVersion);
+    if (!params['02_inspire_database']) params['02_inspire_database'] = inspire_database;
+    if (!params['01_uc_metadata']) {
+      const err = new Error('This session has no UC metadata stored on __inspire_session. Run Discover from this app first.');
+      err.statusCode = 400;
+      throw err;
+    }
+    const createdBy = requesterOf(req, me);
+    const table = I.implementTableName(catalog, schema);
+    await ensureImplementTable(req.dbHost, req.dbToken, warehouseId, table);
+    const insert = I.implementInsertStatement(table, {
+      sessionId: sid,
+      useCaseId,
+      specVersion: plan.nextVersion,
+      basedOnVersion: spec.based_on_version == null ? (plan.built ? plan.built.spec_version : null) : spec.based_on_version,
+      spec,
+      createdBy,
+      statusMessage: 'queued',
+      changeClasses: plan.summary.classes,
+    });
+    await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, warehouseId, insert.sql, { parameters: insert.parameters });
+
+    const version = { sessionId: sid, useCaseId, specVersion: plan.nextVersion };
+    let out;
+    try {
+      out = await triggerInspireNotebookJob(req.dbHost, req.dbToken, {
+        params,
+        notebook_path: req.body?.notebook_path,
+        cluster_id: req.body?.cluster_id,
+        jobType: 'implement',
+        useCaseIds: [useCaseId],
+      });
+    } catch (err) {
+      const failed = I.implementStartFailedStatement(table, { ...version, message: `the MVP run could not start: ${err.message}` });
+      try {
+        await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, warehouseId, failed.sql, { parameters: failed.parameters });
+      } catch (e) {
+        console.warn(`implement start-failure write failed: ${e.message}`);
+      }
+      throw err;
+    }
+    const started = I.implementRunStartedStatement(table, { ...version, runId: out.run_id, message: out.job_run_url || `run ${out.run_id}` });
+    try {
+      await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, warehouseId, started.sql, { parameters: started.parameters });
+    } catch (e) {
+      console.warn(`implement run id write failed: ${e.message}`);
+    }
+    return {
+      session_id: sid,
+      use_case_id: useCaseId,
+      spec_version: plan.nextVersion,
+      summary: plan.summary,
+      ...out,
+    };
+  }
+
   app.post('/api/inspire/implement/submit', requireToken, async (req, res) => {
     try {
-      const { sid, warehouseId, inspire_database, catalog, schema, spec, useCaseId, session, plan } = await prepareSubmission(req);
-      I.refuseUnchanged(plan);
-      if (spec.config.result_table) {
-        const output = await checkOutput(req, warehouseId, spec.config.result_table, useCaseId);
-        if (!output.ok) throw I.badRequest(output.write.ok ? output.safety.detail : output.write.detail, 403);
-      }
-      const params = I.implementJobParams(notebookParamsFromSessionForGenerateRun(session, sid), useCaseId, plan.nextVersion);
-      if (!params['02_inspire_database']) params['02_inspire_database'] = inspire_database;
-      if (!params['01_uc_metadata']) {
-        const err = new Error('This session has no UC metadata stored on __inspire_session. Run Discover from this app first.');
-        err.statusCode = 400;
-        throw err;
-      }
-      const me = await loadMe(req);
-      const createdBy = requesterOf(req, me);
-      const table = I.implementTableName(catalog, schema);
-      await ensureImplementTable(req.dbHost, req.dbToken, warehouseId, table);
-      const insert = I.implementInsertStatement(table, {
-        sessionId: sid,
-        useCaseId,
-        specVersion: plan.nextVersion,
-        basedOnVersion: spec.based_on_version == null ? (plan.built ? plan.built.spec_version : null) : spec.based_on_version,
-        spec,
-        createdBy,
-        statusMessage: 'queued',
-        changeClasses: plan.summary.classes,
-      });
-      await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, warehouseId, insert.sql, { parameters: insert.parameters });
+      res.json(await startVersion(req, await prepareSubmission(req)));
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
 
-      const version = { sessionId: sid, useCaseId, specVersion: plan.nextVersion };
-      let out;
-      try {
-        out = await triggerInspireNotebookJob(req.dbHost, req.dbToken, {
-          params,
-          notebook_path: req.body?.notebook_path,
-          cluster_id: req.body?.cluster_id,
-          jobType: 'implement',
-          useCaseIds: [useCaseId],
-        });
-      } catch (err) {
-        const failed = I.implementStartFailedStatement(table, { ...version, message: `the MVP run could not start: ${err.message}` });
-        try {
-          await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, warehouseId, failed.sql, { parameters: failed.parameters });
-        } catch (e) {
-          console.warn(`implement start-failure write failed: ${e.message}`);
-        }
-        throw err;
-      }
-      const started = I.implementRunStartedStatement(table, { ...version, runId: out.run_id, message: out.job_run_url || `run ${out.run_id}` });
-      try {
-        await executeSqlWithDeltaRetry(req.dbHost, req.dbToken, warehouseId, started.sql, { parameters: started.parameters });
-      } catch (e) {
-        console.warn(`implement run id write failed: ${e.message}`);
-      }
-      res.json({
-        session_id: sid,
-        use_case_id: useCaseId,
-        spec_version: plan.nextVersion,
-        summary: plan.summary,
-        ...out,
-      });
+  app.post('/api/inspire/implement/publish', requireToken, async (req, res) => {
+    try {
+      const prepared = await prepareSubmission(req);
+      const named = q(req, 'use_case_id');
+      if (named && named !== prepared.useCaseId) throw I.badRequest(`the spec is for use case ${prepared.useCaseId}, not ${named}`);
+      if (prepared.spec.publish_held == null) throw I.badRequest('Publish anyway sends the held spec with publish_held set to the held version');
+      res.json(await startVersion(req, prepared));
     } catch (err) {
       sendError(res, err);
     }
@@ -901,10 +918,12 @@ function registerImplementRoutes(app, deps) {
       }
       const appName = I.carriedAssets(history).app;
       const jobId = (history.find((r) => r.job_id) || {}).job_id;
-      const [appInfo, runInfo, stalled] = await Promise.all([
+      const held = history[0] && history[0].status === I.IMPLEMENT_VIBE_NOT_MET ? history[0].spec_version : null;
+      const [appInfo, runInfo, stalled, me] = await Promise.all([
         appName ? jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.0/apps/${encodeURIComponent(appName)}`) : null,
         jobId ? jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.1/jobs/runs/list?job_id=${Number(jobId)}&limit=10`) : null,
         stalledOf(req, history[0]),
+        held == null ? null : loadMe(req),
       ]);
       const listedNone = runInfo && runInfo.ok && !(Array.isArray(runInfo.data && runInfo.data.runs) && runInfo.data.runs.length);
       const jobInfo = listedNone ? await jsonOf(dbFetch, req.dbHost, req.dbToken, `/api/2.1/jobs/get?job_id=${Number(jobId)}`) : null;
@@ -918,6 +937,7 @@ function registerImplementRoutes(app, deps) {
         rerun_widgets: I.rerunWidgets(history),
         app_status: I.appStatusFrom(appInfo, { useCaseId, sessionId: sid, history }),
         runs: I.jobRunsFrom(runInfo, jobInfo),
+        can_publish_held: held != null && !I.publishHeldRefusal(history, { publish_held: held }, requesterOf(req, me)),
       });
     } catch (err) {
       sendError(res, err);

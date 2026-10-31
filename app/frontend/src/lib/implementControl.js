@@ -1,9 +1,9 @@
 import {
-  BUILT_ASSET_STATES, GENIE_FOR_APP_NOTE, IMPLEMENT_DONE_STATUSES, IMPLEMENT_OUTPUTS, IMPLEMENT_UNINSTALLED, assetLabel, holderNames, holdersText, holdoutText, partLabel, partOf,
-  rebuildableOutputs, statusChip, versionActive, vibesKey,
+  BUILT_ASSET_STATES, GENIE_FOR_APP_NOTE, IMPLEMENT_DONE_STATUSES, IMPLEMENT_OUTPUTS, IMPLEMENT_UNINSTALLED, IMPLEMENT_VIBE_NOT_MET, assetLabel, builtVersion, heldAsks,
+  holderNames, holdersText, holdoutText, joinWords, partAsks, partLabel, partOf, rebuildableOutputs, statusChip, versionActive, vibesKey, VIBE_NOT_MET_FIRST,
 } from './implementWizard.js';
 import { formatWhen } from './formatWhen.js';
-import { planActionText, planActions } from './mvpProgress.js';
+import { checklistHeadline, missedAsks, planActionText, planActions } from './mvpProgress.js';
 
 export const CONTROL_REFRESH_MS = 15000;
 
@@ -178,6 +178,7 @@ export function buildSummary(items) {
     mvps: mvps.length,
     building: inGroup('in_progress'),
     ready: inGroup('ready').length,
+    held: inGroup('held').length,
     failed: inGroup('failed').length,
     notebooks: list.filter((item) => item.state?.kind === 'notebook' && item.notebook?.state === 'ready').length,
     notStarted: list.filter((item) => item.state?.group === 'not_started').length,
@@ -219,6 +220,7 @@ export function controlTiles(live, latest, { active = false, buildingNow = '', p
       if (active && !plan) return { output, kind: 'building', now: buildingNow === output.label };
       if (building) return { output, kind: 'building', ...building };
       if (assets[output.id]?.state === 'failed') return { output, kind: 'failed', error: String(assets[output.id].error || '') };
+      if (latest?.status === IMPLEMENT_VIBE_NOT_MET) return { output, kind: 'held', note: VIBE_NOT_MET_FIRST };
       if (!live || planned?.settled) return { output, kind: 'checking' };
       return { output, kind: 'missing' };
     }),
@@ -347,18 +349,16 @@ export function vibeChecks(raw) {
     ask: String(check.ask).trim(),
     done: String(check.status ?? '').trim().toLowerCase() === 'done',
     evidence: String(check.evidence ?? '').trim(),
-    doable: check.doable !== false,
   }));
 }
 
 export function checksSummary(checks) {
   const done = checks.filter((check) => check.done).length;
-  const cannot = checks.filter((check) => !check.done && !check.doable).length;
-  return `You asked for ${checks.length} ${checks.length === 1 ? 'thing' : 'things'}. Done: ${done} of ${checks.length}.${cannot ? ` ${cannot} cannot be done here.` : ''}`;
+  return `You asked for ${checks.length} ${checks.length === 1 ? 'thing' : 'things'}. Done: ${done} of ${checks.length}.`;
 }
 
 export function missingAsks(checks) {
-  return checks.filter((check) => !check.done && check.doable).map((check) => check.ask);
+  return checks.filter((check) => !check.done).map((check) => check.ask);
 }
 
 export function askCount(text) {
@@ -452,13 +452,16 @@ export function rollingBackText(card) {
 export function vibeCards(history, latest, stalled = null, notebookUrl = '', plan = null) {
   const rows = [...(history || [])].sort((a, b) => (b.spec_version || 0) - (a.spec_version || 0));
   const active = versionActive(latest, stalled);
-  const base = active ? rows.find((r) => DONE.includes(r.status)) : latest;
+  const held = latest?.status === IMPLEMENT_VIBE_NOT_MET;
+  const live = builtVersion(rows);
+  const base = active || held ? rows.find((r) => r.spec_version === live) : latest;
   if (!base || !DONE.includes(String(base.status))) return [];
-  const chosen = latest.spec_json?.outputs || {};
+  const shown = held ? base : latest;
+  const chosen = shown.spec_json?.outputs || {};
   const built = rebuildableOutputs(base).map((o) => o.id);
   const planned = active && plan && !plan.pending ? plan : null;
   const rebuildOf = !active || plan?.pending ? () => null : planned ? plannedRebuild(planned, latest) : legacyRebuild(latest, base);
-  const asking = latest.spec_json?.retry_asks || {};
+  const asking = shown.spec_json?.retry_asks || {};
   const at = (row) => String(row?.updated_at || row?.created_at || '');
   const liveAt = (version) => (version == null ? null : { version, at: at(rows.find((r) => r.spec_version === version)) });
   const urlOf = (output) => (output === 'notebook' ? String(notebookUrl || '') : String(base[OUTPUT_URLS[output]] || latest[OUTPUT_URLS[output]] || ''));
@@ -485,7 +488,7 @@ export function vibeCards(history, latest, stalled = null, notebookUrl = '', pla
   const notebookEntry = base.asset_status?.notebook;
   const notebookVersion = notebookEntry?.spec_version ?? null;
   const notebook = notebookVersion == null ? []
-    : [card('notebook', 'notebook', notebookEntry, notebookVersion, { label: 'notebook', vibes: String(latest.spec_json?.data?.notes ?? '').trim(), rebuild: true })];
+    : [card('notebook', 'notebook', notebookEntry, notebookVersion, { label: 'notebook', vibes: String(shown.spec_json?.data?.notes ?? '').trim(), rebuild: true })];
   return markAlone([...notebook, ...parts('notebook'), ...IMPLEMENT_OUTPUTS.filter((o) => chosen[o.id]).flatMap((o) => {
     const entry = base.asset_status?.[o.id];
     const liveVersion = BUILT_ASSET_STATES.includes(entry?.state) ? (entry.spec_version ?? base.spec_version ?? null) : null;
@@ -534,6 +537,66 @@ export function assetGroups(cards, rows = []) {
 
 export function tryAgainChanges(id, asks) {
   return { retry_outputs: [id], retry_asks: { [id]: [...asks] } };
+}
+
+export const MVP_VIBES_ID = 'mvp';
+const isMap = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const assetName = (assets, id) => String(assets?.[id]?.name ?? assets?.[id]?.title ?? '').trim();
+
+export function heldVersion(latest, history) {
+  if (latest?.status !== IMPLEMENT_VIBE_NOT_MET) return null;
+  const assets = isMap(latest.asset_status) ? latest.asset_status : {};
+  const held = isMap(assets.held) ? assets.held : {};
+  const ids = [...new Set((Array.isArray(held.parts) ? held.parts : []).map((id) => String(id ?? '').trim()).filter(Boolean))];
+  return {
+    version: latest.spec_version,
+    before: Array.isArray(history) ? builtVersion(history) : undefined,
+    parts: ids.map((id) => partLabel(id, assetName(assets, id))),
+    reason: String(held.reason ?? '').trim(),
+  };
+}
+
+export function heldText(held, checklist) {
+  const live = held.before === undefined ? '' : `, and ${held.before ? `v${held.before} stays live` : 'nothing is live yet'}`;
+  const kept = `Nothing of v${held.version} is published${live}.`;
+  return checklist?.total ? `${checklistHeadline(checklist)} after Genie's rounds. ${kept}` : kept;
+}
+
+export function heldPartsText(held) {
+  return held.parts.length ? `Held for Publish anyway: ${joinWords(held.parts.map((label) => `the ${label}`))}.` : '';
+}
+
+export function rephraseOf(checklist, latest) {
+  const spec = latest?.spec_json || {};
+  const assets = isMap(latest?.asset_status) ? latest.asset_status : {};
+  const lines = [];
+  const replaces = [];
+  const holds = (text, words) => heldAsks(text).some((ask) => sameText(ask, words));
+  for (const entry of missedAsks(checklist)) {
+    const words = entry.requirement;
+    if (!words) continue;
+    if (!lines.some((line) => sameText(line, words))) lines.push(words);
+    const inPart = entry.part && partAsks(spec, entry.part).some((ask) => sameText(ask, words));
+    const out = inPart ? { id: entry.part, label: partLabel(entry.part, assetName(assets, entry.part)) }
+      : holds(spec.vibes, words) ? { id: MVP_VIBES_ID, label: `vibe of v${latest.spec_version}` } : null;
+    if (out && !replaces.some((r) => r.id === out.id && sameText(r.text, words))) replaces.push({ ...out, text: words });
+  }
+  return { text: lines.join('\n'), replaces };
+}
+
+export function rephrasedAsk(text, replaces) {
+  const kept = heldAsks(text);
+  return (replaces || []).filter((r) => !kept.some((line) => sameText(line, r.text)));
+}
+
+export function publishHeldText(held) {
+  const what = held.parts.length ? `the ${joinWords(held.parts)} of v${held.version}` : `v${held.version}`;
+  const place = held.before === undefined ? '' : held.before ? ` in place of v${held.before}` : ' for the first time';
+  return `Inspire puts ${what} live${place}, with no Genie round, and marks each ask above as published anyway by you.`;
+}
+
+export function canPublishHeld(status) {
+  return status?.can_publish_held === true;
 }
 
 export const COLLECTED_VIBES_KEY = 'inspire.collected_vibes.v1';

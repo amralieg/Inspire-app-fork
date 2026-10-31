@@ -128,6 +128,7 @@ const PENDING_LOOK = {
   failed: (tile) => ({ tone: 'error', text: tile.error ? `It failed: ${tile.error}` : 'It failed on this version' }),
   checking: (_tile, liveError) => ({ tone: 'idle', text: liveError ? 'Inspire cannot read its live status' : 'Reading its live status' }),
   missing: () => ({ tone: 'warning', text: 'Not built on this version' }),
+  held: (tile) => ({ tone: 'warning', text: tile.note }),
 };
 
 export function AssetPanel({

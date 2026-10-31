@@ -40,7 +40,7 @@ export function SectionTitle({ icon, title, hint, right, as = 'h3' }) {
   );
 }
 
-const COUNTER_TONE = { plain: 'text-text-primary', red: 'text-db-red-fg', success: 'text-success-fg', error: 'text-error-fg' };
+const COUNTER_TONE = { plain: 'text-text-primary', red: 'text-db-red-fg', success: 'text-success-fg', warning: 'text-warning-fg', error: 'text-error-fg' };
 
 export function Counter({ value, label, tone = 'plain' }) {
   return (

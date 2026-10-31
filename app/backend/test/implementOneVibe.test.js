@@ -224,21 +224,6 @@ test('the Build page collects asks for the whole MVP, once each, and a held ask 
   assert.equal(C.collectVibe, undefined, 'the per-asset collector is gone');
 });
 
-test('an ask the judge says cannot be done here reads apart from one not done yet, and Try again never resends it', async () => {
-  const C = await lib('implementControl.js');
-  const checks = C.vibeChecks([
-    { ask: 'A map by region', status: 'missing', evidence: 'The result table has no region column', doable: false },
-    { ask: 'Label each bar', status: 'missing', evidence: 'The bars have no labels' },
-    { ask: 'Bars by week', status: 'done', evidence: 'The chart is a weekly bar chart' },
-    { ask: 'Keep the tier filter', status: 'done', evidence: 'The tier filter is there', doable: true },
-  ]);
-  assert.deepEqual(checks.map((c) => [c.done, c.doable]), [[false, false], [false, true], [true, true], [true, true]]);
-  assert.deepEqual(C.missingAsks(checks), ['Label each bar'], 'only what Genie can still do is tried again');
-  assert.equal(C.checksSummary(checks), 'You asked for 4 things. Done: 2 of 4. 1 cannot be done here.');
-  assert.equal(C.checksSummary(checks.slice(1)), 'You asked for 3 things. Done: 2 of 3.');
-  assert.deepEqual(C.vibeChecks(JSON.stringify([{ ask: 'x', status: 'done', evidence: '', doable: 'no' }])).map((c) => c.doable), [true], 'only false means it cannot be done');
-});
-
 test('the Vibes step note and the outputs Genie does not build say there is one box for the whole MVP', async () => {
   const W = await lib('implementWizard.js');
   assert.match(W.VIBES_STEP_NOTE, /^Tell Genie what you want in your own words\. Your asks win over Inspire's defaults\. /);

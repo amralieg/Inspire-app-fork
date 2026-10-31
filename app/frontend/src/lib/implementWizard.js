@@ -372,6 +372,11 @@ const vibeLines = (text) => heldAsks(text).join('\n');
 const holdsLine = (text, line) => `\n${text.toLowerCase()}\n`.includes(`\n${line.toLowerCase()}\n`);
 const heldPlace = (id) => (id === 'notebook' ? ['data', 'notes'] : ['outputs', vibesKey(id)]);
 
+export function partAsks(spec, id) {
+  const [group, key] = heldPlace(String(id ?? ''));
+  return heldAsks(spec?.[group]?.[key]);
+}
+
 export function withCollectedVibes(spec, entries) {
   const next = { ...spec, data: { ...spec.data }, outputs: { ...spec.outputs } };
   const retry = Array.isArray(spec.retry_outputs) ? [...spec.retry_outputs] : [];
@@ -383,24 +388,33 @@ export function withCollectedVibes(spec, entries) {
     const text = vibeLines(entry?.text);
     if (!text) continue;
     if (entry.kind !== 'remove') {
-      if (holdsLine(vibes, text)) continue;
-      vibes = vibes ? `${vibes}\n${text}` : text;
-      added += 1;
+      let fresh = 0;
+      for (const line of heldAsks(text)) {
+        if (holdsLine(vibes, line)) continue;
+        vibes = vibes ? `${vibes}\n${line}` : line;
+        fresh += 1;
+      }
+      if (fresh) added += 1;
       continue;
     }
     const id = String(entry.id ?? '');
     const [group, key] = heldPlace(id);
     const held = heldAsks(next[group][key]);
     const kept = held.filter((ask) => ask.toLowerCase() !== text.toLowerCase());
-    if (!id || kept.length === held.length) {
+    const lines = heldAsks(vibes);
+    const left = lines.filter((ask) => ask.toLowerCase() !== text.toLowerCase());
+    if (!id || (kept.length === held.length && left.length === lines.length)) {
       gone.push(text);
       continue;
     }
-    next[group][key] = kept.join('\n');
+    vibes = left.join('\n');
     removed += 1;
+    if (kept.length === held.length) continue;
+    next[group][key] = kept.join('\n');
     if (partOf(id) && !retry.includes(id)) retry.push(id);
   }
   if (vibes) next.vibes = vibes;
+  else if (spec.vibes) delete next.vibes;
   if (retry.length) next.retry_outputs = retry;
   return { spec: next, added, removed, gone };
 }
@@ -812,10 +826,25 @@ export function defaultSpecFromUseCase(uc, { warehouseId, inspireDatabase, sessi
   };
 }
 
-const ONE_VERSION_KEYS = ['retry_outputs', 'retry_asks', 'rollback_outputs', 'confirm_notebook_overwrite', 'vibes', 'vibe_previous', 'remove_kept', 'uninstall'];
-
+const ONE_VERSION_KEYS = ['retry_outputs', 'retry_asks', 'rollback_outputs', 'confirm_notebook_overwrite', 'vibes', 'vibe_previous', 'remove_kept', 'uninstall',
+  'publish_held'];
 function withoutOneVersionKeys(spec) {
   return Object.fromEntries(Object.entries(spec || {}).filter(([key]) => !ONE_VERSION_KEYS.includes(key)));
+}
+
+const isSpecMap = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+function withStoredLeaves(base, stored) {
+  if (!isSpecMap(base) || !isSpecMap(stored)) return stored === undefined ? base : stored;
+  return Object.fromEntries([...new Set([...Object.keys(base), ...Object.keys(stored)])].map((key) => [key, withStoredLeaves(base[key], stored[key])]));
+}
+
+export function specFromHeld(held, { publish = false } = {}) {
+  if (held?.status !== IMPLEMENT_VIBE_NOT_MET || !isSpecMap(held.spec_json)) return null;
+  const stored = structuredClone(held.spec_json);
+  if (!publish) return stored;
+  const version = Number(held.spec_version);
+  return { ...stored, publish_held: version, based_on_version: version };
 }
 
 function idAppNameOf(id) {
@@ -835,7 +864,7 @@ export function specFromLatest(latest, fallback, assets = {}) {
   if (saved.app && assets?.app && !Object.prototype.hasOwnProperty.call(saved, 'app_backend')) outputs.app_backend = 'delta';
   const idDefault = !assets?.app && outputs.app_name === idAppNameOf(fallback.use_case_id);
   if (!outputs.app || !outputs.app_name || idDefault) outputs.app_name = fallback.outputs.app_name;
-  return {
+  const edited = {
     ...fallback,
     ...withoutOneVersionKeys(parsed),
     based_on_version: latest.spec_version,
@@ -847,6 +876,8 @@ export function specFromLatest(latest, fallback, assets = {}) {
     sharing: { ...fallback.sharing, ...(parsed.sharing || {}) },
     removed_outputs: parsed.removed_outputs || {},
   };
+  const held = specFromHeld(latest);
+  return held ? withStoredLeaves(edited, held) : edited;
 }
 
 export const ROLE_RULES = {
@@ -1973,7 +2004,7 @@ export function canBuildAgain(latest, { edited = null, missing = [] } = {}) {
 
 export function buildAgainChanges(latest) {
   const spec = specOf(latest);
-  return Object.fromEntries(ONE_VERSION_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(spec, key)).map((key) => [key, spec[key]]));
+  return Object.fromEntries(ONE_VERSION_KEYS.filter((key) => key !== 'publish_held' && Object.prototype.hasOwnProperty.call(spec, key)).map((key) => [key, spec[key]]));
 }
 
 export function buildAgainHint(latest) {
@@ -1982,21 +2013,35 @@ export function buildAgainHint(latest) {
 }
 
 export const IMPLEMENT_UNINSTALLED = 'uninstalled';
+export const IMPLEMENT_VIBE_NOT_MET = 'vibe_not_met';
+export const VIBE_NOT_MET_WORDS = 'Vibes not met, not published';
+export const VIBE_NOT_MET_LIVE = `${VIBE_NOT_MET_WORDS}: the version before stays live`;
+export const VIBE_NOT_MET_FIRST = `${VIBE_NOT_MET_WORDS}: nothing is live yet`;
+
+export function vibeNotMetText(history = null) {
+  if (!Array.isArray(history)) return VIBE_NOT_MET_WORDS;
+  return builtVersion(history) == null ? VIBE_NOT_MET_FIRST : VIBE_NOT_MET_LIVE;
+}
 
 export function statusChip(status, stalled = null) {
   const s = String(status || '');
   if (s === 'ready') return { label: 'Ready', tone: 'success' };
   if (s === IMPLEMENT_UNINSTALLED) return { label: 'Uninstalled', tone: 'idle' };
   if (s === 'ready_with_warnings') return { label: 'Warnings', tone: 'warning' };
+  if (s === IMPLEMENT_VIBE_NOT_MET) return { label: 'Vibes not met', tone: 'warning' };
   if (s === 'failed') return { label: 'Failed', tone: 'error' };
   if (IMPLEMENT_ACTIVE_STATUSES.includes(s)) return stalled ? { label: 'Stopped', tone: 'error' } : { label: s.replace(/_/g, ' '), tone: 'busy' };
   return { label: s || 'New', tone: 'idle' };
 }
 
-export function statusReason(latest, stalled = null) {
+export function statusReason(latest, stalled = null, history = null) {
   const s = String(latest?.status || '');
   if (stalled && IMPLEMENT_ACTIVE_STATUSES.includes(s)) {
     return `${String(stalled.reason || 'its run stopped before it finished').trim()}. Edit submits a new version.`;
+  }
+  if (s === IMPLEMENT_VIBE_NOT_MET) {
+    const why = String(latest?.asset_status?.held?.reason ?? '').trim();
+    return why ? `${vibeNotMetText(history)}. ${why}` : vibeNotMetText(history);
   }
   if (!['ready_with_warnings', 'failed'].includes(s)) return '';
   return String(latest?.status_message || '').trim();
@@ -2004,6 +2049,7 @@ export function statusReason(latest, stalled = null) {
 
 export function historyStatus(row, latest, stalled = null) {
   const s = String(row?.status || '');
+  if (s === IMPLEMENT_VIBE_NOT_MET) return VIBE_NOT_MET_WORDS.toLowerCase();
   if (!IMPLEMENT_ACTIVE_STATUSES.includes(s)) return s;
   return row?.spec_version !== latest?.spec_version || stalled ? 'stopped before it finished' : s;
 }
@@ -2055,6 +2101,7 @@ export function notebookRunEnded(prev, run) {
 export const IMPLEMENT_GROUPS = [
   { id: 'in_progress', label: 'In progress' },
   { id: 'ready', label: 'Ready' },
+  { id: 'held', label: 'Vibes not met' },
   { id: 'failed', label: 'Failed' },
   { id: 'not_started', label: 'Not started' },
 ];
@@ -2067,6 +2114,7 @@ export function implementState(latest, notebook = null) {
   if (s) {
     if (s === 'ready') return { group: 'ready', label: 'MVP ready', tone: 'success', kind: 'mvp' };
     if (s === 'ready_with_warnings') return { group: 'ready', label: 'MVP ready with warnings', tone: 'warning', kind: 'mvp' };
+    if (s === IMPLEMENT_VIBE_NOT_MET) return { group: 'held', label: 'MVP vibes not met', tone: 'warning', kind: 'mvp' };
     if (s === 'failed') return { group: 'failed', label: 'MVP failed', tone: 'error', kind: 'mvp' };
     if (IMPLEMENT_ACTIVE_STATUSES.includes(s) && latest.stalled) return { group: 'failed', label: 'MVP stopped', tone: 'error', kind: 'mvp' };
     if (IMPLEMENT_ACTIVE_STATUSES.includes(s)) return { group: 'in_progress', label: 'MVP running', tone: 'busy', kind: 'mvp' };
@@ -2093,7 +2141,8 @@ export function implementGroups(useCases, latestRows, notebookRun, query = '') {
     const text = `${item.id} ${item.name} ${subtitleOfUseCase(item.uc, item.name)} ${item.domain}`.toLowerCase();
     return terms.every((t) => text.includes(t));
   });
-  return IMPLEMENT_GROUPS.map((group) => ({ ...group, items: items.filter((item) => item.state.group === group.id) }));
+  return IMPLEMENT_GROUPS.map((group) => ({ ...group, items: items.filter((item) => item.state.group === group.id) }))
+    .filter((group) => group.id !== 'held' || group.items.length);
 }
 
 export const MVP_FILTERS = [
@@ -2102,10 +2151,11 @@ export const MVP_FILTERS = [
   { id: 'none', label: 'No MVP yet' },
   { id: 'live', label: 'MVP live' },
   { id: 'building', label: 'MVP building' },
+  { id: 'held', label: 'MVP vibes not met' },
   { id: 'failed', label: 'MVP failed' },
 ];
 
-const MVP_BUCKET = { ready: 'live', in_progress: 'building', failed: 'failed' };
+const MVP_BUCKET = { ready: 'live', in_progress: 'building', held: 'held', failed: 'failed' };
 
 export function mvpBucketOf(state) {
   return state?.kind === 'mvp' ? MVP_BUCKET[state.group] || 'building' : 'none';
@@ -2118,7 +2168,7 @@ export function mvpFilterMatches(filter, state) {
 }
 
 export function mvpCounts(states) {
-  const counts = { useCases: 0, has: 0, none: 0, live: 0, building: 0, failed: 0 };
+  const counts = { useCases: 0, has: 0, none: 0, live: 0, building: 0, held: 0, failed: 0 };
   for (const state of Array.isArray(states) ? states : []) {
     const bucket = mvpBucketOf(state);
     counts.useCases += 1;

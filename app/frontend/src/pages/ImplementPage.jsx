@@ -6,7 +6,7 @@ import {
 import {
   statusChip, statusReason, nextSpecFrom, retryableOutputs, lostTables, lostTablesText, genieQuestions, appStatusRows, editedNotebook,
   runProfileText, versionActive, historyStatus, implementGroups, notebookRunEnded, notebookStatus, START_MVP_LABEL, IMPLEMENT_ACTIVE_STATUSES, IMPLEMENT_UNINSTALLED,
-  vibesPreview, heldAsks, canBuildAgain, buildAgainChanges, buildAgainHint, resultTableMoveNote, IMPLEMENT_DONE_STATUSES,
+  vibesPreview, heldAsks, canBuildAgain, buildAgainChanges, buildAgainHint, resultTableMoveNote, IMPLEMENT_DONE_STATUSES, specFromHeld,
 } from '../lib/implementWizard';
 import { makeApiFetch, makeApiPostJson } from '../lib/apiClient';
 import { buildUseCaseList } from '../lib/useCaseList';
@@ -23,16 +23,17 @@ import InspireScoreBadge from '../components/InspireScoreBadge';
 import Celebration from '../components/Celebration';
 import GenieLogo from '../components/GenieLogo';
 import GlobalVibe from '../components/GlobalVibe';
+import VibeChecklist, { HeldVersion } from '../components/VibeChecklist';
 import TabStrip, { tabPanel } from '../components/TabStrip';
 import { Counter, CounterDivider, IconChip, PANEL_CLASS, SectionTitle } from '../components/BuildUi';
 import { catalogRow } from '../lib/useCaseFacets';
 import {
-  BUILD_TAB, CONTROL_REFRESH_MS, MVP_TABS, RAIL_WIDTH, assetFilterCounts, assetGroups, assetUninstall, buildSummary, checksSummary, collectAsk, collectRemoval, collectedNoteText,
-  collectedScope, controlRows, controlTiles, deliveredOutputs, dropCollected, filterByAsset, idleMvpTab, implementDefaultTab, keptVersions, loadCollectedVibes, loadRailWidth,
-  missingAsks, railWidth, rebuildingText, removeChanges, removeKeptChanges, removingAsk, rollbackChanges, rollingBackText, saveCollectedVibes, saveRailWidth, tryAgainChanges,
-  uninstallChanges, vibeCards,
+  BUILD_TAB, CONTROL_REFRESH_MS, MVP_TABS, RAIL_WIDTH, assetFilterCounts, assetGroups, assetUninstall, buildSummary, canPublishHeld, checksSummary, collectAsk, collectRemoval,
+  collectedNoteText, collectedScope, controlRows, controlTiles, deliveredOutputs, dropCollected, filterByAsset, heldVersion, idleMvpTab, implementDefaultTab, keptVersions,
+  loadCollectedVibes, loadRailWidth, missingAsks, railWidth, rebuildingText, rephraseOf, rephrasedAsk, removeChanges, removeKeptChanges, removingAsk, rollbackChanges, rollingBackText,
+  saveCollectedVibes, saveRailWidth, tryAgainChanges, uninstallChanges, vibeCards,
 } from '../lib/implementControl';
-import { mvpScope, mvpStages, mvpProgressSummary, mvpRepairOf, feedArrivals, progressPercent, steadyFeed, versionPlan } from '../lib/mvpProgress';
+import { mvpScope, mvpStages, mvpProgressSummary, mvpRepairOf, feedArrivals, progressPercent, steadyFeed, versionPlan, vibeChecklist } from '../lib/mvpProgress';
 import MvpProgress from '../components/MvpProgress';
 import GenieFeed from '../components/GenieFeed';
 import MoneyReview, { NothingToActCard } from '../components/MoneyReview';
@@ -53,6 +54,7 @@ const COLLECT_LOST = 'This browser does not keep the vibes you add, so they are 
 const GROUP_LOOK = {
   in_progress: { icon: Loader2, tone: 'red', hint: 'Genie is working on these' },
   ready: { icon: CheckCircle2, tone: 'success', hint: 'Built and ready to use' },
+  held: { icon: AlertTriangle, tone: 'warning', hint: 'Not published, because a vibe was not met' },
   failed: { icon: XCircle, tone: 'error', hint: 'Open one to see why' },
   not_started: { icon: CircleDashed, tone: 'idle', hint: 'Start an MVP with Genie' },
 };
@@ -99,9 +101,13 @@ function SummaryBanner({ summary }) {
     title = `${plural(building.length, 'MVP')} building now`;
     line = building.map((item) => `${item.id}${item.latest?.status_message ? `: ${item.latest.status_message}` : ''}`).join(' · ');
   } else if (summary.mvps) {
-    mark = summary.failed ? { icon: AlertTriangle, tone: 'warning' } : { icon: CheckCircle2, tone: 'success' };
+    mark = summary.failed || summary.held ? { icon: AlertTriangle, tone: 'warning' } : { icon: CheckCircle2, tone: 'success' };
     title = `${summary.ready} of ${plural(summary.mvps, 'MVP')} ready`;
-    line = summary.failed ? `${summary.failed} failed or stopped. Open one to see why.` : 'Every MVP of this session has finished building.';
+    const open = [
+      summary.failed ? `${summary.failed} failed or stopped. Open one to see why.` : '',
+      summary.held ? `${summary.held} not published, because a vibe was not met. Open one to rephrase, try again or publish anyway.` : '',
+    ].filter(Boolean);
+    line = open.length ? open.join(' ') : 'Every MVP of this session has finished building.';
   }
   return (
     <section aria-label="Build summary" className={PANEL_CLASS}>
@@ -122,6 +128,12 @@ function SummaryBanner({ summary }) {
           <Counter value={building.length} label="Building" tone="red" />
           <CounterDivider />
           <Counter value={summary.ready} label="Ready" tone="success" />
+          {summary.held > 0 && (
+            <>
+              <CounterDivider />
+              <Counter value={summary.held} label="Vibes not met" tone="warning" />
+            </>
+          )}
           {summary.failed > 0 && (
             <>
               <CounterDivider />
@@ -493,26 +505,21 @@ const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
 const CHECK_LOOK = {
   done: { mark: '✓', said: 'Done: ', border: 'border-border', node: 'bg-success-bg text-success-fg ring-success/30' },
   missing: { mark: '!', said: 'Not done yet: ', border: 'border-error/40', node: 'bg-error-bg text-error-fg ring-error/30' },
-  impossible: { mark: '×', said: 'Cannot be done here: ', border: 'border-warning/40', node: 'bg-warning-bg text-warning-fg ring-warning/30' },
 };
-const checkState = (check) => (check.done ? 'done' : check.doable ? 'missing' : 'impossible');
 
 function checkLine(check, card) {
   if (check.done) return `${sentence(check.evidence || 'Checked')} Version ${card.checkedOn}.`;
-  const warned = `This ${card.noun} is marked ready with warnings.`;
-  if (!check.doable) return `Cannot be done here. ${sentence(check.evidence || `Inspire says this ask cannot be done on this ${card.noun}`)} ${warned}`;
-  return `Not done yet. ${check.evidence ? sentence(check.evidence) : `Inspire could not find this in version ${card.checkedOn}.`} ${warned}`;
+  return `Not done yet. ${check.evidence ? sentence(check.evidence) : `Inspire could not find this in version ${card.checkedOn}.`} This ${card.noun} is marked ready with warnings.`;
 }
 
 function AskChecklist({ card, locked, lockedReason, pending, onTryAgain }) {
   const missing = missingAsks(card.checks);
-  const open = card.checks.some((check) => !check.done);
   return (
     <div data-checks="" className="space-y-2">
-      <p className={`text-[14px] font-bold ${missing.length ? 'text-error-fg' : open ? 'text-warning-fg' : 'text-success-fg'}`}>{checksSummary(card.checks)}</p>
+      <p className={`text-[14px] font-bold ${missing.length ? 'text-error-fg' : 'text-success-fg'}`}>{checksSummary(card.checks)}</p>
       <ul aria-label={`What you asked for on the ${card.label}`} className="space-y-1.5">
         {card.checks.map((check, i) => {
-          const state = checkState(check);
+          const state = check.done ? 'done' : 'missing';
           const look = CHECK_LOOK[state];
           return (
             <li key={`${i}-${check.ask}`} data-check={state} className={`flex items-start gap-2.5 rounded-lg border bg-surface px-3 py-2 text-[12px] ${look.border}`}>
@@ -739,6 +746,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   if (collected.at !== refreshKey) setCollected({ at: refreshKey, entries: loadCollectedVibes(collectedKey) });
   const vibes = collected.entries;
   const [collectError, setCollectError] = useState('');
+  const [rephrase, setRephrase] = useState(null);
+  const [heldBusy, setHeldBusy] = useState('');
   const lastStatus = useRef(null);
 
   const [arrivals, setArrivals] = useState(null);
@@ -791,7 +800,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   const active = versionActive(latest, stalled);
   const missing = lostTables(latest, rerunError);
   const edited = latest?.status === 'failed' ? editedNotebook(latest) : null;
-  const reason = missing.length || edited ? '' : statusReason(latest, stalled);
+  const reason = missing.length || edited ? '' : statusReason(latest, stalled, status?.history ?? null);
   const genie = genieQuestions(latest);
   const genieAsset = latest?.asset_status?.genie_space || {};
   const [now, setNow] = useState(() => Date.now());
@@ -842,7 +851,8 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     setCollected({ at: refreshKey, entries: next });
     setCollectError(saveCollectedVibes(collectedKey, next) ? '' : COLLECT_LOST);
   };
-  const addAsk = (text) => keepCollected(collectAsk(vibes, text));
+  const addAsk = (text, replaces = []) => keepCollected(rephrasedAsk(text, replaces)
+    .reduce((list, out) => collectRemoval(list, out.id, out.label, out.text), collectAsk(vibes, text)));
   const removeAsk = (asset, ask) => keepCollected(collectRemoval(vibes, asset.id, asset.label, ask));
   const dropAsk = (entry) => keepCollected(dropCollected(vibes, entry));
   const editMvp = () => onEdit(vibes.length ? { step: 'vibes', collected: vibes } : null, live);
@@ -862,19 +872,13 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
     }
   };
 
-  const submitNext = async (changes) => {
+  const startVersion = async (path, body) => {
     if (!latest || active || submitBusy) return false;
     setSubmitBusy(true);
     setError('');
     setNotice('');
     try {
-      const data = await apiPostJson('/api/inspire/implement/submit', {
-        inspire_database: settings.inspireDatabase,
-        warehouse_id: settings.warehouseId,
-        session_id: String(sessionId),
-        notebook_path: settings.notebookPath,
-        spec: nextSpecFrom(latest, changes),
-      });
+      const data = await apiPostJson(path, body);
       setNotice(resultTableMoveNote(data?.summary));
       await loadStatus();
       return true;
@@ -885,6 +889,15 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
       setSubmitBusy(false);
     }
   };
+  const submitSpec = (next, path = '/api/inspire/implement/submit') => startVersion(path, {
+    inspire_database: settings.inspireDatabase,
+    warehouse_id: settings.warehouseId,
+    session_id: String(sessionId),
+    notebook_path: settings.notebookPath,
+    spec: next,
+  });
+  const submitNext = (changes) => submitSpec(nextSpecFrom(latest, changes));
+  const publishHeld = () => submitSpec(specFromHeld(latest, { publish: true }), `/api/inspire/implement/publish?use_case_id=${encodeURIComponent(useCaseId)}`);
 
   const toggleSchedule = () => submitNext({ schedule: { ...(spec.schedule || {}), enabled: !spec.schedule?.enabled } });
   const retryOutput = (name) => submitNext({ retry_outputs: [name] });
@@ -931,6 +944,17 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   };
   const history = status?.history || [];
   const kept = keptVersions(history);
+  const checklist = useMemo(() => vibeChecklist(status?.steps, latest), [status?.steps, latest]);
+  const held = heldVersion(latest, status?.history ?? null);
+  const heldAction = (kind, run) => async () => {
+    setHeldBusy(kind);
+    const ok = await run();
+    setHeldBusy('');
+    return ok;
+  };
+  const rephraseHeld = () => setRephrase((prev) => ({ at: (prev?.at || 0) + 1, ...rephraseOf(checklist, latest) }));
+  const tryHeldAgain = heldAction('retry', () => submitSpec(specFromHeld(latest)));
+  const publishHeldAnyway = heldAction('publish', publishHeld);
   const alertAsset = latest?.asset_status?.alert || {};
   const notebookState = uninstalled ? item.notebook || null : item.notebook || (vibeTargets.some((c) => c.id === 'notebook') ? notebookStatus({ has_genie_code: 'Y' }, null) : null);
   const notebook = notebookState && {
@@ -1014,7 +1038,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
   };
 
   const buildAgain = canBuildAgain(latest, { edited, missing });
-  const failureBanner = hasMvp && chip.tone === 'error' && (
+  const failureBanner = hasMvp && chip.tone === 'error' && !held && (
     <section aria-label="Build failed" className="rounded-lg border border-error/30 bg-error-bg px-3.5 py-3 text-[12px] space-y-2.5">
       <div className="flex items-start gap-2.5">
         <XCircle size={16} className="mt-px shrink-0 text-error-fg" aria-hidden />
@@ -1072,6 +1096,11 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
       return (
         <>
           {failureBanner}
+          {held && (
+            <HeldVersion held={held} checklist={checklist} canPublish={canPublishHeld(status)} readOnly={readOnly} locked={locked} lockedReason={lockedReason}
+              busy={heldBusy} onRephrase={rephraseHeld} onTryAgain={tryHeldAgain} onPublish={publishHeldAnyway} />
+          )}
+          <VibeChecklist checklist={checklist} assets={latest?.asset_status} />
           <BuildControls kept={kept} live={live} liveError={liveError} latest={latest} useCaseId={useCaseId} active={active} buildingNow={buildingNow}
             actionBusy={actionBusy} submitBusy={submitBusy} readOnly={readOnly} onAction={runControl} onRemoveKept={removeKept} onToggleSchedule={toggleSchedule} onRefresh={loadLive} />
           <section aria-label="Genie's build messages" className={PANEL_CLASS}>
@@ -1174,9 +1203,10 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">Spec versions</div>
               {!status && <p className="text-[12px] text-text-secondary">Loading the versions and job runs…</p>}
               {history.map((entry) => (
-                <div key={entry.spec_version} className="border border-border rounded-lg bg-surface px-3 py-2 text-[12px]">
+                <div key={entry.spec_version} data-history-version={entry.spec_version} className="border border-border rounded-lg bg-surface px-3 py-2 text-[12px]">
                   <div>v{entry.spec_version} · {historyStatus(entry, latest, stalled)} · {entry.change_classes || 'initial'}</div>
                   <div className="text-text-secondary">{entry.created_by} · {entry.updated_at}</div>
+                  <VibeChecklist compact checklist={vibeChecklist(null, entry)} assets={entry.asset_status} />
                 </div>
               ))}
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary pt-2">Job runs</div>
@@ -1382,7 +1412,7 @@ function UseCaseDetail({ item, sessionId, settings, qBase, apiFetch, apiPostJson
             </div>
           )}
           <NothingToActCard run={money?.run} />
-          {!readOnly && <GlobalVibe entries={vibes} active={active} error={collectError} onAdd={addAsk} onDrop={dropAsk} />}
+          {!readOnly && <GlobalVibe entries={vibes} active={active} error={collectError} seed={rephrase} onAdd={addAsk} onDrop={dropAsk} />}
           <div data-pinned-tabs="" className="sticky top-[6.5rem] z-20 -mx-2 px-2 py-2 bg-bg">
             <div role="tablist" aria-label="MVP views" className="flex flex-wrap gap-1 p-1 rounded-xl bg-bg-subtle border border-border">
               {MVP_TABS.map(({ id, label }) => {

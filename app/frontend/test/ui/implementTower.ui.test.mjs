@@ -370,7 +370,7 @@ test('a part lists the asks it holds with Remove on each: a removed ask waits fo
   }
 });
 
-test('an ask the judge says cannot be done here reads Cannot be done here with the reason, apart from one not done yet, and Try again resends only what can still be done', async () => {
+test('an older record that marked an ask as not doable reads Not done yet like any missing ask, never Cannot be done here, and Try again sends it back to Genie', async () => {
   const unable = versionRow(3, {
     outputs: V3_OUTPUTS, status: 'ready_with_warnings',
     assets: { ...V3_ASSETS, [CHART]: { ...V3_ASSETS[CHART], vibes_checks: [
@@ -383,14 +383,15 @@ test('an ask the judge says cannot be done here reads Cannot be done here with t
   const { page, made } = ui;
   try {
     const list = (await pick(page, CHART)).locator('[data-checks]');
-    const tally = list.getByText('You asked for 3 things. Done: 1 of 3. 1 cannot be done here.', { exact: true });
+    const tally = list.getByText('You asked for 3 things. Done: 1 of 3.', { exact: true });
     await tally.waitFor();
     assert.match(await tally.getAttribute('class'), /text-error-fg/);
     const items = list.getByRole('listitem');
-    assert.deepEqual(await items.evaluateAll((li) => li.map((x) => x.dataset.check)), ['done', 'impossible', 'missing']);
+    assert.deepEqual(await items.evaluateAll((li) => li.map((x) => x.dataset.check)), ['done', 'missing', 'missing']);
     assert.equal(await items.nth(1).textContent(),
-      '×Cannot be done here: A map by regionCannot be done here. The result table has no region column. This chart is marked ready with warnings.');
+      '!Not done yet: A map by regionNot done yet. The result table has no region column. This chart is marked ready with warnings.');
     assert.equal(await items.nth(2).textContent(), '!Not done yet: Label each barNot done yet. The bars have no labels. This chart is marked ready with warnings.');
+    assert.equal(await page.getByText(/cannot be done here/i).count(), 0, 'no verdict says an ask cannot be done');
     for (const dark of [false, true]) {
       await page.evaluate((on) => document.documentElement.classList.toggle('dark', on), dark);
       await page.waitForTimeout(300);
@@ -399,10 +400,10 @@ test('an ask the judge says cannot be done here reads Cannot be done here with t
       assert.deepEqual(result.low, [], dark ? 'dark' : 'light');
     }
     await page.evaluate(() => document.documentElement.classList.remove('dark'));
-    await list.getByRole('button', { name: 'Try again with the missing thing', exact: true }).click();
+    await list.getByRole('button', { name: 'Try again with the 2 missing things', exact: true }).click();
     await until(() => made.jobs.length === 1, 'the try again');
     const [retried] = insertsOf(made);
-    assert.deepEqual(retried.spec.retry_asks, { [CHART]: ['Label each bar'] }, 'an ask that cannot be done here is never sent back to Genie');
+    assert.deepEqual(retried.spec.retry_asks, { [CHART]: ['A map by region', 'Label each bar'] }, 'every missing ask goes back to Genie');
     assert.deepEqual(ui.pageErrors, []);
   } finally {
     await ui.close();
